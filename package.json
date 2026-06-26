@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@vueuse/core": "^11.0.0",
@@ -20,6 +23,7 @@
     "vue-draggable-plus": "^0.5.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.3",
     "@vitejs/plugin-vue": "^5.0.0",
     "@vue/test-utils": "^2.4.0",
     "jsdom": "^25.0.0",
