@@ -19,6 +19,13 @@ export function useArchiveManager() {
         compressedSize: file.size,
       })
     }
+    triggerDecompress()
+  }
+
+  async function triggerDecompress() {
+    const { useDecompress } = await import('./use-decompress')
+    const { decompressAll } = useDecompress()
+    decompressAll()
   }
 
   function remove(id: string) {
