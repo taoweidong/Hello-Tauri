@@ -1,25 +1,18 @@
-# 跨平台日志解析工具 — 系统架构设计
+﻿# 跨平台日志解析工具 — 系统架构设计
 
 ## 1. 总体架构概览
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam packageBackgroundColor #16213e
-skinparam packageBorderColor #0f3460
-skinparam componentBackgroundColor #0f3460
-skinparam componentBorderColor #e94560
-skinparam arrowColor #e94560
 
-package "前端 (Vue 3 + TypeScript + Naive UI)" #0f3460 {
+package "前端 (Vue 3 + TypeScript + Naive UI)" {
   component "UI 组件层" as FE_UI
   component "Composables 层" as FE_COMP
   component "Core Services 层" as FE_CORE
   component "插件注册中心" as FE_PLUGIN
 }
 
-package "平台适配层" #16213e {
+package "平台适配层" {
   component "IPlatformAdapter" as ADAPTER
   component "WebAdapter (WASM)" as WEB
   component "TauriAdapter (IPC)" as TAURI_A
@@ -27,7 +20,7 @@ package "平台适配层" #16213e {
   ADAPTER --> TAURI_A
 }
 
-package "后端 (Tauri Rust)" #0f3460 {
+package "后端 (Tauri Rust)" {
   component "IPC 命令层" as BE_CMD
   component "文件操作 (mmap)" as BE_FILE
   component "原生解压" as BE_DEC
@@ -128,13 +121,6 @@ hello-tauri/
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam rectangleBackgroundColor #0f3460
-skinparam rectangleBorderColor #e94560
-skinparam arrowColor #e94560
-skinparam packageBackgroundColor #16213e
-skinparam packageBorderColor #0f3460
 
 package "App.vue" {
   package "NLayout (全屏)" {
@@ -194,35 +180,30 @@ export const themeOverrides: GlobalThemeOverrides = {
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam rectangleBackgroundColor #0f3460
-skinparam rectangleBorderColor #e94560
-skinparam arrowColor #e94560
 
-rectangle "浏览器窗口 / WebView2 (100vw x 100vh)" #16213e {
+rectangle "浏览器窗口 / WebView2 (100vw x 100vh)" {
 
-  rectangle "顶部全局公共信息栏 (固定高度 48-64px)" #0f3460 {
+  rectangle "顶部全局公共信息栏 (固定高度 48-64px)" {
     rectangle "[聚合统计] 总包数 | 总大小 | 总文件数 | 已解压 | 耗时" as stats
     rectangle "[全局搜索] NInput + NButton" as gsearch
     rectangle "[批量操作] NDropdown" as gbatch
   }
 
-  rectangle "主体区域 (flex: 1, 剩余高度)" #16213e {
+  rectangle "主体区域 (flex: 1, 剩余高度)" {
 
-    rectangle "左侧面板\nNLayoutSider\n宽度: 280px\n可折叠/拖拽调整\n最小: 200px" as left #0f3460 {
+    rectangle "左侧面板\nNLayoutSider\n宽度: 280px\n可折叠/拖拽调整\n最小: 200px" as left {
       rectangle "上传区 (拖拽区域)" as upload_zone
       rectangle "压缩包卡片列表\n(纵向滚动)" as card_list
       rectangle "  └ 文件树 NTree\n     (虚拟滚动)" as file_tree
     }
 
-    rectangle "中间工作区\nNLayoutContent\nflex: 1\n自适应宽度" as center #0f3460 {
+    rectangle "中间工作区\nNLayoutContent\nflex: 1\n自适应宽度" as center {
       rectangle "标签栏 NTabs\n(拖拽排序/关闭/固定)" as tab_bar
       rectangle "预览内容区\n<component :is>\n动态渲染器" as preview
       rectangle "性能状态栏\n(固定底部 24px)" as perf_bar
     }
 
-    rectangle "右侧属性面板\nNLayoutSider\n宽度: 300px\n可折叠/拖拽调整\n小屏自动隐藏" as right #0f3460 {
+    rectangle "右侧属性面板\nNLayoutSider\n宽度: 300px\n可折叠/拖拽调整\n小屏自动隐藏" as right {
       rectangle "上下文元数据\nNDescriptions" as meta
       rectangle "插件配置表单\nNForm (动态)" as config
       rectangle "路径链路\nNBreadcrumb" as path
@@ -248,25 +229,20 @@ end note
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam rectangleBackgroundColor #0f3460
-skinparam rectangleBorderColor #e94560
-skinparam arrowColor #e94560
 
-rectangle "左侧面板 (280px)" #16213e {
+rectangle "左侧面板 (280px)" {
 
-  rectangle "上传区域\nNUpload dragger\n高度: 80px\n拖拽高亮边框" as upload #0f3460
+  rectangle "上传区域\nNUpload dragger\n高度: 80px\n拖拽高亮边框" as upload
 
-  rectangle "压缩包卡片列表\n(overflow-y: auto)" #0f3460 {
+  rectangle "压缩包卡片列表\n(overflow-y: auto)" {
 
-    rectangle "ArchiveCard #1" #16213e {
+    rectangle "ArchiveCard #1" {
       rectangle "卡片头部\nNCard header\n文件名 + NTag(状态)" as card_h1
       rectangle "状态区\nNProgress (解压中)\n或 NTag (完成/失败)" as card_s1
       rectangle "文件树\nNTree (virtual-scroll)\n独立折叠/展开\n独立搜索过滤" as card_t1
     }
 
-    rectangle "ArchiveCard #2" #16213e {
+    rectangle "ArchiveCard #2" {
       rectangle "卡片头部" as card_h2
       rectangle "状态区" as card_s2
       rectangle "文件树" as card_t2
@@ -298,15 +274,10 @@ end note
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam rectangleBackgroundColor #0f3460
-skinparam rectangleBorderColor #e94560
-skinparam arrowColor #e94560
 
-rectangle "中间工作区 (flex: 1)" #16213e {
+rectangle "中间工作区 (flex: 1)" {
 
-  rectangle "标签栏 (固定顶部 40px)" #0f3460 {
+  rectangle "标签栏 (固定顶部 40px)" {
     rectangle "Tab1 [x]" as t1
     rectangle "Tab2 [pin][x]" as t2
     rectangle "Tab3 [x]" as t3
@@ -314,18 +285,18 @@ rectangle "中间工作区 (flex: 1)" #16213e {
     note right of t2: 拖拽排序\nvue-draggable-plus
   }
 
-  rectangle "预览工具栏 (固定 36px)" #0f3460 {
+  rectangle "预览工具栏 (固定 36px)" {
     rectangle "文本: NInputNumber(字号)\nNSwitch(换行) NSwitch(行号)\nNSelect(编码)" as text_toolbar
     rectangle "CSV: NInput(分隔符)\nNSwitch(表头固定)\n列排序/筛选" as csv_toolbar
     rectangle "通用: NInput(高亮正则)\n上/下导航按钮" as common_toolbar
   }
 
-  rectangle "预览内容区 (flex: 1)" #0f3460 {
+  rectangle "预览内容区 (flex: 1)" {
     rectangle "单视图模式:\n<component :is='pluginComponent'\n:content='parsedContent' />" as single
     rectangle "分屏模式 (splitpanes):\n左右或上下分屏对比" as split
   }
 
-  rectangle "性能状态栏 (固定底部 24px)" #0f3460 {
+  rectangle "性能状态栏 (固定底部 24px)" {
     rectangle "当前行/总行数 | 可视区内存占用 | 加载耗时 | 所用解析插件" as perf
   }
 }
@@ -336,26 +307,21 @@ rectangle "中间工作区 (flex: 1)" #16213e {
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam rectangleBackgroundColor #0f3460
-skinparam rectangleBorderColor #e94560
-skinparam arrowColor #e94560
 
-rectangle "右侧属性面板 (300px)" #16213e {
+rectangle "右侧属性面板 (300px)" {
 
-  rectangle "上下文感知切换" #0f3460 {
+  rectangle "上下文感知切换" {
 
     rectangle "选中压缩包时:\nNDescriptions\n  - 文件名\n  - 原始大小\n  - 压缩后大小\n  - 压缩格式\n  - 文件数量\n  - 解压耗时" as archive_meta
 
     rectangle "选中文件时:\nNDescriptions\n  - 文件名\n  - 大小\n  - 扩展名\n  - 编码\n  - 行数\n  - 修改时间" as file_meta
   }
 
-  rectangle "插件配置表单 (动态)\nNForm + NFormItem\n根据 getConfigSchema() 生成" #0f3460 {
+  rectangle "插件配置表单 (动态)\nNForm + NFormItem\n根据 getConfigSchema() 生成" {
     rectangle "NInput / NSelect\nNSwitch / NInputNumber\n等控件自动渲染" as config_form
   }
 
-  rectangle "路径链路\nNBreadcrumb\n显示文件在压缩包内\n完整路径和嵌套层级" #0f3460 {
+  rectangle "路径链路\nNBreadcrumb\n显示文件在压缩包内\n完整路径和嵌套层级" {
     rectangle "root.zip > inner.tar.gz > data > log.txt" as path_chain
   }
 }
@@ -368,23 +334,18 @@ archive_meta -[hidden]down-> file_meta
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam rectangleBackgroundColor #0f3460
-skinparam rectangleBorderColor #e94560
-skinparam arrowColor #e94560
 
-rectangle "响应式断点与面板行为" #16213e {
+rectangle "响应式断点与面板行为" {
 
-  rectangle ">= 1400px (宽屏)" #0f3460 {
+  rectangle ">= 1400px (宽屏)" {
     rectangle "左侧 280px | 中间 flex | 右侧 300px\n三栏全部展开" as wide
   }
 
-  rectangle "1200-1399px (标准)" #0f3460 {
+  rectangle "1200-1399px (标准)" {
     rectangle "左侧 280px | 中间 flex\n右侧面板自动折叠" as normal
   }
 
-  rectangle "< 1200px (窄屏)" #0f3460 {
+  rectangle "< 1200px (窄屏)" {
     rectangle "左侧折叠为图标栏\n中间 flex 占满\n右侧隐藏" as narrow
   }
 }
@@ -417,11 +378,6 @@ end note
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam componentBackgroundColor #0f3460
-skinparam componentBorderColor #e94560
-skinparam arrowColor #e94560
 
 component "App.vue" as App
 
@@ -486,12 +442,6 @@ PP --> "PathBreadcrumb" as PBr
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam sequenceArrowColor #e94560
-skinparam sequenceParticipantBackgroundColor #0f3460
-skinparam sequenceParticipantBorderColor #e94560
-skinparam sequenceLifeLineBorderColor #e94560
 
 actor 用户
 participant "FileTree" as Tree
@@ -519,12 +469,6 @@ Tab -> Tab : <component :is> 动态挂载
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam sequenceArrowColor #e94560
-skinparam sequenceParticipantBackgroundColor #0f3460
-skinparam sequenceParticipantBorderColor #e94560
-skinparam sequenceLifeLineBorderColor #e94560
 
 actor 用户
 participant "GlobalSearch" as Search
@@ -563,13 +507,6 @@ Search -> Tab : openTab(file, { line, highlight })
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam packageBackgroundColor #0f3460
-skinparam packageBorderColor #e94560
-skinparam componentBackgroundColor #16213e
-skinparam componentBorderColor #e94560
-skinparam arrowColor #e94560
 
 package "Tauri Rust 后端 (src-tauri/)" {
 
@@ -661,11 +598,6 @@ IPlatformAdapter {
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam classBackgroundColor #0f3460
-skinparam classBorderColor #e94560
-skinparam arrowColor #e94560
 
 interface IPlatformAdapter {
   + readFile(path): Promise<Uint8Array>
@@ -750,11 +682,6 @@ IFileParserPlugin {
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam classBackgroundColor #0f3460
-skinparam classBorderColor #e94560
-skinparam arrowColor #e94560
 
 class PluginRegistry {
   - compressionPlugins: Map<string, ICompressionPlugin>
@@ -826,13 +753,6 @@ async safeDecompress(plugin, data, outputDir): Promise<DecompressResult> {
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam activityBackgroundColor #0f3460
-skinparam activityBorderColor #e94560
-skinparam activityDiamondBackgroundColor #16213e
-skinparam activityDiamondBorderColor #e94560
-skinparam arrowColor #e94560
 
 |用户|
 start
@@ -889,11 +809,6 @@ TaskScheduler {
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam rectangleBackgroundColor #0f3460
-skinparam rectangleBorderColor #e94560
-skinparam arrowColor #e94560
 
 rectangle "Platform Adapter" as PA
 rectangle "Plugin Registry\n(Sandbox)" as PR
@@ -938,13 +853,6 @@ end note
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam packageBackgroundColor #0f3460
-skinparam packageBorderColor #e94560
-skinparam componentBackgroundColor #16213e
-skinparam componentBorderColor #e94560
-skinparam arrowColor #e94560
 
 package "压缩包管理" {
   component "多包上传" as F1
@@ -993,13 +901,6 @@ F12 --> F13
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam packageBackgroundColor #0f3460
-skinparam packageBorderColor #e94560
-skinparam componentBackgroundColor #16213e
-skinparam componentBorderColor #e94560
-skinparam arrowColor #e94560
 
 package "src/ (前端)" {
   package "adapters/" {
@@ -1056,13 +957,6 @@ adapters --> rust
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam nodeBackgroundColor #0f3460
-skinparam nodeBorderColor #e94560
-skinparam arrowColor #e94560
-skinparam queueBackgroundColor #16213e
-skinparam queueBorderColor #e94560
 
 node "主线程 (UI Thread)" {
   queue "Vue Render\n(Naive UI 虚拟滚动)" as render
@@ -1108,13 +1002,6 @@ ipc --> ps
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam nodeBackgroundColor #0f3460
-skinparam nodeBorderColor #e94560
-skinparam artifactBackgroundColor #16213e
-skinparam artifactBorderColor #e94560
-skinparam arrowColor #e94560
 
 node "Web 部署产物" {
   artifact "index.html" as wh
@@ -1150,13 +1037,6 @@ exe --> tb
 
 ```plantuml
 @startuml
-skinparam backgroundColor #1a1a2e
-skinparam defaultTextColor #e0e0e0
-skinparam actorBackgroundColor #0f3460
-skinparam actorBorderColor #e94560
-skinparam usecaseBackgroundColor #16213e
-skinparam usecaseBorderColor #e94560
-skinparam arrowColor #e94560
 
 left to right direction
 
