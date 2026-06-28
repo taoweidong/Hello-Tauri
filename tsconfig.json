@@ -12,9 +12,8 @@
     "skipLibCheck": true,
     "noEmit": true,
     "tsBuildInfoFile": "build/app.tsbuildinfo",
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     },
     "types": ["vite/client"]
   },

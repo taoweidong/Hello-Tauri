@@ -20,7 +20,7 @@ export default defineConfig({
   build: {
     outDir: 'build/web',
     emptyOutDir: true,
-    rollupOptions: {
+    rolldownOptions: {
       external: platform === 'web' ? [/@tauri-apps\/api/] : []
     }
   }

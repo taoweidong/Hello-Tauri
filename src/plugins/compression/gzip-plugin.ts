@@ -18,7 +18,7 @@ export const gzipPlugin: ICompressionPlugin = {
       const ds = new DecompressionStream('gzip')
       const writer = ds.writable.getWriter()
       const reader = ds.readable.getReader()
-      writer.write(data)
+      writer.write(data as BufferSource)
       writer.close()
       const chunks: Uint8Array[] = []
       while (true) {

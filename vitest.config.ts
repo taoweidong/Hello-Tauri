@@ -3,7 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
 export default defineConfig({
-  plugins: [vue() as any],
+  plugins: [vue()],
   test: {
     environment: 'jsdom',
     globals: true
