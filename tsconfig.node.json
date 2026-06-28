@@ -5,7 +5,9 @@
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "strict": true,
-    "composite": true
+    "composite": true,
+    "skipLibCheck": true,
+    "outDir": "build/node"
   },
   "include": ["vite.config.ts", "vitest.config.ts"]
 }

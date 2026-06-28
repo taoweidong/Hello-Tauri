@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.hellotauri.app",
   "build": {
-    "frontendDist": "../dist",
+    "frontendDist": "../build/web",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
@@ -22,7 +22,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [],
     "icon": [
       "icons/icon.ico"
     ]

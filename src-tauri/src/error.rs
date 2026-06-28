@@ -7,6 +7,7 @@ pub enum AppError {
     #[error("Decompress error: {0}")]
     Decompress(String),
     #[error("Not found: {0}")]
+    #[allow(dead_code)]
     NotFound(String),
 }
 

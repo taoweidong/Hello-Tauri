@@ -1,6 +1,5 @@
 node_modules
-dist
-dist-ssr
+build/
 *.local
 .DS_Store
 src-tauri/target/
