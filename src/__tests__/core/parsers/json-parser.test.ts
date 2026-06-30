@@ -31,4 +31,10 @@ describe('parseJson', () => {
       expect((err as Error).message).toContain('Invalid JSON')
     }
   })
+
+  it('解析多行美化对象', () => {
+    const result = parseJson('{\n  "a": 1\n}')
+    expect(result.type).toBe('json')
+    expect(result.data).toEqual({ a: 1 })
+  })
 })
