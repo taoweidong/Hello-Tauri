@@ -4,6 +4,7 @@ import { gzipPlugin } from './compression/gzip-plugin'
 import { textPlugin } from './parser/text-plugin'
 import { csvPlugin } from './parser/csv-plugin'
 import { jsonPlugin } from './parser/json-plugin'
+import { logPlugin } from './parser/log-plugin'
 import { hexPlugin } from './parser/hex-plugin'
 
 export function registerBuiltinPlugins(registry: PluginRegistry): void {
@@ -13,5 +14,6 @@ export function registerBuiltinPlugins(registry: PluginRegistry): void {
   registry.registerParser(textPlugin)
   registry.registerParser(csvPlugin)
   registry.registerParser(jsonPlugin)
+  registry.registerParser(logPlugin)
   registry.registerParser(hexPlugin)
 }
