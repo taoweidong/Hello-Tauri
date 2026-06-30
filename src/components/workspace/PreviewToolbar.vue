@@ -2,7 +2,7 @@
 import { NInputNumber, NSwitch, NSelect, NSpace, NText } from 'naive-ui'
 
 defineProps<{
-  type: 'text' | 'csv' | 'json' | 'hex'
+  type: 'text' | 'csv' | 'json' | 'hex' | 'log'
 }>()
 
 const fontSize = defineModel<number>('fontSize', { default: 14 })

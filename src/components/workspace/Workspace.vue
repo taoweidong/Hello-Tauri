@@ -13,7 +13,7 @@ const wrap = ref(false)
 const showLineNumbers = ref(true)
 const encoding = ref('utf-8')
 
-const contentType = computed<'text' | 'csv' | 'json' | 'hex'>(
+const contentType = computed<'text' | 'csv' | 'json' | 'hex' | 'log'>(
   () => activeTab.value?.content?.type ?? 'text'
 )
 </script>

@@ -46,7 +46,7 @@ export interface TabItem {
 }
 
 export interface ParsedContent {
-  type: 'text' | 'csv' | 'json' | 'hex'
+  type: 'text' | 'csv' | 'json' | 'hex' | 'log'
   data: any
   lineCount?: number
   loadTimeMs?: number

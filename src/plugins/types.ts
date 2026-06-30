@@ -30,7 +30,7 @@ export interface IFileParserPlugin {
 }
 
 export interface ParsedResult {
-  type: 'text' | 'csv' | 'json' | 'hex'
+  type: 'text' | 'csv' | 'json' | 'hex' | 'log'
   data: any
   lineCount?: number
 }
