@@ -21,13 +21,12 @@ export const zipPlugin: ICompressionPlugin = {
       const unzipped = unzipSync(data)
       for (const [name, content] of Object.entries(unzipped)) {
         const isDir = name.endsWith('/')
-        const vPath = `/${name}`
         if (!isDir) {
-          vfsWrite(vPath, content)
+          vfsWrite(name, content)
         }
         files.push({
           name,
-          path: vPath,
+          path: name,
           size: isDir ? 0 : content.length,
           isDirectory: isDir,
         })

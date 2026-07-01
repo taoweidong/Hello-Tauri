@@ -12,6 +12,35 @@
 | 桌面 | Tauri 2 (Rust) |
 | 测试 | Vitest + Vue Test Utils |
 
+## 三方库依赖
+
+### 运行时依赖
+
+| 依赖 | 版本 | 功能 / 作用 |
+|------|------|-------------|
+| `vue` | ^3.5.39 | 前端框架，Composition API + `<script setup>` 响应式组件 |
+| `naive-ui` | ^2.44.1 | Vue 3 组件库，提供深色/浅色主题、表格、树、对话框等 |
+| `pinia` | ^3.0.4 | Vue 状态管理，setup store 语法 |
+| `@vueuse/core` | ^14.3.0 | Vue 组合式工具集，提供 breakpoints、useStorage 等 |
+| `@tauri-apps/api` | ^2.11.1 | Tauri 2 IPC 客户端，`invoke` 调用 Rust 后端命令 |
+| `fflate` | ^0.8.3 | 纯 JS 压缩/解压库，Web 端 ZIP 解压回退（无需 WASM） |
+| `splitpanes` | ^4.1.2 | 可拖拽分栏布局，支持最小/最大尺寸约束 |
+| `vue-draggable-plus` | ^0.6.1 | Vue 拖拽排序组件，支持文件树节点拖拽 |
+
+### 开发依赖
+
+| 依赖 | 版本 | 功能 / 作用 |
+|------|------|-------------|
+| `typescript` | ~6.0.0 | TypeScript 编译器，静态类型检查 |
+| `vite` | ^8.1.0 | 构建工具与开发服务器（Rolldown 引擎） |
+| `@vitejs/plugin-vue` | ^6.0.7 | Vite 的 Vue SFC 插件，支持 HMR |
+| `vue-tsc` | ^3.3.5 | Vue TypeScript 类型检查器，`--noEmit` 模式 |
+| `vitest` | ^4.1.9 | 单元测试框架，兼容 Vite 生态 |
+| `@vue/test-utils` | ^2.4.11 | Vue 组件测试工具，`mount` + `shallowMount` |
+| `jsdom` | ^29.1.1 | 浏览器 DOM 模拟环境，测试中替代真实浏览器 |
+| `@tauri-apps/cli` | ^2.11.3 | Tauri 命令行工具，`tauri dev` / `tauri build` |
+| `@types/node` | ^26.0.1 | Node.js 类型声明 |
+
 ## 核心特性
 
 - **插件化架构** — 内置 text/csv/json/hex 解析插件 + zip/gzip 压缩插件，可按需扩展

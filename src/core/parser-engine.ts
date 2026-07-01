@@ -11,7 +11,7 @@ export class ParserEngine {
     const start = performance.now()
 
     try {
-      const data = await this.adapter.readFile(archivePath + '/' + node.path)
+      const data = await this.adapter.readFile(node.path)
       const ext = '.' + node.label.split('.').pop()
       const plugin = this.registry.getParser(ext) ?? this.registry.getParser('')
       if (!plugin) return null
