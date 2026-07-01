@@ -70,6 +70,31 @@ export class PluginRegistry {
     this.disabled.add(name)
   }
 
+  isEnabled(name: string): boolean {
+    return !this.disabled.has(name)
+  }
+
+  hasParser(name: string): boolean {
+    return this.parserPlugins.has(name)
+  }
+
+  hasCompression(name: string): boolean {
+    return this.compressionPlugins.has(name)
+  }
+
+  getParserNames(): string[] {
+    return Array.from(this.parserPlugins.keys())
+  }
+
+  getCompressionNames(): string[] {
+    return Array.from(this.compressionPlugins.keys())
+  }
+
+  detectByFileName(fileName: string): IFileParserPlugin | null {
+    const ext = '.' + (fileName.split('.').pop() ?? '')
+    return this.getParser(ext)
+  }
+
   async safeParse(plugin: IFileParserPlugin, data: Uint8Array, options?: Record<string, any>): Promise<ParsedResult> {
     try {
       return await withTimeout(plugin.parse(data, options), PLUGIN_TIMEOUT_MS)

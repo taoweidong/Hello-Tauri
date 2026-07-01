@@ -1,10 +1,11 @@
 import { useArchiveManager } from './use-archives'
 import { usePluginEngine } from './use-plugins'
 import { TaskScheduler } from '@/core/task-scheduler'
-import { buildFileTree } from '@/core/file-tree'
+import { FileTreeBuilder } from '@/core/file-tree'
 import type { ArchiveItem } from '@/adapters/types'
 
 const scheduler = new TaskScheduler(3)
+const treeBuilder = new FileTreeBuilder()
 
 export function useDecompress() {
   const { archives, updateStatus } = useArchiveManager()
@@ -43,7 +44,7 @@ export function useDecompress() {
 
         updateStatus(archive.id, 'running', 80)
 
-        const tree = buildFileTree(result.files, '')
+        const tree = treeBuilder.build(result.files, '')
         archive.files = tree
         archive.originalSize = result.files.reduce((sum, f) => sum + f.size, 0)
 

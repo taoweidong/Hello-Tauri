@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { NTree, NInput } from 'naive-ui'
 import type { FileTreeNode } from '@/adapters/types'
 import { useTabManager } from '@/composables/use-tabs'
-import { findNode } from '@/core/file-tree'
+import { FileTreeBuilder } from '@/core/file-tree'
 
 const props = defineProps<{
   data: FileTreeNode[]
@@ -16,7 +16,7 @@ const pattern = ref('')
 function handleSelect(keys: string[]) {
   if (keys.length === 0) return
   const key = keys[0]
-  const node = findNode(props.data, key)
+  const node = FileTreeBuilder.findNode(props.data, key)
   if (node?.isLeaf) {
     openTab(node, props.archiveId)
   }

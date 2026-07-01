@@ -16,13 +16,13 @@ export const zipPlugin: ICompressionPlugin = {
     }
     try {
       const { unzipSync } = await import('fflate')
-      const { vfsWrite } = await import('@/core/vfs')
+      const { memoryStore } = await import('@/core/memory-store')
       const files: FileEntry[] = []
       const unzipped = unzipSync(data)
       for (const [name, content] of Object.entries(unzipped)) {
         const isDir = name.endsWith('/')
         if (!isDir) {
-          vfsWrite(name, content)
+          memoryStore.write(name, content)
         }
         files.push({
           name,

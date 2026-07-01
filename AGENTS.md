@@ -74,14 +74,14 @@ $env:https_proxy = ""; $env:no_proxy = "*"
 
 - Vue 3 + `<script setup lang="ts">` + Composition API
 - Naive UI 组件库（深色/浅色主题通过 `darkTheme` 导出 + `NConfigProvider`）
-- 路径别名：`@/` 映射到 `src/`
+- 路径别名：`@/` 映射到 `src/`，测试中使用 `@/composables/...` 而非相对路径
+- 测试约定：composable 测试在 `beforeEach` 中调用 `reset()` 隔离模块级状态
 - Rust 结构体使用 `#[serde(rename_all = "camelCase")]` 以兼容 TS
 - Tauri 2：`src-tauri/capabilities/default.json` 是 IPC 权限必需文件
 - Tauri 2：`src/lib.rs` 存放逻辑，`src/main.rs` 仅调用 `hello_tauri::run()`
 
 ## 已知特殊处理
 
-- `vitest.config.ts` 第 6 行：`vue() as any` — vitest/vite 版本类型冲突必需的强制转换，不要移除。
 - `tsconfig.node.json` 含 `skipLibCheck: true` — 抑制 `vue-tsc -b` 时 vitest 内部类型错误。
 - `tauri.conf.json` 含 `"targets": []` — 跳过 WiX/NSIS 安装包生成。
 - 压缩插件（zip）在 Web 端仅 Tauri 可用；gzip 有浏览器 `DecompressionStream` 回退。

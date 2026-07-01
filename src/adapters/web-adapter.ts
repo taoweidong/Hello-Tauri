@@ -1,9 +1,9 @@
 import type { IPlatformAdapter, FileEntry, DecompressResult } from './types'
-import { vfsRead, vfsHas } from '@/core/vfs'
+import { memoryStore } from '@/core/memory-store'
 
 export class WebAdapter implements IPlatformAdapter {
   async readFile(path: string): Promise<Uint8Array> {
-    const cached = vfsRead(path)
+    const cached = memoryStore.read(path)
     if (cached) return cached
     const response = await fetch(path)
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -28,7 +28,7 @@ export class WebAdapter implements IPlatformAdapter {
   }
 
   async mmapRead(path: string, offset: number, length: number): Promise<Uint8Array> {
-    const cached = vfsRead(path)
+    const cached = memoryStore.read(path)
     if (cached) return cached.slice(offset, offset + length)
     const response = await fetch(path, {
       headers: { Range: `bytes=${offset}-${offset + length - 1}` }
@@ -39,7 +39,7 @@ export class WebAdapter implements IPlatformAdapter {
   }
 
   streamRead(path: string): ReadableStream<Uint8Array> {
-    const cached = vfsRead(path)
+    const cached = memoryStore.read(path)
     if (cached) {
       return new ReadableStream<Uint8Array>({
         start(controller) {

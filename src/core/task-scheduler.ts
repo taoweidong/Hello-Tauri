@@ -1,45 +1,42 @@
-type TaskFn = () => Promise<any>
+type TaskFn<T = unknown> = () => Promise<T>
 
-interface QueuedTask {
+interface QueuedTask<T = unknown> {
   id: string
-  fn: TaskFn
-  resolve: (value: any) => void
-  reject: (reason: any) => void
-  promise: Promise<any>
+  fn: TaskFn<T>
+  resolve: (value: T) => void
+  reject: (reason: unknown) => void
+  promise: Promise<T>
 }
 
-let nextId = 0
-
 export class TaskScheduler {
-  private maxConcurrency: number
-  private maxQueueSize: number
+  private nextId = 0
   private running = 0
   private queue: QueuedTask[] = []
-  private promises = new Map<string, Promise<any>>()
+  private promises = new Map<string, Promise<unknown>>()
   private taskFns = new Map<string, TaskFn>()
 
-  constructor(maxConcurrency = 3, maxQueueSize = 100) {
-    this.maxConcurrency = maxConcurrency
-    this.maxQueueSize = maxQueueSize
-  }
+  constructor(
+    private maxConcurrency = 3,
+    private maxQueueSize = 100
+  ) {}
 
-  enqueue(fn: TaskFn): string | null {
+  enqueue<T>(fn: TaskFn<T>): string | null {
     if (this.queue.length >= this.maxQueueSize) return null
 
-    const id = `task_${nextId++}`
-    let resolve!: (value: any) => void
-    let reject!: (reason: any) => void
-    const promise = new Promise((res, rej) => { resolve = res; reject = rej })
+    const id = `task_${this.nextId++}`
+    let resolve!: (value: T) => void
+    let reject!: (reason: unknown) => void
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
 
-    const task: QueuedTask = { id, fn, resolve, reject, promise }
-    this.queue.push(task)
+    const task: QueuedTask<T> = { id, fn, resolve, reject, promise }
+    this.queue.push(task as QueuedTask)
     this.promises.set(id, promise)
     this.taskFns.set(id, fn)
     this.processNext()
     return id
   }
 
-  getPromise(id: string): Promise<any> | undefined {
+  getPromise(id: string): Promise<unknown> | undefined {
     return this.promises.get(id)
   }
 
@@ -51,7 +48,15 @@ export class TaskScheduler {
     return this.enqueue(fn)
   }
 
-  private processNext() {
+  get pendingCount(): number {
+    return this.queue.length
+  }
+
+  get runningCount(): number {
+    return this.running
+  }
+
+  private processNext(): void {
     while (this.running < this.maxConcurrency && this.queue.length > 0) {
       const task = this.queue.shift()!
       this.running++
