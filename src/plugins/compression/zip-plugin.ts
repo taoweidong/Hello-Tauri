@@ -14,6 +14,27 @@ export const zipPlugin: ICompressionPlugin = {
       const adapter = await getAdapter()
       return adapter.decompress(data, 'zip', _outputDir)
     }
-    return { success: false, files: [], error: 'ZIP decompression requires Tauri backend or WASM module' }
+    try {
+      const { unzipSync } = await import('fflate')
+      const { vfsWrite } = await import('@/core/vfs')
+      const files: FileEntry[] = []
+      const unzipped = unzipSync(data)
+      for (const [name, content] of Object.entries(unzipped)) {
+        const isDir = name.endsWith('/')
+        const vPath = `/${name}`
+        if (!isDir) {
+          vfsWrite(vPath, content)
+        }
+        files.push({
+          name,
+          path: vPath,
+          size: isDir ? 0 : content.length,
+          isDirectory: isDir,
+        })
+      }
+      return { success: true, files }
+    } catch (err) {
+      return { success: false, files: [], error: err instanceof Error ? err.message : 'ZIP decompression failed' }
+    }
   },
 }
