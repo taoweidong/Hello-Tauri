@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { NTree, NInput } from 'naive-ui'
-import type { FileTreeNode } from '@/adapters/types'
+import type { FileTreeNode } from '@/types'
 import { useTabManager } from '@/composables/use-tabs'
 import { FileTreeBuilder } from '@/core/file-tree'
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseText } from '@/core/parsers/text-parser'
+import { parseText } from '@/plugins/parsers/text-parser'
 
 describe('parseText', () => {
   it('解码 UTF-8 并计数行数', () => {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NTag, NProgress, NSpace } from 'naive-ui'
-import type { ArchiveStatus } from '@/adapters/types'
+import type { ArchiveStatus } from '@/types'
 
 defineProps<{
   status: ArchiveStatus

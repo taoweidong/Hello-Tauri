@@ -1,5 +1,5 @@
 import type { IFileParserPlugin } from '../types'
-import { parseLog } from '@/core/parsers/log-parser'
+import { parseLog } from '@/plugins/parsers/log-parser'
 import LogRenderer from '@/views/renderers/LogRenderer.vue'
 
 export const logPlugin: IFileParserPlugin = {

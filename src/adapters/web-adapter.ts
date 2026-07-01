@@ -1,4 +1,5 @@
-import type { IPlatformAdapter, FileEntry, DecompressResult } from './types'
+import type { IPlatformAdapter } from './types'
+import type { FileEntry, DecompressResult } from '@/types'
 import { memoryStore } from '@/core/memory-store'
 
 export class WebAdapter implements IPlatformAdapter {

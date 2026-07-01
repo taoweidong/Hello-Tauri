@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useTabManager } from '@/composables/use-tabs'
-import type { FileTreeNode } from '@/adapters/types'
+import type { FileTreeNode } from '@/types'
 
 function mockNode(name: string): FileTreeNode {
   return { key: name, label: name, isLeaf: true, path: `/${name}` }

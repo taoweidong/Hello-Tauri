@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { PluginRegistry } from '@/plugins/registry'
 import type { IFileParserPlugin, ICompressionPlugin } from '@/plugins/types'
-import type { FileEntry } from '@/adapters/types'
+import type { FileEntry } from '@/types'
 import { defineComponent } from 'vue'
 
 const DummyComponent = defineComponent({ template: '<div>dummy</div>' })

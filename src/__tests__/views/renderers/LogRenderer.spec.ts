@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import LogRenderer from '@/views/renderers/LogRenderer.vue'
-import type { LogLine } from '@/core/parsers/types'
+import type { LogLine } from '@/plugins/parsers/types'
 
 describe('LogRenderer', () => {
   const lines: LogLine[] = [

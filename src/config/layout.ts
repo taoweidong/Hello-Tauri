@@ -1,0 +1,8 @@
+export const DEFAULT_LEFT_PANEL_WIDTH = 280
+export const DEFAULT_RIGHT_PANEL_WIDTH = 300
+
+export const MIN_LEFT_PANEL_WIDTH = 200
+export const MAX_LEFT_PANEL_WIDTH = 400
+
+export const MIN_RIGHT_PANEL_WIDTH = 240
+export const MAX_RIGHT_PANEL_WIDTH = 500

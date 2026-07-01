@@ -1,4 +1,4 @@
-import type { SearchMatch, SearchResults } from '@/adapters/types'
+import type { SearchMatch, SearchResults } from '@/types'
 
 export class SearchService {
   searchInText(text: string, keyword: string, filePath: string, archiveId: string): SearchMatch[] {

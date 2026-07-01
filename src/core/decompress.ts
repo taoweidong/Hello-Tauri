@@ -1,4 +1,5 @@
-import type { IPlatformAdapter, DecompressResult, FileEntry } from '@/adapters/types'
+import type { IPlatformAdapter } from '@/adapters/types'
+import type { DecompressResult, FileEntry } from '@/types'
 import type { PluginRegistry } from '@/plugins/registry'
 
 export class DecompressService {

@@ -1,5 +1,5 @@
 import type { IFileParserPlugin, ConfigSchema } from '../types'
-import { parseCsv } from '@/core/parsers/csv-parser'
+import { parseCsv } from '@/plugins/parsers/csv-parser'
 import CsvRenderer from '@/views/renderers/CsvRenderer.vue'
 
 export const csvPlugin: IFileParserPlugin = {

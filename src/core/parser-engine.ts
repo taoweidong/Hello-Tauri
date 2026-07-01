@@ -1,4 +1,5 @@
-import type { IPlatformAdapter, ParsedContent, FileTreeNode } from '@/adapters/types'
+import type { IPlatformAdapter } from '@/adapters/types'
+import type { ParsedContent, FileTreeNode } from '@/types'
 import type { PluginRegistry } from '@/plugins/registry'
 
 export class ParserEngine {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCsv } from '@/core/parsers/csv-parser'
+import { parseCsv } from '@/plugins/parsers/csv-parser'
 
 describe('parseCsv', () => {
   it('解析表头与数据行', () => {

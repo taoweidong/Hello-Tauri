@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseLog } from '@/core/parsers/log-parser'
+import { parseLog } from '@/plugins/parsers/log-parser'
 
 describe('parseLog', () => {
   it('解析正常日志行', () => {

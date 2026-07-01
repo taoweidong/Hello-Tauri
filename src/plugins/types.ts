@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import type { DecompressResult, FileEntry } from '@/adapters/types'
+import type { DecompressResult, FileEntry } from '@/types'
 
 export interface ConfigField {
   key: string

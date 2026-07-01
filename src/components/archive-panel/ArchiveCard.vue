@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NCard, NSpace, NButton } from 'naive-ui'
-import type { ArchiveItem } from '@/adapters/types'
+import type { ArchiveItem } from '@/types'
 import StatusIndicator from './StatusIndicator.vue'
 import FileTree from './FileTree.vue'
 

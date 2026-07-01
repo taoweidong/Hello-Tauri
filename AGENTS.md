@@ -61,12 +61,31 @@ $env:https_proxy = ""; $env:no_proxy = "*"
 - **全局 `__PLATFORM__`**：通过 Vite `define` 编译时替换为字符串字面量
 - Vue SFC 中需先赋值给局部常量：`const platform = __PLATFORM__`（模板无法直接访问全局 `declare const`，否则报 TS2339）
 
+## 目录结构
+
+- `src/layout/` — 整体布局（`AppLayout.vue`）
+- `src/views/` — 页面组件/数据展示（含 `renderers/` 子目录）
+- `src/components/` — 公共组件（按功能分子目录，如 `archive-panel/`）
+- `src/composables/` — 公共组合式函数（模块级单例状态）
+- `src/stores/` — Pinia 状态管理（仅 `app.ts`，纯 UI 状态）
+- `src/plugins/` — 文件解析与压缩插件。**新增文件类型在此一处添加**：
+  - `parser/` — 插件包装层（实现 `IFileParserPlugin`）
+  - `parsers/` — 纯 TS 解析函数层（text/csv/json/log 等，从 `src/core/parsers/` 迁入）
+  - `compression/` — 压缩插件（zip/gzip）
+- `src/core/` — 核心逻辑纯 TS（`decompress`、`parser-engine`、`search`、`file-tree`、`task-scheduler`）
+- `src/adapters/` — 平台适配器（**保留独立目录**，不在目标结构列表内）。`types.ts` 仅存 `IPlatformAdapter` 接口；共享领域类型已迁至 `src/types/`
+- `src/types/` — 共享领域类型（`FileEntry`、`DecompressResult`、`ArchiveStatus` 等 9 个）
+- `src/config/` — 应用常量（`layout.ts`：面板宽度默认值与边界）
+- `src/styles/` — 公共样式
+- `src/assets/` — 图标静态资源
+- `src/api/` — 后端 API 接口
+
 ## 架构模式
 
-- **插件系统**：`src/plugins/types.ts` 定义 `ICompressionPlugin` 和 `IFileParserPlugin`。新格式 = 新插件文件 + 在 `manifest.ts` 中注册，零核心改动。
-- **适配器模式**：`src/adapters/types.ts` 定义 `IPlatformAdapter`（7 个方法）。WebAdapter 使用 fetch/Range/ReadableStream；TauriAdapter 使用懒加载 IPC `invoke`。
+- **插件系统**：`src/plugins/types.ts` 定义 `ICompressionPlugin` 和 `IFileParserPlugin`。新格式 = 新插件文件 + 在 `manifest.ts` 中注册，零核心改动。解析函数层在 `src/plugins/parsers/`，插件包装层在 `src/plugins/parser/`。
+- **适配器模式**：`src/adapters/types.ts` 定义 `IPlatformAdapter`（7 个方法）。WebAdapter 使用 fetch/Range/ReadableStream；TauriAdapter 使用懒加载 IPC `invoke`。共享领域类型（`FileEntry` 等）在 `src/types/`。
 - **Composable 单例**：大多数 composable（`use-plugins`、`use-search`、`use-archives`、`use-tabs`）将状态保存在**模块级 ref** 中，而非 Pinia store。函数返回访问器。测试中调用 `reset()` 隔离状态。
-- **Pinia**：仅 `src/stores/app.ts` — 纯 UI 状态（主题、面板宽度、禁用插件）。
+- **Pinia**：仅 `src/stores/app.ts` — 纯 UI 状态（主题、面板宽度、禁用插件）。面板宽度默认值/边界常量提取至 `src/config/layout.ts`。
 - **插件注册表**：`PluginRegistry` 类，`safeParse`/`safeDecompress` 通过 `withTimeout` 包装 30 秒超时。
 - **解压管道**：`use-decompress.ts` — TaskScheduler(3) 并发控制，通过动态 import 接入 `use-archives.addFiles()`（避免循环依赖）。
 

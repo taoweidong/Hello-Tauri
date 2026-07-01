@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { textPlugin } from '@/plugins/parser/text-plugin'
-import type { FileEntry } from '@/adapters/types'
+import type { FileEntry } from '@/types'
 
 describe('textPlugin', () => {
   const file: FileEntry = { name: 'notes.txt', path: '/notes.txt', size: 100, isDirectory: false }

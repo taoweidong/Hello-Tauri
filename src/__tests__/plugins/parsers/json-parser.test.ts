@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseJson } from '@/core/parsers/json-parser'
+import { parseJson } from '@/plugins/parsers/json-parser'
 
 describe('parseJson', () => {
   it('解析对象', () => {

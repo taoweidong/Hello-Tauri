@@ -2,7 +2,7 @@ import { useArchiveManager } from './use-archives'
 import { usePluginEngine } from './use-plugins'
 import { TaskScheduler } from '@/core/task-scheduler'
 import { FileTreeBuilder } from '@/core/file-tree'
-import type { ArchiveItem } from '@/adapters/types'
+import type { ArchiveItem } from '@/types'
 
 const scheduler = new TaskScheduler(3)
 const treeBuilder = new FileTreeBuilder()

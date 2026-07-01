@@ -1,4 +1,5 @@
-import type { IPlatformAdapter, FileEntry, DecompressResult } from './types'
+import type { IPlatformAdapter } from './types'
+import type { FileEntry, DecompressResult } from '@/types'
 
 let invoke: (cmd: string, args?: Record<string, unknown>) => Promise<any>
 

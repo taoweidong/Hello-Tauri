@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { SearchService } from '@/core/search'
-import type { SearchResults } from '@/adapters/types'
+import type { SearchResults } from '@/types'
 
 const searchService = new SearchService()
 const results = ref<SearchResults | null>(null)

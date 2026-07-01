@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NEmpty } from 'naive-ui'
-import type { LogLine, LogLevel } from '@/core/parsers/types'
+import type { LogLine, LogLevel } from '@/plugins/parsers/types'
 
 defineProps<{ content: LogLine[] }>()
 

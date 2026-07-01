@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import type { TabItem, FileTreeNode } from '@/adapters/types'
+import type { TabItem, FileTreeNode } from '@/types'
 
 const tabs = ref<TabItem[]>([])
 const activeTabId = ref<string | null>(null)

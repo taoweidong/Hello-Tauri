@@ -1,4 +1,4 @@
-import type { FileTreeNode, FileEntry } from '@/adapters/types'
+import type { FileTreeNode, FileEntry } from '@/types'
 
 export class FileTreeBuilder {
   private nodeMap = new Map<string, FileTreeNode>()

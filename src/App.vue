@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { NConfigProvider, NMessageProvider, NDialogProvider, darkTheme, lightTheme } from 'naive-ui'
 import { themeOverrides } from './styles/theme'
 import { useAppStore } from './stores/app'
-import AppLayout from './components/layout/AppLayout.vue'
+import AppLayout from './layout/AppLayout.vue'
 import ErrorBoundary from './components/shared/ErrorBoundary.vue'
 
 const store = useAppStore()

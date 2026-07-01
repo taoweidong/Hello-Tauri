@@ -1,5 +1,5 @@
 import type { ICompressionPlugin, IFileParserPlugin, ParsedResult } from './types'
-import type { DecompressResult, FileEntry } from '@/adapters/types'
+import type { DecompressResult, FileEntry } from '@/types'
 
 const PLUGIN_TIMEOUT_MS = 30000
 

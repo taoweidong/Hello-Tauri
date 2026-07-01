@@ -1,5 +1,5 @@
 import type { ICompressionPlugin } from '../types'
-import type { FileEntry } from '@/adapters/types'
+import type { FileEntry } from '@/types'
 
 export const zipPlugin: ICompressionPlugin = {
   name: 'zip',

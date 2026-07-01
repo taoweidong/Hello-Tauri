@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import type { ArchiveItem } from '@/adapters/types'
+import type { ArchiveItem } from '@/types'
 
 const archives = ref<ArchiveItem[]>([])
 

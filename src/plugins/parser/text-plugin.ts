@@ -1,5 +1,5 @@
 import type { IFileParserPlugin } from '../types'
-import { parseText } from '@/core/parsers/text-parser'
+import { parseText } from '@/plugins/parsers/text-parser'
 import TextRenderer from '@/views/renderers/TextRenderer.vue'
 
 export const textPlugin: IFileParserPlugin = {

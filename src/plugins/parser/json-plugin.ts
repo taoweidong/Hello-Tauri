@@ -1,5 +1,5 @@
 import type { IFileParserPlugin } from '../types'
-import { parseJson } from '@/core/parsers/json-parser'
+import { parseJson } from '@/plugins/parsers/json-parser'
 import JsonRenderer from '@/views/renderers/JsonRenderer.vue'
 
 export const jsonPlugin: IFileParserPlugin = {

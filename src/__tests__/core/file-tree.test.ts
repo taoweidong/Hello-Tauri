@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { FileTreeBuilder } from '@/core/file-tree'
-import type { FileEntry } from '@/adapters/types'
+import type { FileEntry } from '@/types'
 
 describe('FileTreeBuilder', () => {
   const builder = new FileTreeBuilder()
