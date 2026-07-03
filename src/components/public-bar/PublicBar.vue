@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { NSpace, NButton, NDropdown } from 'naive-ui'
-import { useAppStore } from '@/stores/app'
 import { useArchiveManager } from '@/composables/use-archives'
 import GlobalStats from './GlobalStats.vue'
 import GlobalSearch from './GlobalSearch.vue'
 
-const store = useAppStore()
 const { archives } = useArchiveManager()
 
 const batchOptions = [
@@ -22,16 +20,13 @@ function handleBatch(key: string) {
 </script>
 
 <template>
-  <NSpace align="center" justify="space-between" style="height: 100%;">
+  <NSpace align="center" justify="space-between" style="height: 100%; width: 100%;">
     <GlobalStats />
     <NSpace align="center" :size="16">
       <GlobalSearch />
       <NDropdown :options="batchOptions" @select="handleBatch">
         <NButton>批量操作</NButton>
       </NDropdown>
-      <NButton @click="store.toggleTheme">
-        {{ store.isDarkTheme ? '浅色' : '深色' }}
-      </NButton>
     </NSpace>
   </NSpace>
 </template>

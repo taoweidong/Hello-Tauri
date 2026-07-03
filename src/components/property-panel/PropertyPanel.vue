@@ -6,9 +6,11 @@ import PathBreadcrumb from './PathBreadcrumb.vue'
 </script>
 
 <template>
-  <NScrollbar>
-    <MetadataView />
-    <ConfigForm />
-    <PathBreadcrumb />
-  </NScrollbar>
+  <div style="height: 100%;">
+    <NScrollbar style="height: 100%;">
+      <MetadataView />
+      <ConfigForm />
+      <PathBreadcrumb />
+    </NScrollbar>
+  </div>
 </template>
