@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: tauri_backend/core_app
+title: Tauri 应用入口与运行时初始化
+scope:
+    - src-tauri/src/lib.rs
+    - src-tauri/src/main.rs
+    - src-tauri/src/error.rs
+source_files: []
+depends_on: []
+related_to:
+    - path: tauri_backend/file_commands
