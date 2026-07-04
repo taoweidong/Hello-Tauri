@@ -1,6 +1,7 @@
 ﻿import { ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useArchiveManager } from '@/composables/use-archives'
+import { getFileValidator } from '@/core/file-validator'
 
 /** 支持的压缩包扩展名（小写） */
 const ACCEPTED_EXTENSIONS = new Set([
@@ -44,7 +45,7 @@ export function useGlobalDrop() {
     }
   }
 
-  function onDrop(e: DragEvent) {
+  async function onDrop(e: DragEvent) {
     e.preventDefault()
     dragCounter = 0
     isDragging.value = false
@@ -62,7 +63,21 @@ export function useGlobalDrop() {
       message.warning(`已忽略 ${files.length - archives.length} 个非压缩包文件`)
     }
 
-    addFiles(archives)
+    // 文件内容验证
+    const validator = getFileValidator()
+    const validFiles: File[] = []
+    for (const file of archives) {
+      const result = await validator.validate(file)
+      if (result.ok) {
+        validFiles.push(file)
+      } else {
+        message.error(`${file.name}：${result.message ?? '文件验证未通过'}`)
+      }
+    }
+
+    if (validFiles.length > 0) {
+      addFiles(validFiles)
+    }
   }
 
   function setup(el: HTMLElement) {

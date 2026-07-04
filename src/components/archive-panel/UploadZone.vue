@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { NText } from 'naive-ui'
+import { NText, useMessage } from 'naive-ui'
 import { useArchiveManager } from '@/composables/use-archives'
+import { getFileValidator } from '@/core/file-validator'
 
 const { addFiles } = useArchiveManager()
+const message = useMessage()
 const fileInput = ref<HTMLInputElement>()
 const isDragging = ref(false)
 let dragDepth = 0
@@ -16,14 +18,17 @@ function isArchiveFile(name: string): boolean {
   return ACCEPTED_EXTS.some(ext => lower.endsWith(ext))
 }
 
-function handleDrop(e: DragEvent) {
+async function handleDrop(e: DragEvent) {
   e.preventDefault()
   isDragging.value = false
   dragDepth = 0
   const items = e.dataTransfer?.files
   if (!items?.length) return
   const files = Array.from(items).filter(f => isArchiveFile(f.name))
-  if (files.length) addFiles(files)
+  if (!files.length) return
+
+  const validFiles = await validateFiles(files)
+  if (validFiles.length) addFiles(validFiles)
 }
 
 function handleDragEnter(e: DragEvent) {
@@ -48,12 +53,30 @@ function handleClick() {
   fileInput.value?.click()
 }
 
-function handleInputChange(e: Event) {
+async function handleInputChange(e: Event) {
   const input = e.target as HTMLInputElement
   if (!input.files?.length) return
   const files = Array.from(input.files).filter(f => isArchiveFile(f.name))
-  if (files.length) addFiles(files)
+  if (files.length) {
+    const validFiles = await validateFiles(files)
+    if (validFiles.length) addFiles(validFiles)
+  }
   input.value = ''
+}
+
+/** 对文件列表执行内容验证，返回通过验证的文件 */
+async function validateFiles(files: File[]): Promise<File[]> {
+  const validator = getFileValidator()
+  const valid: File[] = []
+  for (const file of files) {
+    const result = await validator.validate(file)
+    if (result.ok) {
+      valid.push(file)
+    } else {
+      message.error(`${file.name}：${result.message ?? '文件验证未通过'}`)
+    }
+  }
+  return valid
 }
 </script>
 

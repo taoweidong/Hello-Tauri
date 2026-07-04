@@ -3,6 +3,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 // 用 vi.fn() 包装以便 mock 可追踪
 const mockAddFiles = vi.fn()
 const mockWarning = vi.fn()
+const mockError = vi.fn()
+const mockValidate = vi.fn().mockResolvedValue({ ok: true })
 
 vi.mock('@/composables/use-archives', () => ({
   useArchiveManager: vi.fn(() => ({
@@ -16,9 +18,16 @@ vi.mock('naive-ui', async (importOriginal) => {
     ...actual,
     useMessage: vi.fn(() => ({
       warning: mockWarning,
+      error: mockError,
     })),
   }
 })
+
+vi.mock('@/core/file-validator', () => ({
+  getFileValidator: vi.fn(() => ({
+    validate: mockValidate,
+  })),
+}))
 
 import { useGlobalDrop } from '@/composables/use-global-drop'
 
@@ -29,6 +38,8 @@ describe('useGlobalDrop', () => {
   beforeEach(() => {
     mockAddFiles.mockClear()
     mockWarning.mockClear()
+    mockError.mockClear()
+    mockValidate.mockClear().mockResolvedValue({ ok: true })
     composable = useGlobalDrop()
     el = document.createElement('div')
     document.body.appendChild(el)
@@ -60,19 +71,35 @@ describe('useGlobalDrop', () => {
     expect(composable.isDragging.value).toBe(false)
   })
 
-  it('drop 压缩包文件后调用 addFiles', () => {
+  it('drop 压缩包文件后调用 addFiles', async () => {
     const dt = new DataTransfer()
     dt.items.add(new File(['data'], 'archive.zip', { type: 'application/zip' }))
     const dropEvent = new DragEvent('drop', { dataTransfer: dt, bubbles: true })
     el.dispatchEvent(dropEvent)
 
-    expect(mockAddFiles).toHaveBeenCalledTimes(1)
-    expect(mockAddFiles).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ name: 'archive.zip' })])
-    )
+    // onDrop 是异步的，等待验证完成
+    await vi.waitFor(() => {
+      expect(mockAddFiles).toHaveBeenCalledTimes(1)
+      expect(mockAddFiles).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ name: 'archive.zip' })])
+      )
+    })
   })
 
-  it('drop 非压缩包文件不调用 addFiles，且提示 warning', () => {
+  it('drop 验证失败的文件不调用 addFiles，且提示 error', async () => {
+    mockValidate.mockResolvedValueOnce({ ok: false, message: '压缩包中缺少必要文件：VERSION.txt' })
+    const dt = new DataTransfer()
+    dt.items.add(new File(['data'], 'bad.zip', { type: 'application/zip' }))
+    const dropEvent = new DragEvent('drop', { dataTransfer: dt, bubbles: true })
+    el.dispatchEvent(dropEvent)
+
+    await vi.waitFor(() => {
+      expect(mockAddFiles).not.toHaveBeenCalled()
+      expect(mockError).toHaveBeenCalledWith('bad.zip：压缩包中缺少必要文件：VERSION.txt')
+    })
+  })
+
+  it('drop 非压缩包文件不调用 addFiles，且提示 warning', async () => {
     const dt = new DataTransfer()
     dt.items.add(new File(['data'], 'readme.txt', { type: 'text/plain' }))
     const dropEvent = new DragEvent('drop', { dataTransfer: dt, bubbles: true })
