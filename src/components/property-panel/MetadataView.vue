@@ -7,7 +7,7 @@ const { activeTab } = useTabManager()
 
 <template>
   <div v-if="activeTab">
-    <NDescriptions label-placement="left" size="small" bordered>
+    <NDescriptions label-placement="left" size="small" bordered :column="1">
       <NDescriptionsItem label="文件名">
         {{ activeTab.fileNode.label }}
       </NDescriptionsItem>
@@ -15,7 +15,7 @@ const { activeTab } = useTabManager()
         {{ activeTab.fileNode.path }}
       </NDescriptionsItem>
       <NDescriptionsItem label="大小">
-        {{ activeTab.fileNode.size ?? '-' }} B
+        {{ activeTab.fileNode.size !== undefined ? `${activeTab.fileNode.size} B` : '-' }}
       </NDescriptionsItem>
       <NDescriptionsItem label="类型" v-if="activeTab.content">
         {{ activeTab.content.type }}
@@ -26,9 +26,21 @@ const { activeTab } = useTabManager()
       <NDescriptionsItem label="解析插件" v-if="activeTab.content">
         {{ activeTab.content.pluginName }}
       </NDescriptionsItem>
+      <NDescriptionsItem label="加载耗时" v-if="activeTab.content?.loadTimeMs !== undefined">
+        {{ activeTab.content.loadTimeMs.toFixed(1) }} ms
+      </NDescriptionsItem>
     </NDescriptions>
   </div>
-  <div v-else style="color: #666; text-align: center; margin-top: 20px;">
-    选择文件查看属性
+  <div v-else class="empty-hint">
+    选择文件查看详情
   </div>
 </template>
+
+<style scoped>
+.empty-hint {
+  text-align: center;
+  padding: 16px 0;
+  color: var(--text-secondary, #666);
+  font-size: 12px;
+}
+</style>

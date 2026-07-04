@@ -19,7 +19,7 @@ const contentType = computed<'text' | 'csv' | 'json' | 'hex' | 'log'>(
 </script>
 
 <template>
-  <div style="height: 100%; display: flex; flex-direction: column;">
+  <div class="workspace-container">
     <TabBar />
     <PreviewToolbar
       v-if="activeTab?.content"
@@ -29,7 +29,24 @@ const contentType = computed<'text' | 'csv' | 'json' | 'hex' | 'log'>(
       v-model:showLineNumbers="showLineNumbers"
       v-model:encoding="encoding"
     />
-    <PreviewPane />
+    <div class="preview-pane-wrapper">
+      <PreviewPane />
+    </div>
     <StatusBar />
   </div>
 </template>
+
+<style scoped>
+.workspace-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.preview-pane-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+</style>

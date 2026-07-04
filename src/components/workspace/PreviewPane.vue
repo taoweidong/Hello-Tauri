@@ -43,15 +43,31 @@ const rendererComponent = computed(() => {
 </script>
 
 <template>
-  <NEmpty v-if="!activeTab" description="选择一个文件以预览" style="margin-top: 40px;" />
-  <NEmpty v-else-if="!activeTab.content" description="加载中..." style="margin-top: 40px;" />
-  <NScrollbar v-else style="flex: 1;">
-    <ErrorBoundary>
-      <component
-        :is="rendererComponent"
-        :content="activeTab.content.data"
-        v-if="rendererComponent"
-      />
-    </ErrorBoundary>
-  </NScrollbar>
+  <div class="preview-container">
+    <NEmpty v-if="!activeTab" description="选择一个文件以预览" />
+    <NEmpty v-else-if="!activeTab.content" description="加载中..." />
+    <NScrollbar v-else class="preview-scrollbar">
+      <ErrorBoundary>
+        <component
+          :is="rendererComponent"
+          :content="activeTab.content.data"
+          v-if="rendererComponent"
+        />
+      </ErrorBoundary>
+    </NScrollbar>
+  </div>
 </template>
+
+<style scoped>
+.preview-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.preview-scrollbar {
+  flex: 1;
+  min-height: 0;
+}
+</style>

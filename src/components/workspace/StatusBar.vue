@@ -17,7 +17,18 @@ const statusText = computed(() => {
 </script>
 
 <template>
-  <div style="height: 24px; padding: 0 8px; display: flex; align-items: center; border-top: 1px solid #333;">
+  <div class="status-bar">
     <NText depth="3" style="font-size: 12px;">{{ statusText }}</NText>
   </div>
 </template>
+
+<style scoped>
+.status-bar {
+  height: 24px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  border-top: 1px solid var(--border, #333);
+  background: var(--bg-surface, transparent);
+}
+</style>

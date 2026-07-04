@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { NSpace, NButton, NDropdown } from 'naive-ui'
 import { useArchiveManager } from '@/composables/use-archives'
-import GlobalStats from './GlobalStats.vue'
 import GlobalSearch from './GlobalSearch.vue'
 
 const { archives } = useArchiveManager()
@@ -20,8 +19,7 @@ function handleBatch(key: string) {
 </script>
 
 <template>
-  <NSpace align="center" justify="space-between" style="height: 100%; width: 100%;">
-    <GlobalStats />
+  <NSpace align="center" justify="end" style="height: 100%; width: 100%;">
     <NSpace align="center" :size="16">
       <GlobalSearch />
       <NDropdown :options="batchOptions" @select="handleBatch">

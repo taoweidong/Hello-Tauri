@@ -18,7 +18,7 @@ const encoding = defineModel<string>('encoding', { default: 'utf-8' })
 </script>
 
 <template>
-  <NSpace align="center" :size="12" style="padding: 4px 8px; border-bottom: 1px solid #333;">
+  <NSpace align="center" :size="12" class="preview-toolbar">
     <NSpace align="center" :size="4">
       <NText depth="3" style="font-size: 12px;">字号</NText>
       <NInputNumber v-model:value="fontSize" :min="10" :max="24" size="small" style="width: 70px;" />
@@ -41,3 +41,11 @@ const encoding = defineModel<string>('encoding', { default: 'utf-8' })
     </NSpace>
   </NSpace>
 </template>
+
+<style scoped>
+.preview-toolbar {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border, #333);
+  background: var(--bg-surface, transparent);
+}
+</style>
