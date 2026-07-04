@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { NButton, NTooltip } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
+import { useGlobalDrop } from '@/composables/use-global-drop'
 import PublicBar from '@/components/public-bar/PublicBar.vue'
 import ArchivePanel from '@/components/archive-panel/ArchivePanel.vue'
 import Workspace from '@/components/workspace/Workspace.vue'
@@ -9,11 +10,21 @@ import PropertyPanel from '@/components/property-panel/PropertyPanel.vue'
 
 const store = useAppStore()
 
+// ── 全局拖放处理 ──
+const appShellRef = ref<HTMLElement | null>(null)
+const { isDragging, setup: setupDrop, cleanup: cleanupDrop } = useGlobalDrop()
+
 // ── 实时时钟 ──
 const now = ref(new Date())
 let timer: ReturnType<typeof setInterval>
-onMounted(() => { timer = setInterval(() => { now.value = new Date() }, 1000) })
-onBeforeUnmount(() => clearInterval(timer))
+onMounted(() => {
+  timer = setInterval(() => { now.value = new Date() }, 1000)
+  if (appShellRef.value) setupDrop(appShellRef.value)
+})
+onBeforeUnmount(() => {
+  clearInterval(timer)
+  cleanupDrop()
+})
 
 const timeStr = computed(() =>
   now.value.toLocaleTimeString('zh-CN', { hour12: false }),
@@ -28,7 +39,7 @@ const rightCollapsed = ref(false)
 </script>
 
 <template>
-  <div class="app-shell" :data-theme="store.isDarkTheme ? 'dark' : 'light'">
+  <div ref="appShellRef" class="app-shell" :data-theme="store.isDarkTheme ? 'dark' : 'light'">
     <!-- ── 顶部导航栏 ── -->
     <header class="app-header">
       <div class="header-left">
@@ -140,6 +151,21 @@ const rightCollapsed = ref(false)
       <span class="footer-divider">|</span>
       <span>跨平台桌面数据工具</span>
     </footer>
+
+    <!-- ── 全局拖拽上传遮罩 ── -->
+    <Transition name="drop-overlay">
+      <div v-if="isDragging" class="drop-overlay">
+        <div class="drop-overlay-content">
+          <svg class="drop-overlay-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <span class="drop-overlay-text">释放以上传压缩包</span>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -481,5 +507,53 @@ const rightCollapsed = ref(false)
 }
 .panel-inner-wrap::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-hover);
+}
+
+/* ══════════════════════════════════════
+   全局拖拽上传遮罩
+   ══════════════════════════════════════ */
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.drop-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 40px 56px;
+  border: 2px dashed var(--primary);
+  border-radius: 16px;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.drop-overlay-icon {
+  width: 48px;
+  height: 48px;
+}
+
+.drop-overlay-text {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* 遮罩淡入淡出动画 */
+.drop-overlay-enter-active,
+.drop-overlay-leave-active {
+  transition: opacity 0.2s ease;
+}
+.drop-overlay-enter-from,
+.drop-overlay-leave-to {
+  opacity: 0;
 }
 </style>
