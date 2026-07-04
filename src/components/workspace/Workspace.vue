@@ -30,7 +30,7 @@ const contentType = computed<'text' | 'csv' | 'json' | 'hex' | 'log'>(
       v-model:encoding="encoding"
     />
     <div class="preview-pane-wrapper">
-      <PreviewPane />
+      <PreviewPane :encoding="encoding" />
     </div>
     <StatusBar />
   </div>

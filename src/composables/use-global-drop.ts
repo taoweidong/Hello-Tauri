@@ -1,18 +1,7 @@
 ﻿import { ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useArchiveManager } from '@/composables/use-archives'
-import { getFileValidator } from '@/core/file-validator'
-
-/** 支持的压缩包扩展名（小写） */
-const ACCEPTED_EXTENSIONS = new Set([
-  '.zip', '.gz', '.gzip', '.tgz', '.7z', '.rar', '.tar',
-])
-
-/** 判断文件是否为支持的压缩包格式 */
-function isArchiveFile(fileName: string): boolean {
-  const ext = fileName.slice(fileName.lastIndexOf('.')).toLowerCase()
-  return ACCEPTED_EXTENSIONS.has(ext)
-}
+import { filterArchiveFiles, validateArchiveFiles } from '@/core/archive-utils'
 
 export function useGlobalDrop() {
   const isDragging = ref(false)
@@ -53,7 +42,7 @@ export function useGlobalDrop() {
     const files = Array.from(e.dataTransfer?.files ?? [])
     if (files.length === 0) return
 
-    const archives = files.filter(f => isArchiveFile(f.name))
+    const archives = filterArchiveFiles(files)
     if (archives.length === 0) {
       message.warning('仅支持压缩包文件')
       return
@@ -64,16 +53,9 @@ export function useGlobalDrop() {
     }
 
     // 文件内容验证
-    const validator = getFileValidator()
-    const validFiles: File[] = []
-    for (const file of archives) {
-      const result = await validator.validate(file)
-      if (result.ok) {
-        validFiles.push(file)
-      } else {
-        message.error(`${file.name}：${result.message ?? '文件验证未通过'}`)
-      }
-    }
+    const validFiles = await validateArchiveFiles(archives, (name, msg) => {
+      message.error(`${name}：${msg}`)
+    })
 
     if (validFiles.length > 0) {
       addFiles(validFiles)

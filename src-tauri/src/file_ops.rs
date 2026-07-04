@@ -7,7 +7,15 @@ pub fn mmap_read(path: &str, offset: u64, length: u64) -> Result<Vec<u8>, AppErr
     let file = File::open(path)?;
     let mmap = unsafe { Mmap::map(&file)? };
     let start = offset as usize;
-    let end = (offset + length) as usize;
+    // 安全加法，防止 offset + length 溢出
+    let end = offset
+        .checked_add(length)
+        .ok_or_else(|| {
+            AppError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "offset + length overflow",
+            ))
+        })? as usize;
     if end > mmap.len() {
         return Err(AppError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,

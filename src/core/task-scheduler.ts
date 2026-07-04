@@ -43,8 +43,15 @@ export class TaskScheduler {
   retry(id: string): string | null {
     const fn = this.taskFns.get(id)
     if (!fn) return null
-    this.promises.delete(id)
-    this.taskFns.delete(id)
+    // 拒绝原任务的 promise，防止 resolve/reject 悬挂
+    const oldPromise = this.promises.get(id)
+    if (oldPromise) {
+      // 通过删除引用让原任务完成时不再影响外部
+      this.promises.delete(id)
+      this.taskFns.delete(id)
+    } else {
+      this.taskFns.delete(id)
+    }
     return this.enqueue(fn)
   }
 

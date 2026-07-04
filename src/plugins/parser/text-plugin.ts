@@ -8,8 +8,8 @@ export const textPlugin: IFileParserPlugin = {
   canParse(file) {
     return this.supportedExtensions.some(ext => file.name.endsWith(ext))
   },
-  async parse(data: Uint8Array) {
-    return parseText(data)
+  async parse(data: Uint8Array, options?: Record<string, any>) {
+    return parseText(data, options?.encoding)
   },
   getComponent() {
     return TextRenderer

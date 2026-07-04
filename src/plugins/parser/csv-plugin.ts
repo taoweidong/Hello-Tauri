@@ -9,7 +9,8 @@ export const csvPlugin: IFileParserPlugin = {
     return this.supportedExtensions.some(ext => file.name.endsWith(ext))
   },
   async parse(data: Uint8Array, options?: Record<string, any>) {
-    const text = new TextDecoder('utf-8').decode(data)
+    const encoding = options?.encoding ?? 'utf-8'
+    const text = new TextDecoder(encoding).decode(data)
     const delimiter = options?.delimiter ?? ','
     return parseCsv(text, delimiter)
   },

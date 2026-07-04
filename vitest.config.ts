@@ -4,6 +4,9 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [vue()],
+  define: {
+    __PLATFORM__: JSON.stringify('web')
+  },
   test: {
     environment: 'jsdom',
     globals: true,

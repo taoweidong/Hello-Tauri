@@ -7,6 +7,10 @@ import { usePlatform } from '@/composables/use-platform'
 import { ParserEngine } from '@/core/parser-engine'
 import ErrorBoundary from '@/components/shared/ErrorBoundary.vue'
 
+const props = defineProps<{
+  encoding?: string
+}>()
+
 const { activeTab } = useTabManager()
 const { registry } = usePluginEngine()
 const { getAdapter } = usePlatform()
@@ -25,7 +29,7 @@ watch(activeTab, async (tab) => {
   if (!tab || tab.content) return
   try {
     const engine = await getEngine()
-    const content = await engine.resolveFile(tab.fileNode, '')
+    const content = await engine.resolveFile(tab.fileNode, '', props.encoding ?? 'utf-8')
     if (content) {
       tab.content = content
     }
@@ -34,9 +38,25 @@ watch(activeTab, async (tab) => {
   }
 }, { immediate: true })
 
+// 编码变更时重新解析当前文件
+watch(() => props.encoding, async (newEncoding) => {
+  const tab = activeTab.value
+  if (!tab) return
+  try {
+    const engine = await getEngine()
+    const content = await engine.resolveFile(tab.fileNode, '', newEncoding ?? 'utf-8')
+    if (content) {
+      tab.content = content
+    }
+  } catch {
+    // 解析失败，保持原内容
+  }
+})
+
 const rendererComponent = computed(() => {
   if (!activeTab.value?.content) return null
-  const ext = '.' + (activeTab.value.fileNode.label.split('.').pop() ?? '')
+  const dotIndex = activeTab.value.fileNode.label.lastIndexOf('.')
+  const ext = dotIndex > 0 ? activeTab.value.fileNode.label.slice(dotIndex) : ''
   const plugin = registry.getParser(ext)
   return plugin?.getComponent() ?? null
 })

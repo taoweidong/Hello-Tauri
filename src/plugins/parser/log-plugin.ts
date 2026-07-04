@@ -8,8 +8,8 @@ export const logPlugin: IFileParserPlugin = {
   canParse(file) {
     return this.supportedExtensions.some(ext => file.name.endsWith(ext))
   },
-  async parse(data: Uint8Array) {
-    return parseLog(data)
+  async parse(data: Uint8Array, options?: Record<string, any>) {
+    return parseLog(data, options?.encoding)
   },
   getComponent() {
     return LogRenderer

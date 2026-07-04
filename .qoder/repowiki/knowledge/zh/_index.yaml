@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-04T14:19:21Z"
+exported_at: "2026-07-04T15:46:47Z"
 modules:
     "":
-        dir_name: Hello-Tauri 跨平台桌面应用
-        title: Hello-Tauri 跨平台桌面应用
+        dir_name: Hello-Tauri 跨平台桌面应用（Vue + Tauri）
+        title: Hello-Tauri 跨平台桌面应用（Vue + Tauri）
         scope:
             - README.md
             - AGENTS.md

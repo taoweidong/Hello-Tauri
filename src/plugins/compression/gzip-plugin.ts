@@ -33,9 +33,13 @@ export const gzipPlugin: ICompressionPlugin = {
         result.set(chunk, offset)
         offset += chunk.length
       }
+      // 将解压结果写入内存存储，供后续 readFile 使用
+      const { memoryStore } = await import('@/core/memory-store')
+      const filePath = 'decompressed'
+      memoryStore.write(filePath, result)
       return {
         success: true,
-        files: [{ name: 'decompressed', path: '/decompressed', size: result.length, isDirectory: false }],
+        files: [{ name: 'decompressed', path: filePath, size: result.length, isDirectory: false }],
       }
     }
     return { success: false, files: [], error: 'Gzip decompression not available' }

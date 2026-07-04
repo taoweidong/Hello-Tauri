@@ -3,6 +3,8 @@ import { computed } from 'vue'
 import { NDescriptions, NDescriptionsItem, NTag } from 'naive-ui'
 import { useTabManager } from '@/composables/use-tabs'
 import { useArchiveManager } from '@/composables/use-archives'
+import { formatSize, formatDuration } from '@/core/format'
+import type { ArchiveStatus } from '@/types'
 
 const { activeTab } = useTabManager()
 const { archives } = useArchiveManager()
@@ -18,38 +20,39 @@ const versionInfo = computed(() => {
   const archive = currentArchive.value
   if (!archive) return null
   
-  // 查找 VERSION.txt 文件
   const versionFile = archive.files.find(f => 
     f.label === 'VERSION.txt' || f.path.endsWith('VERSION.txt')
   )
-  
   if (!versionFile) return null
   
-  // 尝试从文件内容中获取版本信息
-  // 这里假设 VERSION.txt 已经被解析过
   return {
     version: versionFile.size !== undefined ? `${versionFile.size} bytes` : '-',
     path: versionFile.path
   }
 })
 
-// 格式化文件大小
-function formatSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
-
-// 计算解压耗时
+// 解压耗时
 const decompressDuration = computed(() => {
   const archive = currentArchive.value
   if (!archive?.startTime || !archive?.endTime) return '-'
-  const ms = archive.endTime - archive.startTime
-  if (ms < 1000) return `${ms} ms`
-  return `${(ms / 1000).toFixed(2)} s`
+  return formatDuration(archive.endTime - archive.startTime)
 })
+
+/** 状态 → NTag 类型映射 */
+const STATUS_TAG_TYPE: Record<ArchiveStatus, 'success' | 'error' | 'warning' | 'default'> = {
+  completed: 'success',
+  failed: 'error',
+  running: 'warning',
+  pending: 'default',
+}
+
+/** 状态 → 中文标签映射 */
+const STATUS_LABEL: Record<ArchiveStatus, string> = {
+  completed: '已完成',
+  failed: '失败',
+  running: '解压中',
+  pending: '等待中',
+}
 </script>
 
 <template>
@@ -63,14 +66,10 @@ const decompressDuration = computed(() => {
         </NDescriptionsItem>
         <NDescriptionsItem label="状态">
           <NTag 
-            :type="currentArchive.status === 'completed' ? 'success' : 
-                   currentArchive.status === 'failed' ? 'error' : 
-                   currentArchive.status === 'running' ? 'warning' : 'default'"
+            :type="STATUS_TAG_TYPE[currentArchive.status]"
             size="small"
           >
-            {{ currentArchive.status === 'completed' ? '已完成' :
-               currentArchive.status === 'failed' ? '失败' :
-               currentArchive.status === 'running' ? '解压中' : '等待中' }}
+            {{ STATUS_LABEL[currentArchive.status] }}
           </NTag>
         </NDescriptionsItem>
         <NDescriptionsItem label="压缩大小">

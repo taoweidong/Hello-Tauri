@@ -1,3 +1,31 @@
+// 测试环境缓存模块 mock：使用内存存储替代 IndexedDB/文件系统
+import { vi } from 'vitest'
+import { MemoryCacheStorage } from './memory-cache-storage'
+import { CacheManager } from '@/core/cache-manager'
+
+let testCacheManager: CacheManager | null = null
+const testStorage = new MemoryCacheStorage()
+
+vi.mock('@/composables/use-cache', () => ({
+  useCacheManager: () => {
+    if (!testCacheManager) {
+      testCacheManager = new CacheManager(testStorage)
+    }
+    return testCacheManager
+  },
+  initCache: async () => {
+    if (!testCacheManager) {
+      testCacheManager = new CacheManager(testStorage)
+      await testCacheManager.init()
+    }
+    return testCacheManager
+  },
+  resetCache: () => {
+    testCacheManager = null
+    testStorage.clear()
+  },
+}))
+
 // jsdom 不支持 DataTransfer / DragEvent，需要 polyfill
 
 class DataTransferItemPolyfill {

@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { NText, useMessage } from 'naive-ui'
 import { useArchiveManager } from '@/composables/use-archives'
-import { getFileValidator } from '@/core/file-validator'
+import { filterArchiveFiles, validateArchiveFiles } from '@/core/archive-utils'
 
 const { addFiles } = useArchiveManager()
 const message = useMessage()
@@ -10,12 +10,15 @@ const fileInput = ref<HTMLInputElement>()
 const isDragging = ref(false)
 let dragDepth = 0
 
-/** 支持的文件扩展名 */
-const ACCEPTED_EXTS = ['.zip', '.gz', '.gzip', '.tgz', '.7z', '.rar', '.tar']
+/** 处理拖放或输入的文件：过滤压缩包 → 验证 → 添加 */
+async function processFiles(rawFiles: File[]) {
+  const archives = filterArchiveFiles(rawFiles)
+  if (!archives.length) return
 
-function isArchiveFile(name: string): boolean {
-  const lower = name.toLowerCase()
-  return ACCEPTED_EXTS.some(ext => lower.endsWith(ext))
+  const validFiles = await validateArchiveFiles(archives, (name, msg) => {
+    message.error(`${name}：${msg}`)
+  })
+  if (validFiles.length) addFiles(validFiles)
 }
 
 async function handleDrop(e: DragEvent) {
@@ -24,11 +27,7 @@ async function handleDrop(e: DragEvent) {
   dragDepth = 0
   const items = e.dataTransfer?.files
   if (!items?.length) return
-  const files = Array.from(items).filter(f => isArchiveFile(f.name))
-  if (!files.length) return
-
-  const validFiles = await validateFiles(files)
-  if (validFiles.length) addFiles(validFiles)
+  await processFiles(Array.from(items))
 }
 
 function handleDragEnter(e: DragEvent) {
@@ -56,27 +55,8 @@ function handleClick() {
 async function handleInputChange(e: Event) {
   const input = e.target as HTMLInputElement
   if (!input.files?.length) return
-  const files = Array.from(input.files).filter(f => isArchiveFile(f.name))
-  if (files.length) {
-    const validFiles = await validateFiles(files)
-    if (validFiles.length) addFiles(validFiles)
-  }
+  await processFiles(Array.from(input.files))
   input.value = ''
-}
-
-/** 对文件列表执行内容验证，返回通过验证的文件 */
-async function validateFiles(files: File[]): Promise<File[]> {
-  const validator = getFileValidator()
-  const valid: File[] = []
-  for (const file of files) {
-    const result = await validator.validate(file)
-    if (result.ok) {
-      valid.push(file)
-    } else {
-      message.error(`${file.name}：${result.message ?? '文件验证未通过'}`)
-    }
-  }
-  return valid
 }
 </script>
 

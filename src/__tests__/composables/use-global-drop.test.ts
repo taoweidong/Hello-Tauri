@@ -116,4 +116,60 @@ describe('useGlobalDrop', () => {
     el.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true }))
     expect(composable.isDragging.value).toBe(false)
   })
+
+  it('drop 空文件列表时不调用任何方法', async () => {
+    const dt = new DataTransfer()
+    // 不添加任何文件
+    const dropEvent = new DragEvent('drop', { dataTransfer: dt, bubbles: true })
+    el.dispatchEvent(dropEvent)
+    expect(mockAddFiles).not.toHaveBeenCalled()
+    expect(mockWarning).not.toHaveBeenCalled()
+    expect(mockError).not.toHaveBeenCalled()
+  })
+
+  it('drop 混合文件时忽略非压缩包，并提示警告', async () => {
+    const dt = new DataTransfer()
+    dt.items.add(new File(['data'], 'archive.zip', { type: 'application/zip' }))
+    dt.items.add(new File(['data'], 'readme.txt', { type: 'text/plain' }))
+    const dropEvent = new DragEvent('drop', { dataTransfer: dt, bubbles: true })
+    el.dispatchEvent(dropEvent)
+
+    await vi.waitFor(() => {
+      expect(mockWarning).toHaveBeenCalledWith('已忽略 1 个非压缩包文件')
+      expect(mockAddFiles).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ name: 'archive.zip' })])
+      )
+    })
+  })
+
+  it('dragenter 嵌套子元素时 isDragging 保持 true', () => {
+    const dt = new DataTransfer()
+    dt.items.add(new File(['test'], 'test.zip', { type: 'application/zip' }))
+    // 模拟进入父元素
+    el.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true }))
+    // 模拟进入子元素（counter 增加）
+    el.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true }))
+    expect(composable.isDragging.value).toBe(true)
+    // 离开一次（counter 减 1，但不为 0）
+    el.dispatchEvent(new DragEvent('dragleave', { dataTransfer: dt, bubbles: true }))
+    expect(composable.isDragging.value).toBe(true)
+    // 再离开一次（counter 为 0）
+    el.dispatchEvent(new DragEvent('dragleave', { dataTransfer: dt, bubbles: true }))
+    expect(composable.isDragging.value).toBe(false)
+  })
+
+  it('drop 后 isDragging 重置为 false', async () => {
+    const dt = new DataTransfer()
+    dt.items.add(new File(['data'], 'archive.zip', { type: 'application/zip' }))
+    el.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true }))
+    expect(composable.isDragging.value).toBe(true)
+    const dropEvent = new DragEvent('drop', { dataTransfer: dt, bubbles: true })
+    el.dispatchEvent(dropEvent)
+    expect(composable.isDragging.value).toBe(false)
+  })
+
+  it('cleanup 未 setup 时不报错', () => {
+    const fresh = useGlobalDrop()
+    expect(() => fresh.cleanup()).not.toThrow()
+  })
 })

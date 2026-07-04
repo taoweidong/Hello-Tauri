@@ -34,7 +34,10 @@ export interface ParsedContent {
 export interface ArchiveItem {
   id: string
   name: string
-  file: File
+  /** 原始 File 对象，仅在当次会话上传时有值；缓存恢复时为 undefined */
+  file?: File
+  /** 缓存 key，用于从 CacheStorage 读取数据 */
+  cacheId: string
   status: ArchiveStatus
   progress: number
   files: FileTreeNode[]

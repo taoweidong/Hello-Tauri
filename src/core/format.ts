@@ -1,0 +1,18 @@
+/**
+ * 通用格式化工具函数
+ */
+
+/** 将字节数格式化为人类可读的字符串（如 "1.5 MB"） */
+export function formatSize(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+/** 将毫秒数格式化为人类可读的耗时字符串 */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms} ms`
+  return `${(ms / 1000).toFixed(2)} s`
+}

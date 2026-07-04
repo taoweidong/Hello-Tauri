@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: ""
-title: Hello-Tauri 跨平台桌面应用
+title: Hello-Tauri 跨平台桌面应用（Vue + Tauri）
 scope:
     - README.md
     - AGENTS.md

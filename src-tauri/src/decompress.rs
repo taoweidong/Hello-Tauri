@@ -36,6 +36,14 @@ pub fn decompress_zip(data: &[u8], output_dir: &str) -> Result<Vec<DecompressedF
 
         let outpath = out.join(file.name());
 
+        // Zip Slip 防护：确保解压路径在目标目录内
+        if !outpath.starts_with(out) {
+            return Err(AppError::Decompress(format!(
+                "非法路径，拒绝解压: {}",
+                file.name()
+            )));
+        }
+
         if file.is_dir() {
             fs::create_dir_all(&outpath)?;
             files.push(DecompressedFile {

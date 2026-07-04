@@ -26,7 +26,18 @@ const tabValue = computed(() => activeTabId.value ?? undefined)
       {{ tab.pinned ? '📌 ' : '' }}{{ tab.fileNode.label }}
     </NTab>
   </NTabs>
-  <div v-else style="display: flex; align-items: center; justify-content: center; height: 40px; color: #666;">
+  <div v-else class="tab-empty">
     点击左侧文件树中的文件以预览
   </div>
 </template>
+
+<style scoped>
+.tab-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  color: var(--text-secondary, #666);
+  font-size: 13px;
+}
+</style>
