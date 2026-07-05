@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NCard, NSpace, NButton } from 'naive-ui'
+import { NCard, NButton } from 'naive-ui'
 import type { ArchiveItem } from '@/types'
 import StatusIndicator from './StatusIndicator.vue'
 import FileTree from './FileTree.vue'
@@ -19,14 +19,14 @@ const emit = defineEmits<{
     :title="archive.name"
     size="small"
     closable
-    style="margin-bottom: 8px;"
+    class="mb-2"
     @close="emit('remove', archive.id)"
   >
     <template #header-extra>
       <StatusIndicator :status="archive.status" :progress="archive.progress" />
     </template>
 
-    <div v-if="archive.status === 'failed'" style="color: #EF4444; margin-bottom: 8px;">
+    <div v-if="archive.status === 'failed'" class="text-error mb-2">
       {{ archive.error }}
       <NButton size="tiny" @click="emit('retry', archive.id)">重试</NButton>
     </div>

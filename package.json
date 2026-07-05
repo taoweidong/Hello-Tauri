@@ -18,12 +18,14 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@tailwindcss/vite": "^4.3.2",
     "@tauri-apps/api": "^2.11.1",
     "@vueuse/core": "^14.3.0",
     "fflate": "^0.8.3",
     "naive-ui": "^2.44.1",
     "pinia": "^3.0.4",
     "splitpanes": "^4.1.2",
+    "tailwindcss": "^4.3.2",
     "vue": "^3.5.39",
     "vue-draggable-plus": "^0.6.1"
   },

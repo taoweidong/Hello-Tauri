@@ -5,3 +5,4 @@ build/
 src-tauri/target/
 src-tauri/gen/
 .worktrees/
+.codebuddy/

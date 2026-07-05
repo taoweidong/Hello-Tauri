@@ -26,8 +26,10 @@ const isStandard = breakpoints.between('standard', 'wide')
 export function usePanelLayout() {
   function collapseLeft() { leftCollapsed.value = true }
   function expandLeft() { leftCollapsed.value = false }
+  function toggleLeft() { leftCollapsed.value = !leftCollapsed.value }
   function collapseRight() { rightCollapsed.value = true }
   function expandRight() { rightCollapsed.value = false }
+  function toggleRight() { rightCollapsed.value = !rightCollapsed.value }
   function setLeftWidth(w: number) { leftWidth.value = Math.max(MIN_LEFT_PANEL_WIDTH, Math.min(MAX_LEFT_PANEL_WIDTH, w)) }
   function setRightWidth(w: number) { rightWidth.value = Math.max(MIN_RIGHT_PANEL_WIDTH, Math.min(MAX_RIGHT_PANEL_WIDTH, w)) }
 
@@ -38,8 +40,8 @@ export function usePanelLayout() {
     leftWidth, rightWidth,
     isNarrow, isStandard,
     autoCollapseRight,
-    collapseLeft, expandLeft,
-    collapseRight, expandRight,
+    collapseLeft, expandLeft, toggleLeft,
+    collapseRight, expandRight, toggleRight,
     setLeftWidth, setRightWidth,
   }
 }

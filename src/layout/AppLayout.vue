@@ -1,48 +1,160 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { NButton, NTooltip } from 'naive-ui'
+import { ref, computed, h, onMounted, onBeforeUnmount } from 'vue'
+import { NButton, NTooltip, NDropdown } from 'naive-ui'
+import type { DropdownOption } from 'naive-ui'
+import { useNow, useMagicKeys, whenever } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
 import { useGlobalDrop } from '@/composables/use-global-drop'
 import { usePanelLayout } from '@/composables/use-panel-layout'
+import { themeColors, type ThemeColorKey } from '@/styles/theme'
+import {
+  MIN_LEFT_PANEL_WIDTH,
+  MAX_LEFT_PANEL_WIDTH,
+  MIN_RIGHT_PANEL_WIDTH,
+  MAX_RIGHT_PANEL_WIDTH,
+} from '@/config'
 import PublicBar from '@/components/public-bar/PublicBar.vue'
 import ArchivePanel from '@/components/archive-panel/ArchivePanel.vue'
 import Workspace from '@/components/workspace/Workspace.vue'
 import PropertyPanel from '@/components/property-panel/PropertyPanel.vue'
+import GlobalStatusBar from '@/components/workspace/StatusBar.vue'
 
 const store = useAppStore()
-const { leftCollapsed, rightCollapsed, collapseLeft, expandLeft, collapseRight, expandRight } = usePanelLayout()
+const { leftCollapsed, rightCollapsed, leftWidth, rightWidth, collapseLeft, expandLeft, collapseRight, expandRight, toggleLeft, toggleRight, setLeftWidth, setRightWidth } = usePanelLayout()
+
+// ── 键盘快捷键（必须在组件 setup 中注册，useMagicKeys 需要事件上下文） ──
+const keys = useMagicKeys()
+whenever(keys['Ctrl+B'], (v) => {
+  if (v) toggleLeft()
+})
+whenever(keys['Ctrl+Shift+B'], (v) => {
+  if (v) toggleRight()
+})
+
+// ── 面板拖拽调整宽度 ──
+const draggingLeft = ref(false)
+const draggingRight = ref(false)
+
+function startDragLeft(e: MouseEvent) {
+  if (leftCollapsed.value) return
+  draggingLeft.value = true
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  e.preventDefault()
+}
+
+function startDragRight(e: MouseEvent) {
+  if (rightCollapsed.value) return
+  draggingRight.value = true
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  e.preventDefault()
+}
+
+function onMouseMove(e: MouseEvent) {
+  if (draggingLeft.value) {
+    const newWidth = Math.max(MIN_LEFT_PANEL_WIDTH, Math.min(MAX_LEFT_PANEL_WIDTH, e.clientX))
+    setLeftWidth(newWidth)
+    store.setLeftPanelWidth(newWidth)
+  }
+  if (draggingRight.value) {
+    const newWidth = Math.max(MIN_RIGHT_PANEL_WIDTH, Math.min(MAX_RIGHT_PANEL_WIDTH, window.innerWidth - e.clientX))
+    setRightWidth(newWidth)
+    store.setRightPanelWidth(newWidth)
+  }
+}
+
+function stopDrag() {
+  if (draggingLeft.value || draggingRight.value) {
+    draggingLeft.value = false
+    draggingRight.value = false
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+}
+
+// 全局拖拽事件
+onMounted(() => {
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', stopDrag)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('mousemove', onMouseMove)
+  document.removeEventListener('mouseup', stopDrag)
+})
 
 // ── 全局拖放处理 ──
 const appShellRef = ref<HTMLElement | null>(null)
 const { isDragging, setup: setupDrop, cleanup: cleanupDrop } = useGlobalDrop()
 
-// ── 实时时钟 ──
-const now = ref(new Date())
-let timer: ReturnType<typeof setInterval>
 onMounted(() => {
-  timer = setInterval(() => { now.value = new Date() }, 1000)
   if (appShellRef.value) setupDrop(appShellRef.value)
 })
 onBeforeUnmount(() => {
-  clearInterval(timer)
   cleanupDrop()
 })
 
+// ── 时钟：使用 useNow 每分钟刷新 ──
+const now = useNow({ interval: 60000 })
 const timeStr = computed(() =>
-  now.value.toLocaleTimeString('zh-CN', { hour12: false }),
+  now.value.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
 )
-const dateStr = computed(() =>
-  now.value.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' }),
-)
+
+// ── 帮助菜单 ──
+const helpOptions: DropdownOption[] = [
+  {
+    key: 'github',
+    label: () =>
+      h('a', {
+        href: 'https://github.com/taoweidong/Hello-Tauri',
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        class: 'flex items-center gap-2 text-text-primary no-underline hover:text-primary transition-colors'
+      }, [
+        h('svg', { viewBox: '0 0 24 24', fill: 'currentColor', class: 'w-4 h-4', innerHTML: '<path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>' }),
+        h('span', 'GitHub 仓库')
+      ])
+  },
+  {
+    key: 'issue',
+    label: () =>
+      h('a', {
+        href: 'https://github.com/taoweidong/Hello-Tauri/issues/new',
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        class: 'flex items-center gap-2 text-text-primary noopener noreferrer hover:text-primary transition-colors'
+      }, [
+        h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', class: 'w-4 h-4', innerHTML: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>' }),
+        h('span', '问题反馈')
+      ])
+  }
+]
+
+// ── 主题色切换 ──
+const currentThemeColor = ref<ThemeColorKey>('blue')
+const themeColorOptions: DropdownOption[] = [
+  { key: 'blue', label: '蓝色' },
+  { key: 'green', label: '绿色' },
+  { key: 'purple', label: '紫色' },
+  { key: 'orange', label: '橙色' },
+]
+function handleThemeColorSelect(key: string) {
+  currentThemeColor.value = key as ThemeColorKey
+  document.documentElement.style.setProperty('--color-primary', themeColors[key as ThemeColorKey])
+  document.documentElement.style.setProperty('--color-primary-soft', `color-mix(in srgb, ${themeColors[key as ThemeColorKey]} 14%, transparent)`)
+  document.documentElement.style.setProperty('--color-primary-hover', themeColors[key as ThemeColorKey])
+}
 </script>
 
 <template>
-  <div ref="appShellRef" class="app-shell" :data-theme="store.isDarkTheme ? 'dark' : 'light'">
-    <!-- ── 顶部导航栏 ── -->
-    <header class="app-header">
-      <div class="header-left">
-        <div class="logo-mark">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <div ref="appShellRef" class="absolute inset-0 grid grid-rows-[var(--spacing-header)_1fr_var(--spacing-statusbar)] bg-bg-base text-text-primary overflow-hidden" :data-theme="store.isDarkTheme ? 'dark' : 'light'">
+    
+    <!-- ═══════════ 顶部导航栏 48px ═══════════ -->
+    <header class="flex items-center gap-4 px-4 h-header bg-bg-surface/85 backdrop-blur-md border-b border-border z-10 select-none">
+      <!-- 左侧：Logo + 名称 + 徽章 -->
+      <div class="flex items-center gap-2.5 shrink-0">
+        <div class="w-[26px] h-[26px] flex items-center justify-center text-primary" style="filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-primary) 40%, transparent))">
+          <svg viewBox="0 0 24 24" fill="none" class="w-full h-full">
             <rect x="2" y="3" width="20" height="18" rx="3" stroke="currentColor" stroke-width="1.5"/>
             <path d="M2 8h20" stroke="currentColor" stroke-width="1.5"/>
             <circle cx="5.5" cy="5.5" r="0.8" fill="currentColor"/>
@@ -52,51 +164,45 @@ const dateStr = computed(() =>
             <path d="M14 11h5M14 14h5M14 17h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
           </svg>
         </div>
-        <span class="app-title">Hello Tauri</span>
-        <span class="app-badge">桌面工具</span>
+        <span class="text-[15px] font-bold tracking-[0.3px] bg-gradient-to-r from-primary to-[color-mix(in_srgb,var(--color-primary)_65%,#a855f7)] bg-clip-text text-transparent">Hello Tauri</span>
+        <span class="text-[10px] px-2 py-0.5 rounded-[10px] bg-primary-soft text-primary font-medium tracking-[0.2px]">桌面工具</span>
       </div>
 
-      <div class="header-center">
+      <!-- 中央：PublicBar -->
+      <div class="flex-1 min-w-0 h-full flex items-center">
         <PublicBar />
       </div>
 
-      <div class="header-right">
-        <div class="clock-group">
-          <span class="clock-time">{{ timeStr }}</span>
-          <span class="clock-date">{{ dateStr }}</span>
-        </div>
-        
-        <!-- GitHub 仓库链接 -->
+      <!-- 右侧：时钟 + 帮助 + 主题色 + 主题切换 -->
+      <div class="flex items-center gap-3 shrink-0">
+        <!-- 时钟 -->
+        <span class="text-[13px] font-semibold tracking-[0.6px] font-mono tabular-nums">{{ timeStr }}</span>
+
+        <!-- 帮助下拉菜单 -->
+        <NDropdown trigger="hover" :options="helpOptions" placement="bottom-end">
+          <NButton quaternary circle class="!w-8 !h-8" aria-label="帮助">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[18px] h-[18px]">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </NButton>
+        </NDropdown>
+
+        <!-- 主题色选择器 -->
+        <NDropdown trigger="click" :options="themeColorOptions" placement="bottom-end" @select="handleThemeColorSelect">
+          <NButton quaternary circle class="!w-8 !h-8" aria-label="主题色">
+            <span class="inline-block w-3.5 h-3.5 rounded-full" :style="{ background: themeColors[currentThemeColor] }"></span>
+          </NButton>
+        </NDropdown>
+
+        <!-- 主题切换按钮 -->
         <NTooltip trigger="hover">
           <template #trigger>
-            <a href="https://github.com/taoweidong/Hello-Tauri" target="_blank" rel="noopener noreferrer" class="icon-link">
-              <svg viewBox="0 0 24 24" fill="currentColor" class="github-icon">
-                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-              </svg>
-            </a>
-          </template>
-          GitHub 仓库
-        </NTooltip>
-        
-        <!-- 问题反馈链接 -->
-        <NTooltip trigger="hover">
-          <template #trigger>
-            <a href="https://github.com/taoweidong/Hello-Tauri/issues/new" target="_blank" rel="noopener noreferrer" class="icon-link">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="issue-icon">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M12 8v4M12 16h.01"/>
-              </svg>
-            </a>
-          </template>
-          问题反馈
-        </NTooltip>
-        
-        <NTooltip trigger="hover">
-          <template #trigger>
-            <NButton quaternary circle class="theme-btn" @click="store.toggleTheme">
+            <NButton quaternary circle class="!w-8 !h-8" @click="store.toggleTheme">
               <Transition name="icon-spin" mode="out-in">
-                <span v-if="store.isDarkTheme" key="moon" class="theme-icon">&#9790;</span>
-                <span v-else key="sun" class="theme-icon">&#9788;</span>
+                <span v-if="store.isDarkTheme" key="moon" class="inline-block text-[15px] leading-none">☽</span>
+                <span v-else key="sun" class="inline-block text-[15px] leading-none">☼</span>
               </Transition>
             </NButton>
           </template>
@@ -105,62 +211,85 @@ const dateStr = computed(() =>
       </div>
     </header>
 
-    <!-- ── 主体内容区 ── -->
-    <div class="app-body">
+    <!-- ═══════════ 主体区域：flex 三栏 + 折叠按钮 ═══════════ -->
+    <div class="flex w-full box-border overflow-hidden relative">
       <!-- 左侧面板 -->
-      <aside class="panel left-panel" :class="{ collapsed: leftCollapsed }">
-        <div class="panel-inner-wrap">
+      <aside class="relative shrink-0 bg-bg-surface overflow-hidden border-r border-border transition-[width,border-color] duration-320 ease-[cubic-bezier(0.4,0,0.2,1)] box-border" :style="{ width: leftCollapsed ? '0px' : `${leftWidth}px` }">
+        <div class="h-full w-full overflow-y-auto overflow-x-hidden py-2.5 px-3" :style="{ width: leftCollapsed ? '0px' : '100%' }">
           <ArchivePanel />
         </div>
       </aside>
-      <button class="collapse-btn left-collapse-btn" @click="leftCollapsed ? expandLeft() : collapseLeft()"
-              :title="leftCollapsed ? '展开面板' : '收起面板'">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+
+      <!-- 左侧拖拽手柄 -->
+      <div
+        v-if="!leftCollapsed"
+        class="shrink-0 w-[4px] h-full cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors duration-200 relative z-[4]"
+        @mousedown="startDragLeft"
+      >
+        <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border-strong/30 group-hover:bg-primary/40"></div>
+      </div>
+
+      <!-- 左侧折叠按钮 -->
+      <button
+        class="shrink-0 w-[18px] h-[52px] flex items-center justify-center bg-bg-surface border border-border-strong cursor-pointer p-0 outline-none text-text-secondary self-center opacity-60 hover:opacity-100 hover:text-primary hover:bg-primary-soft transition-all duration-200 rounded-r-md border-l-0 z-[5]"
+        @click="leftCollapsed ? expandLeft() : collapseLeft()"
+        :title="leftCollapsed ? '展开面板 (Ctrl+B)' : '收起面板 (Ctrl+B)'"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3 h-3 shrink-0">
           <polyline v-if="!leftCollapsed" points="15 18 9 12 15 6"/>
           <polyline v-else points="9 18 15 12 9 6"/>
         </svg>
       </button>
 
-      <!-- 中间工作区 -->
-      <main class="workspace-area">
+      <!-- 中央工作区 -->
+      <main class="flex-1 min-w-0 w-full overflow-hidden flex flex-col">
         <Workspace />
       </main>
 
-      <!-- 右侧面板 -->
-      <button class="collapse-btn right-collapse-btn" @click="rightCollapsed ? expandRight() : collapseRight()"
-              :title="rightCollapsed ? '展开面板' : '收起面板'">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <!-- 右侧拖拽手柄 -->
+      <div
+        v-if="!rightCollapsed"
+        class="shrink-0 w-[4px] h-full cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors duration-200 relative z-[4]"
+        @mousedown="startDragRight"
+      >
+        <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border-strong/30"></div>
+      </div>
+
+      <!-- 右侧折叠按钮 -->
+      <button
+        class="shrink-0 w-[18px] h-[52px] flex items-center justify-center bg-bg-surface border border-border-strong cursor-pointer p-0 outline-none text-text-secondary self-center opacity-60 hover:opacity-100 hover:text-primary hover:bg-primary-soft transition-all duration-200 rounded-l-md border-r-0 z-[5]"
+        @click="rightCollapsed ? expandRight() : collapseRight()"
+        :title="rightCollapsed ? '展开面板 (Ctrl+Shift+B)' : '收起面板 (Ctrl+Shift+B)'"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3 h-3 shrink-0">
           <polyline v-if="!rightCollapsed" points="9 18 15 12 9 6"/>
           <polyline v-else points="15 18 9 12 15 6"/>
         </svg>
       </button>
-      <aside class="panel right-panel" :class="{ collapsed: rightCollapsed }">
-        <div class="panel-inner-wrap">
+
+      <!-- 右侧面板 -->
+      <aside class="relative shrink-0 bg-bg-surface overflow-hidden border-l border-border transition-[width,border-color] duration-320 ease-[cubic-bezier(0.4,0,0.2,1)] box-border" :style="{ width: rightCollapsed ? '0px' : `${rightWidth}px` }">
+        <div class="h-full w-full overflow-y-auto overflow-x-hidden py-2.5 px-3" :style="{ width: rightCollapsed ? '0px' : '100%' }">
           <PropertyPanel />
         </div>
       </aside>
     </div>
 
-    <!-- ── 底部版权栏 ── -->
-    <footer class="app-footer">
-      <span>© 2026 Hello Tauri · 保留所有权利</span>
-      <span class="footer-divider">|</span>
-      <span>跨平台桌面数据工具</span>
+    <!-- ═══════════ 全局状态栏 26px ═══════════ -->
+    <footer class="flex items-center justify-between px-2 h-statusbar bg-bg-surface border-t border-border select-none text-[11px] text-text-secondary tracking-[0.2px]">
+      <GlobalStatusBar />
     </footer>
 
-    <!-- ── 全局拖拽上传遮罩 ── -->
+    <!-- ═══════════ 全局拖拽上传遮罩 ═══════════ -->
     <Transition name="drop-overlay">
-      <div v-if="isDragging" class="drop-overlay">
-        <div class="drop-overlay-content">
-          <svg class="drop-overlay-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <div v-if="isDragging" class="absolute inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm pointer-events-none">
+        <div class="flex flex-col items-center gap-4 px-14 py-10 border-2 border-dashed border-primary rounded-2xl bg-primary-soft text-primary">
+          <svg class="w-12 h-12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/>
             <line x1="12" y1="3" x2="12" y2="15"/>
           </svg>
-          <span class="drop-overlay-text">释放以上传压缩包</span>
+          <span class="text-base font-semibold tracking-[0.5px]">释放以上传压缩包</span>
         </div>
       </div>
     </Transition>
@@ -168,179 +297,9 @@ const dateStr = computed(() =>
 </template>
 
 <style scoped>
-/* ══════════════════════════════════════
-   主题 CSS 变量（深色 / 浅色）
-   ══════════════════════════════════════ */
-.app-shell[data-theme='dark'] {
-  --bg-base: #18181c;
-  --bg-surface: #1e1e24;
-  --bg-elevated: #26262e;
-  --text-primary: #ffffffde;
-  --text-secondary: #ffffff8c;
-  --border: #ffffff1a;
-  --border-strong: #ffffff2e;
-  --primary: #3B82F6;
-  --primary-soft: #3b82f624;
-  --scrollbar: #ffffff26;
-  --scrollbar-hover: #ffffff40;
-}
+/* ═══════════ 保留样式 ═══════════ */
 
-.app-shell[data-theme='light'] {
-  --bg-base: #f5f5f7;
-  --bg-surface: #ffffff;
-  --bg-elevated: #f0f0f3;
-  --text-primary: #1a1a1a;
-  --text-secondary: #666666;
-  --border: #0000000f;
-  --border-strong: #00000020;
-  --primary: #3B82F6;
-  --primary-soft: #3b82f61a;
-  --scrollbar: #00000018;
-  --scrollbar-hover: #00000030;
-}
-
-/* ══════════════════════════════════════
-   应用外壳（CSS Grid 三行布局）
-   ══════════════════════════════════════ */
-.app-shell {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  grid-template-rows: 52px 1fr 28px;
-  background: var(--bg-base);
-  color: var(--text-primary);
-  overflow: hidden;
-}
-
-/* ══════════════════════════════════════
-   顶部导航栏
-   ══════════════════════════════════════ */
-.app-header {
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  gap: 16px;
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border);
-  z-index: 10;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.logo-mark {
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary);
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--primary) 40%, transparent));
-}
-.logo-mark svg {
-  width: 100%;
-  height: 100%;
-}
-
-.app-title {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 65%, #a855f7));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.app-badge {
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: var(--primary-soft);
-  color: var(--primary);
-  font-weight: 500;
-  letter-spacing: 0.2px;
-}
-
-.header-center {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  display: flex;
-  align-items: center;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-}
-
-/* 图标链接样式 */
-.icon-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  color: var(--text-secondary);
-  transition: all 0.2s ease;
-  text-decoration: none;
-}
-
-.icon-link:hover {
-  color: var(--text-primary);
-  background: var(--primary-soft);
-}
-
-.github-icon {
-  width: 18px;
-  height: 18px;
-}
-
-.issue-icon {
-  width: 18px;
-  height: 18px;
-}
-
-.clock-group {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  line-height: 1.25;
-}
-.clock-time {
-  font-size: 13px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.6px;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-}
-.clock-date {
-  font-size: 10px;
-  color: var(--text-secondary);
-  letter-spacing: 0.2px;
-}
-
-.theme-btn {
-  width: 32px !important;
-  height: 32px !important;
-}
-.theme-icon {
-  display: inline-block;
-  font-size: 15px;
-  line-height: 1;
-}
-
-/* 主题图标切换动效 */
+/* 主题图标切换动画 */
 .icon-spin-enter-active,
 .icon-spin-leave-active {
   transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.28s ease;
@@ -354,198 +313,7 @@ const dateStr = computed(() =>
   opacity: 0;
 }
 
-/* ══════════════════════════════════════
-   主体内容区（flex 三栏 + 折叠按钮）
-   ══════════════════════════════════════ */
-.app-body {
-  display: flex;
-  overflow: hidden;
-  position: relative;
-}
-
-/* ══════════════════════════════════════
-   侧面板
-   ══════════════════════════════════════ */
-.panel {
-  position: relative;
-  flex-shrink: 0;
-  background: var(--bg-surface);
-  overflow: hidden;
-  transition:
-    width 0.32s cubic-bezier(0.4, 0, 0.2, 1),
-    border-color 0.32s ease;
-}
-
-.left-panel {
-  width: 280px;
-  border-right: 1px solid var(--border);
-}
-.left-panel.collapsed {
-  width: 0;
-  border-right-color: transparent;
-}
-
-.right-panel {
-  width: 300px;
-  border-left: 1px solid var(--border);
-}
-.right-panel.collapsed {
-  width: 0;
-  border-left-color: transparent;
-}
-
-/* 面板内容包裹层（固定宽度，防折叠时内容挤压） */
-.panel-inner-wrap {
-  height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 10px 12px;
-}
-.left-panel .panel-inner-wrap {
-  width: 280px;
-}
-.right-panel .panel-inner-wrap {
-  width: 300px;
-}
-
-/* ══════════════════════════════════════
-   折叠触发器按钮
-   （flex 兄弟元素，不受面板 overflow:hidden 影响）
-   ══════════════════════════════════════ */
-.collapse-btn {
-  flex-shrink: 0;
-  width: 18px;
-  height: 52px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
-  cursor: pointer;
-  padding: 0;
-  outline: none;
-  color: var(--text-secondary);
-  align-self: center;
-  opacity: 0;
-  z-index: 5;
-  transition:
-    opacity 0.2s ease,
-    background 0.2s ease,
-    color 0.2s ease;
-}
-.collapse-btn svg {
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
-}
-
-.left-collapse-btn {
-  border-radius: 0 6px 6px 0;
-  border-left: none;
-}
-.right-collapse-btn {
-  border-radius: 6px 0 0 6px;
-  border-right: none;
-}
-
-/* 悬停主体区域时显示折叠按钮 */
-.app-body:hover .collapse-btn {
-  opacity: 0.6;
-}
-.collapse-btn:hover {
-  opacity: 1 !important;
-  color: var(--primary);
-  background: var(--primary-soft);
-}
-
-/* ══════════════════════════════════════
-   工作区
-   ══════════════════════════════════════ */
-.workspace-area {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-/* ══════════════════════════════════════
-   底部版权栏
-   ══════════════════════════════════════ */
-.app-footer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 0 16px;
-  font-size: 11px;
-  letter-spacing: 0.2px;
-  color: var(--text-secondary);
-  background: var(--bg-surface);
-  border-top: 1px solid var(--border);
-  user-select: none;
-  -webkit-user-select: none;
-}
-.footer-divider {
-  opacity: 0.4;
-}
-
-/* ══════════════════════════════════════
-   滚动条美化
-   ══════════════════════════════════════ */
-.panel-inner-wrap::-webkit-scrollbar {
-  width: 5px;
-}
-.panel-inner-wrap::-webkit-scrollbar-track {
-  background: transparent;
-}
-.panel-inner-wrap::-webkit-scrollbar-thumb {
-  background: var(--scrollbar);
-  border-radius: 3px;
-}
-.panel-inner-wrap::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-hover);
-}
-
-/* ══════════════════════════════════════
-   全局拖拽上传遮罩
-   ══════════════════════════════════════ */
-.drop-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  pointer-events: none;
-}
-
-.drop-overlay-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  padding: 40px 56px;
-  border: 2px dashed var(--primary);
-  border-radius: 16px;
-  background: var(--primary-soft);
-  color: var(--primary);
-}
-
-.drop-overlay-icon {
-  width: 48px;
-  height: 48px;
-}
-
-.drop-overlay-text {
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-}
-
-/* 遮罩淡入淡出动画 */
+/* 遮罩淡入淡出 */
 .drop-overlay-enter-active,
 .drop-overlay-leave-active {
   transition: opacity 0.2s ease;
@@ -553,5 +321,20 @@ const dateStr = computed(() =>
 .drop-overlay-enter-from,
 .drop-overlay-leave-to {
   opacity: 0;
+}
+
+/* 面板内滚动条 */
+aside div::-webkit-scrollbar {
+  width: 5px;
+}
+aside div::-webkit-scrollbar-track {
+  background: transparent;
+}
+aside div::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 3px;
+}
+aside div::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
 }
 </style>

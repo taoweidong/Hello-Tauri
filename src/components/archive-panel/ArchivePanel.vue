@@ -19,9 +19,9 @@ function retryArchive(id: string) {
 </script>
 
 <template>
-  <div style="height: 100%; display: flex; flex-direction: column;">
+  <div class="flex flex-col h-full">
     <UploadZone />
-    <NScrollbar style="flex: 1; margin-top: 8px;">
+    <NScrollbar class="flex-1 mt-2">
       <ArchiveCard
         v-for="archive in archives"
         :key="archive.id"

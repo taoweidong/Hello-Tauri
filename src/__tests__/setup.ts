@@ -153,3 +153,20 @@ if (typeof globalThis.DragEvent === 'undefined') {
   // @ts-expect-error polyfill for jsdom
   globalThis.DragEvent = DragEventPolyfill
 }
+
+// jsdom 不支持 window.matchMedia，Naive UI NTree virtual-scroll 和 @vueuse/core useBreakpoints 需要
+if (typeof window.matchMedia !== 'function') {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  })
+}

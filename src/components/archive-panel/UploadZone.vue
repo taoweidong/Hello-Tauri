@@ -62,16 +62,15 @@ async function handleInputChange(e: Event) {
 
 <template>
   <div
-    class="upload-zone"
-    :class="{ 'is-dragging': isDragging }"
+    class="cursor-pointer border border-dashed border-border rounded-md mr-1 transition-colors duration-200 hover:border-primary hover:bg-primary-soft/50"
+    :class="{ '!border-primary !bg-primary-soft/50': isDragging }"
     @drop="handleDrop"
     @dragenter="handleDragEnter"
     @dragleave="handleDragLeave"
     @dragover="handleDragOver"
     @click="handleClick"
   >
-    <!-- 子元素设置 pointer-events:none，避免拖拽事件冒泡导致 dragleave 误触发 -->
-    <div style="padding: 16px; text-align: center; pointer-events: none;">
+    <div class="p-4 text-center pointer-events-none">
       <NText depth="3">拖拽压缩包到此处，或点击上传</NText>
     </div>
     <input
@@ -79,23 +78,8 @@ async function handleInputChange(e: Event) {
       type="file"
       multiple
       accept=".zip,.gz,.gzip,.tgz,.7z,.rar,.tar"
-      style="display: none;"
+      class="hidden"
       @change="handleInputChange"
     />
   </div>
 </template>
-
-<style scoped>
-.upload-zone {
-  cursor: pointer;
-  border: 1px dashed var(--n-border-color, #666);
-  border-radius: 6px;
-  margin-right: 4px;
-  transition: border-color 0.2s, background-color 0.2s;
-}
-.upload-zone:hover,
-.upload-zone.is-dragging {
-  border-color: var(--n-color-focus, #36ad6a);
-  background-color: rgba(54, 173, 106, 0.05);
-}
-</style>

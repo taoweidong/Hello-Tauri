@@ -8,15 +8,21 @@ import {
   MIN_RIGHT_PANEL_WIDTH,
   MAX_RIGHT_PANEL_WIDTH,
 } from '@/config'
+import { type ThemeColorKey } from '@/styles/theme'
 
 export const useAppStore = defineStore('app', () => {
   const isDarkTheme = ref(true)
   const disabledPlugins = ref<string[]>([])
   const leftPanelWidth = ref(DEFAULT_LEFT_PANEL_WIDTH)
   const rightPanelWidth = ref(DEFAULT_RIGHT_PANEL_WIDTH)
+  const themeColor = ref<ThemeColorKey>('blue')
 
   function toggleTheme() {
     isDarkTheme.value = !isDarkTheme.value
+  }
+
+  function setThemeColor(color: ThemeColorKey) {
+    themeColor.value = color
   }
 
   function setLeftPanelWidth(w: number) {
@@ -46,7 +52,9 @@ export const useAppStore = defineStore('app', () => {
     disabledPlugins,
     leftPanelWidth,
     rightPanelWidth,
+    themeColor,
     toggleTheme,
+    setThemeColor,
     setLeftPanelWidth,
     setRightPanelWidth,
     disablePlugin,

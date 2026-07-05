@@ -23,7 +23,7 @@ function handleBatch(key: string) {
     <NSpace align="center" :size="16">
       <GlobalSearch />
       <NDropdown :options="batchOptions" @select="handleBatch">
-        <NButton>批量操作</NButton>
+        <NButton size="small">批量操作</NButton>
       </NDropdown>
     </NSpace>
   </NSpace>
