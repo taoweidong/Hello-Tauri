@@ -10,7 +10,7 @@ const { startDecompress } = useDecompress()
 
 function retryArchive(id: string) {
   const archive = archives.value.find(a => a.id === id)
-  if (archive && archive.status === 'failed') {
+  if (archive && (archive.status === 'failed' || archive.status === 'pending' || archive.status === 'running')) {
     archive.error = undefined
     updateStatus(id, 'pending', 0)
     startDecompress(archive)

@@ -15,7 +15,7 @@ function fileKey(file: File): string {
 export function useArchiveManager() {
   const cacheManager = useCacheManager()
 
-  function addFiles(files: File[]) {
+  async function addFiles(files: File[]) {
     const unique: File[] = []
     for (const file of files) {
       const key = fileKey(file)
@@ -40,10 +40,12 @@ export function useArchiveManager() {
       }
       archives.value.push(archive)
 
-      // 异步持久化到缓存（不阻塞 UI）
-      cacheManager.cacheArchive(archive, file).catch(() => {
+      // 先等待元数据持久化完成，防止后续 updateMeta 被 cacheArchive 的旧状态覆盖
+      try {
+        await cacheManager.cacheArchive(archive, file)
+      } catch {
         // 缓存写入失败不影响主流程
-      })
+      }
     }
     triggerDecompress()
   }
@@ -114,13 +116,16 @@ export function useArchiveManager() {
       const simpleKey = `${meta.name}:${meta.size}:${meta.lastModified}`
       addedFileKeys.add(simpleKey)
 
+      // 刷新页面后，上次正在解压的归档（running）重置为 pending，等待重新解压
+      const status = meta.status === 'running' ? 'pending' : meta.status
+
       const archive: ArchiveItem = {
         id: meta.id,
         name: meta.name,
         // file 为 undefined（缓存恢复，不持有 File 对象）
         cacheId: meta.id,
-        status: meta.status,
-        progress: meta.status === 'completed' ? 100 : 0,
+        status,
+        progress: status === 'completed' ? 100 : 0,
         files: meta.files,
         error: meta.error,
         startTime: meta.startTime,
@@ -135,6 +140,12 @@ export function useArchiveManager() {
       if (!isNaN(idNum) && idNum >= nextArchiveId) {
         nextArchiveId = idNum + 1
       }
+    }
+
+    // 自动重试上次未完成（pending）的解压任务
+    const hasPending = archives.value.some(a => a.status === 'pending')
+    if (hasPending) {
+      triggerDecompress()
     }
   }
 

@@ -35,6 +35,7 @@ export class CacheManager {
    */
   async cacheArchive(archive: ArchiveItem, file?: File): Promise<void> {
     const now = Date.now()
+    // 捕获当前状态快照用于元数据保存
     const meta: CacheMeta = {
       id: archive.id,
       name: archive.name,
@@ -50,16 +51,15 @@ export class CacheManager {
       lastAccessed: now,
     }
 
-    // 保存元数据
+    // 先保存元数据（必须 await，防止后续 updateMeta 的 status 更新被此处的旧状态覆盖）
     await this.storage.saveMeta(archive.id, meta)
+    this.accessMap.set(archive.id, now)
 
-    // 保存二进制数据（优先从 File 对象读取，减少内存拷贝）
+    // 二进制数据异步保存（不阻塞调用方，不影响元数据状态）
     if (file) {
       const data = new Uint8Array(await file.arrayBuffer())
       await this.storage.saveFileData(archive.id, data)
     }
-
-    this.accessMap.set(archive.id, now)
   }
 
   /**

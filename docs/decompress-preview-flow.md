@@ -31,7 +31,6 @@
 
 ```plantuml
 @startuml 核心模块依赖关系
-!theme plain
 skinparam backgroundColor #1a1a2e
 skinparam componentStyle rectangle
 skinparam defaultFontName Microsoft YaHei
@@ -167,7 +166,6 @@ CM --> FS : 写入/读取
 
 ```plantuml
 @startuml 文件解压流程时序
-!theme plain
 skinparam backgroundColor #1a1a2e
 skinparam defaultFontName Microsoft YaHei
 skinparam defaultFontColor #d4d4d4
@@ -286,11 +284,11 @@ deactivate UD
 
 ```plantuml
 @startuml 解压管道数据流
-!theme plain
 skinparam backgroundColor #1a1a2e
 skinparam defaultFontName Microsoft YaHei
 skinparam defaultFontColor #d4d4d4
-skinparam flowBorderColor #0f3460
+skinparam activityBorderColor #0f3460
+skinparam activityBackgroundColor #16213e
 skinparam partitionBackgroundColor #16213e
 skinparam partitionBorderColor #0f3460
 
@@ -363,7 +361,6 @@ partition "Step 6: 完成更新" {
 
 ```plantuml
 @startuml 文件预览时序
-!theme plain
 skinparam backgroundColor #1a1a2e
 skinparam defaultFontName Microsoft YaHei
 skinparam defaultFontColor #d4d4d4
@@ -471,10 +468,11 @@ TR --> User: 显示行号 + 文本内容
 
 ```plantuml
 @startuml 解析与渲染选择流程
-!theme plain
 skinparam backgroundColor #1a1a2e
 skinparam defaultFontName Microsoft YaHei
 skinparam defaultFontColor #d4d4d4
+skinparam activityBorderColor #0f3460
+skinparam activityBackgroundColor #16213e
 skinparam partitionBackgroundColor #16213e
 skinparam partitionBorderColor #0f3460
 skinparam decisionBackgroundColor #0f3460
@@ -531,7 +529,6 @@ stop
 
 ```plantuml
 @startuml 插件系统架构
-!theme plain
 skinparam backgroundColor #1a1a2e
 skinparam defaultFontName Microsoft YaHei
 skinparam defaultFontColor #d4d4d4
@@ -615,7 +612,6 @@ PluginRegistry o--> IFP : 管理
 
 ```plantuml
 @startuml 适配器模式
-!theme plain
 skinparam backgroundColor #1a1a2e
 skinparam defaultFontName Microsoft YaHei
 skinparam defaultFontColor #d4d4d4
@@ -684,7 +680,6 @@ end note
 
 ```plantuml
 @startuml 缓存系统
-!theme plain
 skinparam backgroundColor #1a1a2e
 skinparam defaultFontName Microsoft YaHei
 skinparam defaultFontColor #d4d4d4
@@ -763,7 +758,6 @@ end note
 
 ```plantuml
 @startuml 解压调用链
-!theme plain
 skinparam backgroundColor #1a1a2e
 skinparam defaultFontName Microsoft YaHei
 skinparam defaultFontColor #d4d4d4
@@ -863,7 +857,6 @@ S1 --> C2 : 更新元数据
 
 ```plantuml
 @startuml 预览调用链
-!theme plain
 skinparam backgroundColor #1a1a2e
 skinparam defaultFontName Microsoft YaHei
 skinparam defaultFontColor #d4d4d4
@@ -947,7 +940,6 @@ EB --> TR/CR/JR/LR : 动态渲染 :is="component"
 
 ```plantuml
 @startuml Rust 后端
-!theme plain
 skinparam backgroundColor #1a1a2e
 skinparam defaultFontName Microsoft YaHei
 skinparam defaultFontColor #d4d4d4
@@ -1031,10 +1023,11 @@ end note
 
 ```plantuml
 @startuml 端到端数据流转
-!theme plain
 skinparam backgroundColor #1a1a2e
 skinparam defaultFontName Microsoft YaHei
 skinparam defaultFontColor #d4d4d4
+skinparam activityBorderColor #0f3460
+skinparam activityBackgroundColor #16213e
 skinparam partitionBackgroundColor #16213e
 skinparam partitionBorderColor #0f3460
 skinparam arrowColor #e94560

@@ -22,7 +22,7 @@ const hasTabs = computed(() => tabs.value.length > 0)
 <template>
   <div class="flex flex-col h-full overflow-hidden">
     <TabBar />
-    <template v-if="hasTabs && activeTab?.content">
+    <template v-if="hasTabs">
       <PreviewToolbar
         :type="contentType"
         v-model:fontSize="fontSize"

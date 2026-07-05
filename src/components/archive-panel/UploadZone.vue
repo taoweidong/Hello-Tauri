@@ -30,6 +30,7 @@ async function handleDrop(e: DragEvent) {
   await processFiles(Array.from(items))
 }
 
+
 function handleDragEnter(e: DragEvent) {
   e.preventDefault()
   dragDepth++
