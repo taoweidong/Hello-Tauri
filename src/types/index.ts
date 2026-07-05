@@ -23,13 +23,29 @@ export interface FileTreeNode {
   children?: FileTreeNode[]
 }
 
-export interface ParsedContent {
-  type: 'text' | 'csv' | 'json' | 'hex' | 'log'
-  data: any
-  lineCount?: number
-  loadTimeMs?: number
-  pluginName: string
+export type LogLevel = 'INFO' | 'DEBUG' | 'WARN' | 'ERROR' | 'OTHER'
+
+export interface LogLine {
+  lineNumber: number
+  timestamp: string
+  level: LogLevel
+  module: string
+  message: string
+  raw: string
 }
+
+export interface CsvData {
+  headers: string[]
+  rows: string[][]
+}
+
+/** 解析结果判别联合类型：根据 type 字段可精确推断 data 类型 */
+export type ParsedContent =
+  | { type: 'text'; data: string; lineCount?: number; loadTimeMs?: number; pluginName?: string; encoding?: string; size?: number }
+  | { type: 'csv'; data: CsvData; lineCount?: number; loadTimeMs?: number; pluginName?: string; encoding?: string; size?: number }
+  | { type: 'json'; data: unknown; lineCount?: number; loadTimeMs?: number; pluginName?: string; encoding?: string; size?: number }
+  | { type: 'hex'; data: Uint8Array; lineCount?: number; loadTimeMs?: number; pluginName?: string; encoding?: string; size?: number }
+  | { type: 'log'; data: LogLine[]; lineCount?: number; loadTimeMs?: number; pluginName?: string; encoding?: string; size?: number }
 
 export interface ArchiveItem {
   id: string

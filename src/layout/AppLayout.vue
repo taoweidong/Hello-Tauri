@@ -2,7 +2,7 @@
 import { ref, computed, h, onMounted, onBeforeUnmount } from 'vue'
 import { NButton, NTooltip, NDropdown } from 'naive-ui'
 import type { DropdownOption } from 'naive-ui'
-import { useNow, useMagicKeys, whenever } from '@vueuse/core'
+import { useMagicKeys, whenever } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
 import { useGlobalDrop } from '@/composables/use-global-drop'
 import { usePanelLayout } from '@/composables/use-panel-layout'
@@ -55,12 +55,10 @@ function onMouseMove(e: MouseEvent) {
   if (draggingLeft.value) {
     const newWidth = Math.max(MIN_LEFT_PANEL_WIDTH, Math.min(MAX_LEFT_PANEL_WIDTH, e.clientX))
     setLeftWidth(newWidth)
-    store.setLeftPanelWidth(newWidth)
   }
   if (draggingRight.value) {
     const newWidth = Math.max(MIN_RIGHT_PANEL_WIDTH, Math.min(MAX_RIGHT_PANEL_WIDTH, window.innerWidth - e.clientX))
     setRightWidth(newWidth)
-    store.setRightPanelWidth(newWidth)
   }
 }
 
@@ -93,12 +91,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   cleanupDrop()
 })
-
-// ── 时钟：使用 useNow 每分钟刷新 ──
-const now = useNow({ interval: 60000 })
-const timeStr = computed(() =>
-  now.value.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
-)
 
 // ── 帮助菜单 ──
 const helpOptions: DropdownOption[] = [
@@ -173,10 +165,8 @@ function handleThemeColorSelect(key: string) {
         <PublicBar />
       </div>
 
-      <!-- 右侧：时钟 + 帮助 + 主题色 + 主题切换 -->
+      <!-- 右侧：帮助 + 主题色 + 主题切换 -->
       <div class="flex items-center gap-3 shrink-0">
-        <!-- 时钟 -->
-        <span class="text-[13px] font-semibold tracking-[0.6px] font-mono tabular-nums">{{ timeStr }}</span>
 
         <!-- 帮助下拉菜单 -->
         <NDropdown trigger="hover" :options="helpOptions" placement="bottom-end">

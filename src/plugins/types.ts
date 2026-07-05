@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import type { DecompressResult, FileEntry } from '@/types'
+import type { DecompressResult, FileEntry, ParsedContent } from '@/types'
 
 export interface ConfigField {
   key: string
@@ -24,13 +24,10 @@ export interface IFileParserPlugin {
   name: string
   supportedExtensions: string[]
   canParse(file: FileEntry): boolean
-  parse(data: Uint8Array, options?: Record<string, any>): Promise<ParsedResult>
+  parse(data: Uint8Array, options?: Record<string, any>): Promise<ParsedContent>
   getComponent(): Component
   getConfigSchema?(): ConfigSchema
 }
 
-export interface ParsedResult {
-  type: 'text' | 'csv' | 'json' | 'hex' | 'log'
-  data: any
-  lineCount?: number
-}
+/** ParsedResult 是 ParsedContent 的别名，保持向后兼容 */
+export type ParsedResult = ParsedContent

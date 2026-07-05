@@ -1,8 +1,19 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { NButton } from 'naive-ui'
 import { usePanelLayout } from '@/composables/use-panel-layout'
+import { useTabManager } from '@/composables/use-tabs'
 
 const { leftCollapsed, expandLeft } = usePanelLayout()
+const { recentFiles } = useTabManager()
+
+/** 截取前 5 条最近文件，只显示文件名 */
+const displayRecentFiles = computed(() => {
+  return recentFiles.value.slice(0, 5).map(path => {
+    const parts = path.split(/[\\/]/)
+    return parts[parts.length - 1] || path
+  })
+})
 </script>
 
 <template>
@@ -65,6 +76,24 @@ const { leftCollapsed, expandLeft } = usePanelLayout()
           <div>
             <p class="text-[12px] font-medium text-text-primary">搜索内容</p>
             <p class="text-[11px] text-text-secondary">使用顶部搜索栏或快捷键 Ctrl+K</p>
+          </div>
+        </div>
+
+        <!-- 最近文件 -->
+        <div v-if="displayRecentFiles.length > 0" class="flex items-start gap-3 p-3 rounded-lg bg-bg-elevated border border-border cursor-default">
+          <div class="w-8 h-8 rounded-lg bg-primary-soft flex items-center justify-center text-primary shrink-0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-[12px] font-medium text-text-primary mb-1">最近文件</p>
+            <div class="flex flex-col gap-0.5">
+              <span v-for="(file, idx) in displayRecentFiles" :key="idx" class="text-[11px] text-text-secondary truncate">
+                {{ file }}
+              </span>
+            </div>
           </div>
         </div>
       </div>

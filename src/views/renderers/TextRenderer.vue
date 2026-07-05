@@ -1,13 +1,25 @@
 <script setup lang="ts">
 import { NEmpty } from 'naive-ui'
+import { useTabManager } from '@/composables/use-tabs'
 
 defineProps<{ content: string }>()
+const { setCursor } = useTabManager()
+
+function handleLineClick(lineIndex: number, event: MouseEvent) {
+  const target = event.currentTarget as HTMLElement
+  if (!target) return
+  // 计算列号：根据点击位置相对于文本起始的偏移
+  const rect = target.getBoundingClientRect()
+  const charWidth = 8.4 // 等宽字体近似字符宽度
+  const col = Math.max(1, Math.round((event.clientX - rect.left) / charWidth) + 1)
+  setCursor(lineIndex + 1, col)
+}
 </script>
 
 <template>
   <NEmpty v-if="!content" description="空文件" style="margin-top: 40px;" />
   <div v-else class="text-renderer">
-    <div v-for="(line, i) in content.split('\n')" :key="i" class="line">
+    <div v-for="(line, i) in content.split('\n')" :key="i" class="line" @click="handleLineClick(i, $event)">
       <span class="line-no">{{ i + 1 }}</span>
       <span class="line-text">{{ line }}</span>
     </div>

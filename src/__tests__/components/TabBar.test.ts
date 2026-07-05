@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
 import TabBar from '@/components/workspace/TabBar.vue'
 import { useTabManager } from '@/composables/use-tabs'
 import type { FileTreeNode } from '@/types'
@@ -11,6 +12,7 @@ function mockNode(name: string): FileTreeNode {
 
 describe('TabBar', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     const { reset } = useTabManager()
     reset()
   })

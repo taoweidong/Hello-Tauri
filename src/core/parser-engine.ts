@@ -23,12 +23,10 @@ export class ParserEngine {
       if (!result) return null
 
       return {
-        type: result.type,
-        data: result.data,
-        lineCount: result.lineCount,
+        ...result,
         loadTimeMs: performance.now() - start,
         pluginName: plugin.name,
-      }
+      } as ParsedContent
     } catch {
       return null
     }

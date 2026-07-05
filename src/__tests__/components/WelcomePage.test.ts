@@ -1,8 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import WelcomePage from '@/components/workspace/WelcomePage.vue'
 
 describe('WelcomePage', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
   it('渲染欢迎标题', () => {
     const wrapper = mount(WelcomePage)
     expect(wrapper.text()).toContain('Hello Tauri')

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useTabManager } from '@/composables/use-tabs'
 
-const { activeTab } = useTabManager()
+const { activeTab, cursorPosition } = useTabManager()
 
 const fileInfo = computed(() => {
   if (!activeTab.value?.content) return '无文件打开'
@@ -10,7 +10,7 @@ const fileInfo = computed(() => {
   const parts: string[] = []
   if (c.lineCount !== undefined) parts.push(`${c.lineCount} 行`)
   if (c.encoding) parts.push(c.encoding)
-  parts.push(c.pluginName)
+  if (c.pluginName) parts.push(c.pluginName)
   return parts.join(' | ')
 })
 
@@ -21,11 +21,15 @@ const fileSize = computed(() => {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 })
+
+const hasContent = computed(() => !!activeTab.value?.content)
 </script>
 
 <template>
   <div class="flex items-center justify-between w-full">
     <div class="flex items-center gap-3">
+      <span v-if="hasContent" class="tabular-nums">行 {{ cursorPosition.line }}, 列 {{ cursorPosition.column }}</span>
+      <span v-if="hasContent" class="opacity-40">|</span>
       <span>{{ fileInfo }}</span>
       <span v-if="fileSize" class="opacity-60">{{ fileSize }}</span>
     </div>

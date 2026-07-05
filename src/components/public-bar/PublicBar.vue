@@ -1,18 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import { NSpace, NButton, NDropdown, NText } from 'naive-ui'
+import { useNow } from '@vueuse/core'
 import { useArchiveManager } from '@/composables/use-archives'
 import GlobalSearch from './GlobalSearch.vue'
 
 const { archives } = useArchiveManager()
 
-/** 实时时钟 */
-const currentTime = ref('')
-let clockTimer: ReturnType<typeof setInterval> | null = null
-
-function updateTime() {
-  const now = new Date()
-  currentTime.value = now.toLocaleString('zh-CN', {
+/** 实时时钟 - 每分钟更新一次（60000ms） */
+const now = useNow({ interval: 60000 })
+const currentTime = computed(() => {
+  return now.value.toLocaleString('zh-CN', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -21,15 +19,6 @@ function updateTime() {
     second: '2-digit',
     hour12: false,
   })
-}
-
-onMounted(() => {
-  updateTime()
-  clockTimer = setInterval(updateTime, 1000)
-})
-
-onUnmounted(() => {
-  if (clockTimer) clearInterval(clockTimer)
 })
 
 const batchOptions = [

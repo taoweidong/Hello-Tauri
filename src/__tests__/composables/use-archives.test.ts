@@ -37,9 +37,9 @@ describe('useArchiveManager', () => {
     expect(archives.value).toHaveLength(0)
   })
 
-  it('computes aggregate stats', () => {
+  it('computes aggregate stats', async () => {
     const { archives, addFiles, stats } = useArchiveManager()
-    addFiles([
+    await addFiles([
       new File(['abc'], 'a.zip'),
       new File(['defgh'], 'b.zip'),
     ])
@@ -90,9 +90,9 @@ describe('useArchiveManager', () => {
     expect(archives.value).toHaveLength(1)
   })
 
-  it('去重：不同文件正常添加', () => {
+  it('去重：不同文件正常添加', async () => {
     const { archives, addFiles } = useArchiveManager()
-    addFiles([
+    await addFiles([
       new File(['a'], 'a.zip'),
       new File(['bb'], 'b.zip'),
     ])

@@ -4,6 +4,12 @@ import type { TabItem, FileTreeNode } from '@/types'
 const tabs = ref<TabItem[]>([])
 const activeTabId = ref<string | null>(null)
 
+/** 光标位置（行:列），由渲染器更新 */
+const cursorPosition = ref<{ line: number; column: number }>({ line: 1, column: 1 })
+
+/** 最近打开的文件路径（去重，最多保留 10 条） */
+const recentFiles = ref<string[]>([])
+
 let nextTabId = 0
 
 export function useTabManager() {
@@ -28,6 +34,10 @@ export function useTabManager() {
     }
     tabs.value.push(tab)
     activeTabId.value = tab.id
+
+    // 记录最近文件
+    const filePath = node.path || node.label
+    recentFiles.value = [filePath, ...recentFiles.value.filter(p => p !== filePath)].slice(0, 10)
   }
 
   function closeTab(id: string) {
@@ -53,11 +63,17 @@ export function useTabManager() {
     activeTabId.value = tabs.value[0]?.id ?? null
   }
 
+  function setCursor(line: number, column: number) {
+    cursorPosition.value = { line, column }
+  }
+
   function reset() {
     tabs.value = []
     activeTabId.value = null
     nextTabId = 0
+    cursorPosition.value = { line: 1, column: 1 }
+    recentFiles.value = []
   }
 
-  return { tabs, activeTab, activeTabId, openTab, closeTab, activateTab, togglePin, closeAll, reset }
+  return { tabs, activeTab, activeTabId, cursorPosition, recentFiles, openTab, closeTab, activateTab, togglePin, closeAll, setCursor, reset }
 }

@@ -36,7 +36,7 @@ describe('StatusBar', () => {
     if (tab) {
       tab.content = {
         type: 'csv',
-        data: [],
+        data: { headers: [], rows: [] },
         lineCount: 100,
         pluginName: 'CSV解析器',
         size: 2048,

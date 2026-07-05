@@ -36,7 +36,9 @@ export class ZipExtensionValidator implements FileValidator {
 
 /**
  * 检查 ZIP 内是否包含 VERSION.txt 文件。
- * 使用 fflate 同步解压仅读取文件名列表，不解压内容（零拷贝）。
+ * 使用 fflate 的 unzipSync 解压并获取文件名列表。
+ * 注意：unzipSync 会解压所有内容到内存，对于大型 ZIP 文件可能占用较多内存。
+ * 如需优化，可改用仅读取 ZIP 中央目录（Central Directory）的方案。
  */
 export class ZipContentValidator implements FileValidator {
   /** 必须存在的文件路径（支持精确匹配或后缀匹配） */

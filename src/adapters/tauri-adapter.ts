@@ -11,15 +11,44 @@ async function getInvoke() {
   return invoke
 }
 
+/**
+ * Uint8Array 转 base64 字符串（用于大文件 IPC 传输优化）
+ * 相比 Array.from() 的 JSON 序列化，base64 可减少约 3-5 倍的传输体积
+ */
+function uint8ArrayToBase64(data: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 8192
+  for (let i = 0; i < data.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, Array.from(data.subarray(i, i + chunkSize)))
+  }
+  return btoa(binary)
+}
+
+/**
+ * base64 字符串转 Uint8Array
+ */
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes
+}
+
 export class TauriAdapter implements IPlatformAdapter {
   async readFile(path: string): Promise<Uint8Array> {
     const fn = await getInvoke()
+    // TODO: 大文件优化 - 后端返回 base64 字符串，前端解码
+    // 当前使用 Array 传输，小文件可接受，大文件建议改用 base64
     const data = await fn('read_file', { path })
     return new Uint8Array(data)
   }
 
   async writeFile(path: string, data: Uint8Array): Promise<void> {
     const fn = await getInvoke()
+    // TODO: 大文件优化 - 使用 base64 编码传输
+    // await fn('write_file', { path, data: uint8ArrayToBase64(data), encoding: 'base64' })
     await fn('write_file', { path, data: Array.from(data) })
   }
 
@@ -35,6 +64,8 @@ export class TauriAdapter implements IPlatformAdapter {
 
   async decompress(data: Uint8Array, format: string, outputDir: string): Promise<DecompressResult> {
     const fn = await getInvoke()
+    // TODO: 大文件优化 - 使用 base64 编码传输
+    // return fn('decompress', { data: uint8ArrayToBase64(data), format, outputDir, encoding: 'base64' })
     return fn('decompress', { data: Array.from(data), format, outputDir })
   }
 

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { NEmpty } from 'naive-ui'
 import type { LogLine, LogLevel } from '@/plugins/parsers/types'
+import { useTabManager } from '@/composables/use-tabs'
 
 defineProps<{ content: LogLine[] }>()
+const { setCursor } = useTabManager()
 
 const levelColor: Record<LogLevel, string> = {
   INFO: '#3B82F6',
@@ -11,12 +13,16 @@ const levelColor: Record<LogLevel, string> = {
   DEBUG: '#9ca3af',
   OTHER: '#d4d4d4',
 }
+
+function handleLineClick(lineNumber: number) {
+  setCursor(lineNumber, 1)
+}
 </script>
 
 <template>
   <NEmpty v-if="content.length === 0" description="空日志" style="margin-top: 40px;" />
   <div v-else class="log-renderer">
-    <div v-for="line in content" :key="line.lineNumber" class="log-line">
+    <div v-for="line in content" :key="line.lineNumber" class="log-line" @click="handleLineClick(line.lineNumber)">
       <span class="col-no">{{ line.lineNumber }}</span>
       <span class="col-ts">{{ line.timestamp }}</span>
       <span class="col-level" :style="{ color: levelColor[line.level] }">{{ line.level }}</span>

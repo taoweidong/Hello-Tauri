@@ -49,7 +49,6 @@
 
 - 使用 Tailwind 原子类替代手写 CSS
 - 精简右侧元素：将 GitHub/Issue 链接合并到"帮助"下拉菜单
-- 时钟组件使用 `useNow({ interval: 60000 })` 替代手动 setInterval，按分钟刷新
 - 搜索栏增加 `Ctrl+K` 快捷键提示徽章
 - 背景使用 `backdrop-blur-md bg-bg-surface/85` 毛玻璃悬浮效果
 

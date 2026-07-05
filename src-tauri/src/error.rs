@@ -9,6 +9,8 @@ pub enum AppError {
     #[error("Not found: {0}")]
     #[allow(dead_code)]
     NotFound(String),
+    #[error("Permission denied: {0}")]
+    Permission(String),
 }
 
 impl Serialize for AppError {

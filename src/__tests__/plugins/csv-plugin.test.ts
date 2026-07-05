@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { csvPlugin } from '@/plugins/parser/csv-plugin'
+import type { CsvData } from '@/types'
 
 describe('csvPlugin', () => {
   it('canParse returns true for .csv files', () => {
@@ -12,21 +13,24 @@ describe('csvPlugin', () => {
     const data = new TextEncoder().encode('name,age\nAlice,30\nBob,25')
     const result = await csvPlugin.parse(data)
     expect(result.type).toBe('csv')
-    expect(result.data.headers).toEqual(['name', 'age'])
-    expect(result.data.rows).toEqual([['Alice', '30'], ['Bob', '25']])
+    const csvData = result.data as CsvData
+    expect(csvData.headers).toEqual(['name', 'age'])
+    expect(csvData.rows).toEqual([['Alice', '30'], ['Bob', '25']])
     expect(result.lineCount).toBe(3)
   })
 
   it('parse respects custom delimiter', async () => {
     const data = new TextEncoder().encode('name\tage\nAlice\t30')
     const result = await csvPlugin.parse(data, { delimiter: '\t' })
-    expect(result.data.headers).toEqual(['name', 'age'])
+    const csvData = result.data as CsvData
+    expect(csvData.headers).toEqual(['name', 'age'])
   })
 
   it('parse handles empty file', async () => {
     const data = new Uint8Array(0)
     const result = await csvPlugin.parse(data)
-    expect(result.data.headers).toEqual([])
-    expect(result.data.rows).toEqual([])
+    const csvData = result.data as CsvData
+    expect(csvData.headers).toEqual([])
+    expect(csvData.rows).toEqual([])
   })
 })
