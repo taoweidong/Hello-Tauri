@@ -40,8 +40,8 @@ function handleLineClick(lineNumber: number) {
   padding: 8px;
   overflow: auto;
   height: 100%;
-  background: #1a1a2e;
-  color: #d4d4d4;
+  background: var(--color-editor-bg);
+  color: var(--color-editor-text);
 }
 .log-line {
   display: flex;
@@ -50,7 +50,7 @@ function handleLineClick(lineNumber: number) {
   white-space: pre;
 }
 .col-no {
-  color: #666;
+  color: var(--color-editor-gutter);
   min-width: 3em;
   text-align: right;
   user-select: none;

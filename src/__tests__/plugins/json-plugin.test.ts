@@ -26,4 +26,16 @@ describe('jsonPlugin', () => {
     const result = await jsonPlugin.parse(data)
     expect(result.data).toEqual([1, 2, 3])
   })
+
+  it('getComponent 返回 JsonRenderer 组件', () => {
+    const component = jsonPlugin.getComponent()
+    expect(component).toBeDefined()
+  })
+
+  it('parse 支持自定义编码', async () => {
+    const data = new TextEncoder().encode('{"a":1}')
+    const result = await jsonPlugin.parse(data, { encoding: 'utf-8' })
+    expect(result.type).toBe('json')
+    expect(result.data).toEqual({ a: 1 })
+  })
 })

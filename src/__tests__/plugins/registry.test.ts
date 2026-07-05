@@ -94,4 +94,94 @@ describe('PluginRegistry', () => {
     expect(result.success).toBe(false)
     expect(result.error).toBe('decompress failed')
   })
+
+  it('detectCompression 根据文件扩展名匹配压缩插件', () => {
+    const plugin = createMockCompression('zip', ['.zip'])
+    registry.registerCompression(plugin)
+    const file: FileEntry = { name: 'data.zip', path: '/data.zip', size: 100, isDirectory: false }
+    expect(registry.detectCompression(file)).toBe(plugin)
+  })
+
+  it('detectCompression 无匹配时返回 null', () => {
+    const file: FileEntry = { name: 'data.txt', path: '/data.txt', size: 100, isDirectory: false }
+    expect(registry.detectCompression(file)).toBeNull()
+  })
+
+  it('detectCompression 已禁用插件不返回', () => {
+    const plugin = createMockCompression('zip', ['.zip'])
+    registry.registerCompression(plugin)
+    registry.disable('zip')
+    const file: FileEntry = { name: 'data.zip', path: '/data.zip', size: 100, isDirectory: false }
+    expect(registry.detectCompression(file)).toBeNull()
+  })
+
+  it('isEnabled 判断插件启用/禁用状态', () => {
+    const plugin = createMockParser('text', ['.txt'])
+    registry.registerParser(plugin)
+    expect(registry.isEnabled('text')).toBe(true)
+    registry.disable('text')
+    expect(registry.isEnabled('text')).toBe(false)
+    registry.enable('text')
+    expect(registry.isEnabled('text')).toBe(true)
+  })
+
+  it('hasParser 和 hasCompression 检查注册状态', () => {
+    const parser = createMockParser('text', ['.txt'])
+    const comp = createMockCompression('zip', ['.zip'])
+    expect(registry.hasParser('text')).toBe(false)
+    expect(registry.hasCompression('zip')).toBe(false)
+    registry.registerParser(parser)
+    registry.registerCompression(comp)
+    expect(registry.hasParser('text')).toBe(true)
+    expect(registry.hasCompression('zip')).toBe(true)
+  })
+
+  it('getParserNames 和 getCompressionNames 返回已注册名称列表', () => {
+    registry.registerParser(createMockParser('text', ['.txt']))
+    registry.registerParser(createMockParser('csv', ['.csv']))
+    registry.registerCompression(createMockCompression('zip', ['.zip']))
+    expect(registry.getParserNames()).toEqual(['text', 'csv'])
+    expect(registry.getCompressionNames()).toEqual(['zip'])
+  })
+
+  it('detectByFileName 根据文件名检测解析插件', () => {
+    const plugin = createMockParser('json', ['.json'])
+    registry.registerParser(plugin)
+    expect(registry.detectByFileName('data.json')).toBe(plugin)
+    expect(registry.detectByFileName('unknown.xyz')).toBeNull()
+  })
+
+  it('safeParse 成功路径返回解析结果', async () => {
+    const plugin = createMockParser('text', ['.txt'])
+    plugin.parse = async () => ({ type: 'text', data: 'hello world' })
+    registry.registerParser(plugin)
+    const result = await registry.safeParse(plugin, new Uint8Array(0))
+    expect(result.type).toBe('text')
+    expect(result.data).toBe('hello world')
+  })
+
+  it('safeDecompress 成功路径返回解压结果', async () => {
+    const plugin = createMockCompression('zip', ['.zip'])
+    plugin.decompress = async () => ({
+      success: true,
+      files: [{ name: 'a.txt', path: 'a.txt', size: 10, isDirectory: false }],
+    })
+    registry.registerCompression(plugin)
+    const result = await registry.safeDecompress(plugin, new Uint8Array(0), '/tmp')
+    expect(result.success).toBe(true)
+    expect(result.files).toHaveLength(1)
+  })
+
+  it('safeDecompress 非 Error 异常使用默认错误信息', async () => {
+    const failingPlugin: ICompressionPlugin = {
+      name: 'failing2',
+      supportedExtensions: ['.gz'],
+      canHandle: () => true,
+      decompress: async () => { throw 'string error' },
+    }
+    registry.registerCompression(failingPlugin)
+    const result = await registry.safeDecompress(failingPlugin, new Uint8Array(0), '/tmp')
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('Unknown error')
+  })
 })

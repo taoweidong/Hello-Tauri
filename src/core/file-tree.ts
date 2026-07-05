@@ -1,9 +1,16 @@
 import type { FileTreeNode, FileEntry } from '@/types'
 
+/** 文件树构建器，将扁平文件列表转换为树形结构 */
 export class FileTreeBuilder {
   private nodeMap = new Map<string, FileTreeNode>()
   private placed = new Set<string>()
 
+  /**
+   * 将扁平文件条目列表构建为树形节点数组
+   * @param files - 文件条目列表
+   * @param rootPath - 根路径（用于判断顶层节点）
+   * @returns 顶层树节点数组
+   */
   build(files: FileEntry[], rootPath: string): FileTreeNode[] {
     if (files.length === 0) return []
 
@@ -43,6 +50,12 @@ export class FileTreeBuilder {
     return rootNodes
   }
 
+  /**
+   * 在树中递归查找指定 key 的节点
+   * @param nodes - 搜索起始的节点列表
+   * @param key - 目标节点的 key
+   * @returns 找到的节点或 null
+   */
   static findNode(nodes: FileTreeNode[], key: string): FileTreeNode | null {
     for (const node of nodes) {
       if (node.key === key) return node
@@ -54,6 +67,11 @@ export class FileTreeBuilder {
     return null
   }
 
+  /**
+   * 将树形结构扁平化为一维数组
+   * @param nodes - 顶层节点列表
+   * @returns 扁平化后的所有节点
+   */
   static flattenTree(nodes: FileTreeNode[]): FileTreeNode[] {
     const result: FileTreeNode[] = []
     const walk = (nodeList: FileTreeNode[]) => {

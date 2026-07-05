@@ -1,11 +1,13 @@
 import type { ICompressionPlugin } from '../types'
+import { matchesAnyExtension } from '../types'
 import type { FileEntry } from '@/types'
 
+/** ZIP 压缩插件，Tauri 端调用后端解压，Web 端使用 fflate 纯 JS 解压 */
 export const zipPlugin: ICompressionPlugin = {
   name: 'zip',
   supportedExtensions: ['.zip'],
   canHandle(file: FileEntry): boolean {
-    return file.name.endsWith('.zip')
+    return matchesAnyExtension(file.name, this.supportedExtensions)
   },
   async decompress(data: Uint8Array, _outputDir: string) {
     if (__PLATFORM__ === 'tauri') {

@@ -2,12 +2,20 @@ import type { IPlatformAdapter } from '@/adapters/types'
 import type { ParsedContent, FileTreeNode } from '@/types'
 import type { PluginRegistry } from '@/plugins/registry'
 
+/** 文件解析引擎，根据文件扩展名选择插件并解析内容 */
 export class ParserEngine {
   constructor(
     private adapter: IPlatformAdapter,
     private registry: PluginRegistry
   ) {}
 
+  /**
+   * 解析指定文件节点的内容
+   * @param node - 文件树节点
+   * @param archivePath - 归档路径前缀
+   * @param encoding - 字符编码，默认 'utf-8'
+   * @returns 解析结果，失败时返回 null
+   */
   async resolveFile(node: FileTreeNode, archivePath: string, encoding = 'utf-8'): Promise<ParsedContent | null> {
     const start = performance.now()
 

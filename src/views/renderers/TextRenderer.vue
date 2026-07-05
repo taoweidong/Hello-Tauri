@@ -34,12 +34,12 @@ function handleLineClick(lineIndex: number, event: MouseEvent) {
   overflow: auto;
   height: 100%;
   padding: 8px;
-  background: #1a1a2e;
-  color: #d4d4d4;
+  background: var(--color-editor-bg);
+  color: var(--color-editor-text);
 }
 .line { display: flex; }
 .line-no {
-  color: #666;
+  color: var(--color-editor-gutter);
   min-width: 3em;
   text-align: right;
   padding-right: 1em;

@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { NButton } from 'naive-ui'
 import { usePanelLayout } from '@/composables/use-panel-layout'
 import { useTabManager } from '@/composables/use-tabs'
+import { APP_NAME, APP_DESCRIPTION, APP_LOGO_SVG } from '@/config'
 
 const { leftCollapsed, expandLeft } = usePanelLayout()
 const { recentFiles } = useTabManager()
@@ -21,21 +22,13 @@ const displayRecentFiles = computed(() => {
     <div class="flex flex-col items-center gap-6 px-8 py-12">
       <!-- 图标 -->
       <div class="w-20 h-20 rounded-2xl bg-primary-soft flex items-center justify-center text-primary">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-10 h-10">
-          <rect x="2" y="3" width="20" height="18" rx="3"/>
-          <path d="M2 8h20"/>
-          <circle cx="5.5" cy="5.5" r="0.8" fill="currentColor" stroke="none"/>
-          <circle cx="8.5" cy="5.5" r="0.8" fill="currentColor" stroke="none"/>
-          <circle cx="11.5" cy="5.5" r="0.8" fill="currentColor" stroke="none"/>
-          <rect x="5" y="11" width="6" height="7" rx="1"/>
-          <path d="M14 11h5M14 14h5M14 17h3"/>
-        </svg>
+        <div class="w-10 h-10" v-html="APP_LOGO_SVG"></div>
       </div>
 
       <!-- 标题 -->
       <div class="text-center">
-        <h2 class="text-[15px] font-bold text-text-primary mb-1">Hello Tauri</h2>
-        <p class="text-[13px] text-text-secondary">跨平台桌面数据工具</p>
+        <h2 class="text-[15px] font-bold text-text-primary mb-1">{{ APP_NAME }}</h2>
+        <p class="text-[13px] text-text-secondary">{{ APP_DESCRIPTION }}</p>
       </div>
 
       <!-- 操作提示 -->

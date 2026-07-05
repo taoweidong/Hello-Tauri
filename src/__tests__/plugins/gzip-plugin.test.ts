@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { gzipPlugin } from '@/plugins/compression/gzip-plugin'
+import { gzipSync } from 'fflate'
 import type { FileEntry } from '@/types'
 
 describe('gzipPlugin', () => {
@@ -22,5 +23,37 @@ describe('gzipPlugin', () => {
   it('插件名称和 supportedExtensions 正确', () => {
     expect(gzipPlugin.name).toBe('gzip')
     expect(gzipPlugin.supportedExtensions).toEqual(['.gz', '.gzip', '.tgz'])
+  })
+
+  it('decompress 使用 DecompressionStream 成功解压（Web 端）', async () => {
+    // 用 fflate 生成合法 gzip 数据
+    const original = new TextEncoder().encode('hello gzip world')
+    const gzipped = gzipSync(original)
+    const data = new Uint8Array(gzipped)
+
+    const result = await gzipPlugin.decompress(data, '')
+    expect(result.success).toBe(true)
+    expect(result.files).toHaveLength(1)
+    expect(result.files[0].name).toBe('decompressed')
+    expect(result.files[0].size).toBe(original.length)
+  })
+
+  it('decompress 在 DecompressionStream 不可用时返回失败', async () => {
+    // 临时移除 DecompressionStream
+    const origDS = globalThis.DecompressionStream
+    // @ts-expect-error 临时删除
+    delete globalThis.DecompressionStream
+
+    try {
+      const data = new Uint8Array([1, 2, 3])
+      const result = await gzipPlugin.decompress(data, '')
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('not available')
+    } finally {
+      // 恢复
+      if (origDS) {
+        globalThis.DecompressionStream = origDS
+      }
+    }
   })
 })

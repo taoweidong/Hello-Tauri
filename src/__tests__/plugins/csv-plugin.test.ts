@@ -33,4 +33,24 @@ describe('csvPlugin', () => {
     expect(csvData.headers).toEqual([])
     expect(csvData.rows).toEqual([])
   })
+
+  it('getComponent 返回 CsvRenderer 组件', () => {
+    const component = csvPlugin.getComponent()
+    expect(component).toBeDefined()
+  })
+
+  it('getConfigSchema 返回分隔符和固定表头配置', () => {
+    const schema = csvPlugin.getConfigSchema!()
+    expect(schema.fields).toHaveLength(2)
+    expect(schema.fields[0].key).toBe('delimiter')
+    expect(schema.fields[0].default).toBe(',')
+    expect(schema.fields[1].key).toBe('fixedHeader')
+    expect(schema.fields[1].default).toBe(true)
+  })
+
+  it('parse 支持自定义编码', async () => {
+    const data = new TextEncoder().encode('a,b\n1,2')
+    const result = await csvPlugin.parse(data, { encoding: 'utf-8' })
+    expect(result.type).toBe('csv')
+  })
 })

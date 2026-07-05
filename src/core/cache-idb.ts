@@ -1,15 +1,17 @@
 /**
  * IndexedDB 缓存存储实现（Web 端）
- * 数据库：hello-tauri-cache
  * ObjectStore：meta（元数据）、filedata（二进制）
  */
 import type { ICacheStorage, CacheMeta } from './cache-storage'
-
-const DB_NAME = 'hello-tauri-cache'
+import { DB_NAME } from '@/config'
+/** IndexedDB 数据库版本号 */
 const DB_VERSION = 1
+/** 元数据 ObjectStore 名称 */
 const META_STORE = 'meta'
+/** 二进制数据 ObjectStore 名称 */
 const DATA_STORE = 'filedata'
 
+/** 打开 IndexedDB 数据库，自动创建所需的 ObjectStore */
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
@@ -35,18 +37,23 @@ function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
   })
 }
 
+/** IndexedDB 缓存存储实现（Web 端） */
 export class IdbCacheStorage implements ICacheStorage {
+  /** 数据库连接实例 */
   private db: IDBDatabase | null = null
 
+  /** 初始化数据库连接 */
   async init(): Promise<void> {
     this.db = await openDB()
   }
 
+  /** 获取数据库实例，未初始化时抛出异常 */
   private getDB(): IDBDatabase {
     if (!this.db) throw new Error('IdbCacheStorage 未初始化，请先调用 init()')
     return this.db
   }
 
+  /** 保存归档元数据 */
   async saveMeta(id: string, meta: CacheMeta): Promise<void> {
     const db = this.getDB()
     const tx = db.transaction(META_STORE, 'readwrite')
@@ -54,6 +61,7 @@ export class IdbCacheStorage implements ICacheStorage {
     await idbRequest(store.put(meta))
   }
 
+  /** 读取单个归档元数据 */
   async loadMeta(id: string): Promise<CacheMeta | null> {
     const db = this.getDB()
     const tx = db.transaction(META_STORE, 'readonly')
@@ -62,6 +70,7 @@ export class IdbCacheStorage implements ICacheStorage {
     return result ?? null
   }
 
+  /** 读取所有归档元数据，按 lastAccessed 升序排列 */
   async loadAllMeta(): Promise<CacheMeta[]> {
     const db = this.getDB()
     const tx = db.transaction(META_STORE, 'readonly')
@@ -71,6 +80,7 @@ export class IdbCacheStorage implements ICacheStorage {
     return all.sort((a, b) => a.lastAccessed - b.lastAccessed)
   }
 
+  /** 删除归档元数据 */
   async deleteMeta(id: string): Promise<void> {
     const db = this.getDB()
     const tx = db.transaction(META_STORE, 'readwrite')
@@ -78,6 +88,7 @@ export class IdbCacheStorage implements ICacheStorage {
     await idbRequest(store.delete(id))
   }
 
+  /** 保存归档二进制数据 */
   async saveFileData(id: string, data: Uint8Array): Promise<void> {
     const db = this.getDB()
     const tx = db.transaction(DATA_STORE, 'readwrite')
@@ -85,6 +96,7 @@ export class IdbCacheStorage implements ICacheStorage {
     await idbRequest(store.put(data, id))
   }
 
+  /** 读取归档二进制数据 */
   async loadFileData(id: string): Promise<Uint8Array | null> {
     const db = this.getDB()
     const tx = db.transaction(DATA_STORE, 'readonly')
@@ -93,6 +105,7 @@ export class IdbCacheStorage implements ICacheStorage {
     return result ?? null
   }
 
+  /** 删除归档二进制数据 */
   async deleteFileData(id: string): Promise<void> {
     const db = this.getDB()
     const tx = db.transaction(DATA_STORE, 'readwrite')
@@ -100,6 +113,7 @@ export class IdbCacheStorage implements ICacheStorage {
     await idbRequest(store.delete(id))
   }
 
+  /** 列出所有已缓存的归档 id */
   async listIds(): Promise<string[]> {
     const db = this.getDB()
     const tx = db.transaction(META_STORE, 'readonly')

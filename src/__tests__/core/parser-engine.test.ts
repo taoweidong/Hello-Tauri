@@ -10,13 +10,13 @@ const DummyComponent = defineComponent({ template: '<div>dummy</div>' })
 function createMockAdapter(): IPlatformAdapter {
   return {
     readFile: vi.fn(),
-    readRange: vi.fn(),
-    getFileSize: vi.fn(),
-    decompress: vi.fn(),
+    writeFile: vi.fn(),
     listFiles: vi.fn(),
-    searchFiles: vi.fn(),
-    getMimeType: vi.fn(),
-  }
+    getTempDir: vi.fn(),
+    decompress: vi.fn(),
+    mmapRead: vi.fn(),
+    streamRead: vi.fn(),
+  } as any
 }
 
 function createMockRegistry() {

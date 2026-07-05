@@ -28,6 +28,11 @@
   --color-warning: #F59E0B;
   --color-success: #10B981;
 
+  /* 代码编辑器色（TextRenderer / LogRenderer / HexRenderer 共享） */
+  --color-editor-bg: #1a1a2e;
+  --color-editor-text: #d4d4d4;
+  --color-editor-gutter: #666;
+
   /* 间距 Token */
   --spacing-header: 48px;
   --spacing-statusbar: 26px;

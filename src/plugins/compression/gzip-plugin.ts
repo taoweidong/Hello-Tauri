@@ -1,11 +1,13 @@
 import type { ICompressionPlugin } from '../types'
+import { matchesAnyExtension } from '../types'
 import type { FileEntry } from '@/types'
 
+/** Gzip 压缩插件，Tauri 端调用后端解压，Web 端使用 DecompressionStream API */
 export const gzipPlugin: ICompressionPlugin = {
   name: 'gzip',
   supportedExtensions: ['.gz', '.gzip', '.tgz'],
   canHandle(file: FileEntry): boolean {
-    return this.supportedExtensions.some(ext => file.name.endsWith(ext))
+    return matchesAnyExtension(file.name, this.supportedExtensions)
   },
   async decompress(data: Uint8Array, _outputDir: string) {
     if (__PLATFORM__ === 'tauri') {

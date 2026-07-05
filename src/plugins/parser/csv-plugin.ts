@@ -1,12 +1,14 @@
 import type { IFileParserPlugin, ConfigSchema } from '../types'
+import { matchesAnyExtension } from '../types'
 import { parseCsv } from '@/plugins/parsers/csv-parser'
 import CsvRenderer from '@/views/renderers/CsvRenderer.vue'
 
+/** CSV/TSV 解析插件，支持自定义分隔符与固定表头 */
 export const csvPlugin: IFileParserPlugin = {
   name: 'csv',
   supportedExtensions: ['.csv', '.tsv'],
   canParse(file) {
-    return this.supportedExtensions.some(ext => file.name.endsWith(ext))
+    return matchesAnyExtension(file.name, this.supportedExtensions)
   },
   async parse(data: Uint8Array, options?: Record<string, any>) {
     const encoding = options?.encoding ?? 'utf-8'

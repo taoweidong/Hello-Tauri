@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { NText, useMessage } from 'naive-ui'
 import { useArchiveManager } from '@/composables/use-archives'
-import { filterArchiveFiles, validateArchiveFiles } from '@/core/archive-utils'
+import { processArchiveUpload } from '@/core/archive-utils'
 
 const { addFiles } = useArchiveManager()
 const message = useMessage()
@@ -10,12 +10,9 @@ const fileInput = ref<HTMLInputElement>()
 const isDragging = ref(false)
 let dragDepth = 0
 
-/** 处理拖放或输入的文件：过滤压缩包 → 验证 → 添加 */
+/** 处理拖放或输入的文件：过滤 → 验证 → 添加 */
 async function processFiles(rawFiles: File[]) {
-  const archives = filterArchiveFiles(rawFiles)
-  if (!archives.length) return
-
-  const validFiles = await validateArchiveFiles(archives, (name, msg) => {
+  const validFiles = await processArchiveUpload(rawFiles, (name, msg) => {
     message.error(`${name}：${msg}`)
   })
   if (validFiles.length) addFiles(validFiles)

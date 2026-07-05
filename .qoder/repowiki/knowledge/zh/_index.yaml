@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-04T15:46:47Z"
+exported_at: "2026-07-05T15:35:34Z"
 modules:
     "":
-        dir_name: Hello-Tauri 跨平台桌面应用（Vue + Tauri）
-        title: Hello-Tauri 跨平台桌面应用（Vue + Tauri）
+        dir_name: Hello-Tauri 单仓双端应用
+        title: Hello-Tauri 单仓双端应用
         scope:
             - README.md
             - AGENTS.md
@@ -26,8 +26,8 @@ modules:
         depends_on: []
         related_to: []
     tauri_backend:
-        dir_name: Tauri 桌面应用后端 (src-tauri)
-        title: Tauri 桌面应用后端 (src-tauri)
+        dir_name: Tauri 2 桌面应用后端
+        title: Tauri 2 桌面应用后端
         scope:
             - src-tauri/
         source_files: []
@@ -37,8 +37,8 @@ modules:
         depends_on: []
         related_to: []
     tauri_backend/core_app:
-        dir_name: Tauri 应用入口与运行时初始化
-        title: Tauri 应用入口与运行时初始化
+        dir_name: Tauri 应用启动与错误体系
+        title: Tauri 应用启动与错误体系
         scope:
             - src-tauri/src/lib.rs
             - src-tauri/src/main.rs
@@ -49,8 +49,21 @@ modules:
         related_to:
             - path: tauri_backend/file_commands
     tauri_backend/file_commands:
-        dir_name: Tauri 文件与解压命令层
-        title: Tauri 文件与解压命令层
+        dir_name: Tauri 文件操作与解压命令层
+        title: Tauri 文件操作与解压命令层
+        scope:
+            - src-tauri/src/file_ops.rs
+            - src-tauri/src/decompress.rs
+            - src-tauri/src/commands.rs
+        source_files: []
+        children:
+            - tauri_backend/file_commands/file_commands
+        depends_on: []
+        related_to:
+            - path: tauri_backend/core_app
+    tauri_backend/file_commands/file_commands:
+        dir_name: Tauri 文件操作与解压命令层
+        title: Tauri 文件操作与解压命令层
         scope:
             - src-tauri/src/file_ops.rs
             - src-tauri/src/decompress.rs
@@ -58,5 +71,4 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: tauri_backend/core_app
+        related_to: []

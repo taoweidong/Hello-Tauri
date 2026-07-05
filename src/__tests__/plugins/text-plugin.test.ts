@@ -26,4 +26,24 @@ describe('textPlugin', () => {
     expect(result.data).toBe('')
     expect(result.lineCount).toBe(0)
   })
+
+  it('getComponent 返回 TextRenderer 组件', () => {
+    const component = textPlugin.getComponent()
+    expect(component).toBeDefined()
+  })
+
+  it('canParse 支持多种文本格式', () => {
+    const exts = ['.txt', '.md', '.cfg', '.ini', '.env', '.yaml', '.yml', '.toml']
+    for (const ext of exts) {
+      const file: FileEntry = { name: `test${ext}`, path: '/', size: 0, isDirectory: false }
+      expect(textPlugin.canParse(file)).toBe(true)
+    }
+  })
+
+  it('parse 支持自定义编码', async () => {
+    const data = new TextEncoder().encode('hello')
+    const result = await textPlugin.parse(data, { encoding: 'utf-8' })
+    expect(result.type).toBe('text')
+    expect(result.data).toBe('hello')
+  })
 })

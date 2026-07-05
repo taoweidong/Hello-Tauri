@@ -5,14 +5,21 @@ import { TaskScheduler } from '@/core/task-scheduler'
 import { FileTreeBuilder } from '@/core/file-tree'
 import type { ArchiveItem } from '@/types'
 
+/** 任务调度器（最大并发 3） */
 const scheduler = new TaskScheduler(3)
+/** 文件树构建器实例 */
 const treeBuilder = new FileTreeBuilder()
 
+/** 解压管理 composable，提供单个/批量解压能力 */
 export function useDecompress() {
   const { archives, updateStatus } = useArchiveManager()
   const { registry } = usePluginEngine()
   const cacheManager = useCacheManager()
 
+  /**
+   * 启动单个归档的解压任务
+   * @param archive - 待解压的归档项
+   */
   async function startDecompress(archive: ArchiveItem) {
     updateStatus(archive.id, 'running', 0)
 
@@ -76,6 +83,7 @@ export function useDecompress() {
     }
   }
 
+  /** 解压所有状态为 pending 的归档 */
   function decompressAll() {
     for (const archive of archives.value) {
       if (archive.status === 'pending') {

@@ -2,7 +2,12 @@ import type { IPlatformAdapter } from './types'
 import type { FileEntry, DecompressResult } from '@/types'
 import { memoryStore } from '@/core/memory-store'
 
+/**
+ * Web 平台适配器实现
+ * 使用 fetch API 和内存存储实现文件读取，不支持写入和原生解压
+ */
 export class WebAdapter implements IPlatformAdapter {
+  /** 读取文件，优先从内存存储获取，否则通过 HTTP 请求 */
   async readFile(path: string): Promise<Uint8Array> {
     const cached = memoryStore.read(path)
     if (cached) return cached
@@ -12,22 +17,27 @@ export class WebAdapter implements IPlatformAdapter {
     return new Uint8Array(buffer)
   }
 
+  /** Web 模式不支持文件写入 */
   async writeFile(_path: string, _data: Uint8Array): Promise<void> {
     throw new Error('writeFile is not supported in Web mode')
   }
 
+  /** Web 模式不支持目录列表 */
   async listFiles(_dir: string): Promise<FileEntry[]> {
     throw new Error('listFiles is not supported in Web mode')
   }
 
+  /** 返回固定的临时目录路径 */
   async getTempDir(): Promise<string> {
     return '/tmp/web'
   }
 
+  /** Web 模式（无 WASM）不支持原生解压 */
   async decompress(_data: Uint8Array, _format: string, _outputDir: string): Promise<DecompressResult> {
     throw new Error('decompress is not supported in Web mode without WASM')
   }
 
+  /** 通过 HTTP Range 请求读取文件指定区间 */
   async mmapRead(path: string, offset: number, length: number): Promise<Uint8Array> {
     const cached = memoryStore.read(path)
     if (cached) return cached.slice(offset, offset + length)
@@ -39,6 +49,7 @@ export class WebAdapter implements IPlatformAdapter {
     return new Uint8Array(buffer)
   }
 
+  /** 流式读取文件，优先从内存存储获取，否则通过 fetch 流式传输 */
   streamRead(path: string): ReadableStream<Uint8Array> {
     const cached = memoryStore.read(path)
     if (cached) {

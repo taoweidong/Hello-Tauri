@@ -57,10 +57,7 @@ pub async fn get_temp_dir() -> Result<String, AppError> {
 /// 返回应用数据目录路径（持久化，重启不丢失）
 #[tauri::command]
 pub fn get_app_data_dir(app: tauri::AppHandle) -> Result<String, AppError> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+    let dir = app_data_base(&app)?;
     Ok(dir.to_string_lossy().to_string())
 }
 

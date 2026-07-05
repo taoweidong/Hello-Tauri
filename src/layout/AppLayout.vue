@@ -12,6 +12,10 @@ import {
   MAX_LEFT_PANEL_WIDTH,
   MIN_RIGHT_PANEL_WIDTH,
   MAX_RIGHT_PANEL_WIDTH,
+  APP_NAME,
+  APP_BADGE,
+  SITE_LINKS,
+  APP_LOGO_SVG,
 } from '@/config'
 import PublicBar from '@/components/public-bar/PublicBar.vue'
 import ArchivePanel from '@/components/archive-panel/ArchivePanel.vue'
@@ -35,17 +39,12 @@ whenever(keys['Ctrl+Shift+B'], (v) => {
 const draggingLeft = ref(false)
 const draggingRight = ref(false)
 
-function startDragLeft(e: MouseEvent) {
-  if (leftCollapsed.value) return
-  draggingLeft.value = true
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-  e.preventDefault()
-}
-
-function startDragRight(e: MouseEvent) {
-  if (rightCollapsed.value) return
-  draggingRight.value = true
+/** 开始拖拽指定侧边栏，设置全局光标样式 */
+function startDrag(side: 'left' | 'right', e: MouseEvent) {
+  const collapsed = side === 'left' ? leftCollapsed.value : rightCollapsed.value
+  if (collapsed) return
+  if (side === 'left') draggingLeft.value = true
+  else draggingRight.value = true
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
   e.preventDefault()
@@ -98,7 +97,7 @@ const helpOptions: DropdownOption[] = [
     key: 'github',
     label: () =>
       h('a', {
-        href: 'https://github.com/taoweidong/Hello-Tauri',
+        href: SITE_LINKS.github,
         target: '_blank',
         rel: 'noopener noreferrer',
         class: 'flex items-center gap-2 text-text-primary no-underline hover:text-primary transition-colors'
@@ -111,7 +110,7 @@ const helpOptions: DropdownOption[] = [
     key: 'issue',
     label: () =>
       h('a', {
-        href: 'https://github.com/taoweidong/Hello-Tauri/issues/new',
+        href: SITE_LINKS.issue,
         target: '_blank',
         rel: 'noopener noreferrer',
         class: 'flex items-center gap-2 text-text-primary noopener noreferrer hover:text-primary transition-colors'
@@ -130,11 +129,22 @@ const themeColorOptions: DropdownOption[] = [
   { key: 'purple', label: '紫色' },
   { key: 'orange', label: '橙色' },
 ]
+/** 批量设置 CSS 自定义属性 */
+function setCssVars(vars: Record<string, string>) {
+  const style = document.documentElement.style
+  for (const [prop, value] of Object.entries(vars)) {
+    style.setProperty(prop, value)
+  }
+}
+
 function handleThemeColorSelect(key: string) {
   currentThemeColor.value = key as ThemeColorKey
-  document.documentElement.style.setProperty('--color-primary', themeColors[key as ThemeColorKey])
-  document.documentElement.style.setProperty('--color-primary-soft', `color-mix(in srgb, ${themeColors[key as ThemeColorKey]} 14%, transparent)`)
-  document.documentElement.style.setProperty('--color-primary-hover', themeColors[key as ThemeColorKey])
+  const color = themeColors[key as ThemeColorKey]
+  setCssVars({
+    '--color-primary': color,
+    '--color-primary-soft': `color-mix(in srgb, ${color} 14%, transparent)`,
+    '--color-primary-hover': color,
+  })
 }
 </script>
 
@@ -145,19 +155,9 @@ function handleThemeColorSelect(key: string) {
     <header class="flex items-center gap-4 px-4 h-header bg-bg-surface/85 backdrop-blur-md border-b border-border z-10 select-none">
       <!-- 左侧：Logo + 名称 + 徽章 -->
       <div class="flex items-center gap-2.5 shrink-0">
-        <div class="w-[26px] h-[26px] flex items-center justify-center text-primary" style="filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-primary) 40%, transparent))">
-          <svg viewBox="0 0 24 24" fill="none" class="w-full h-full">
-            <rect x="2" y="3" width="20" height="18" rx="3" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M2 8h20" stroke="currentColor" stroke-width="1.5"/>
-            <circle cx="5.5" cy="5.5" r="0.8" fill="currentColor"/>
-            <circle cx="8.5" cy="5.5" r="0.8" fill="currentColor"/>
-            <circle cx="11.5" cy="5.5" r="0.8" fill="currentColor"/>
-            <rect x="5" y="11" width="6" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/>
-            <path d="M14 11h5M14 14h5M14 17h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-          </svg>
-        </div>
-        <span class="text-[15px] font-bold tracking-[0.3px] bg-gradient-to-r from-primary to-[color-mix(in_srgb,var(--color-primary)_65%,#a855f7)] bg-clip-text text-transparent">Hello Tauri</span>
-        <span class="text-[10px] px-2 py-0.5 rounded-[10px] bg-primary-soft text-primary font-medium tracking-[0.2px]">桌面工具</span>
+        <div class="w-[26px] h-[26px] flex items-center justify-center text-primary" style="filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-primary) 40%, transparent))" v-html="APP_LOGO_SVG"></div>
+        <span class="text-[15px] font-bold tracking-[0.3px] bg-gradient-to-r from-primary to-[color-mix(in_srgb,var(--color-primary)_65%,#a855f7)] bg-clip-text text-transparent">{{ APP_NAME }}</span>
+        <span class="text-[10px] px-2 py-0.5 rounded-[10px] bg-primary-soft text-primary font-medium tracking-[0.2px]">{{ APP_BADGE }}</span>
       </div>
 
       <!-- 中央：PublicBar -->
@@ -214,7 +214,7 @@ function handleThemeColorSelect(key: string) {
       <div
         v-if="!leftCollapsed"
         class="shrink-0 w-[4px] h-full cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors duration-200 relative z-[4]"
-        @mousedown="startDragLeft"
+        @mousedown="(e) => startDrag('left', e)"
       >
         <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border-strong/30 group-hover:bg-primary/40"></div>
       </div>
@@ -240,7 +240,7 @@ function handleThemeColorSelect(key: string) {
       <div
         v-if="!rightCollapsed"
         class="shrink-0 w-[4px] h-full cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors duration-200 relative z-[4]"
-        @mousedown="startDragRight"
+        @mousedown="(e) => startDrag('right', e)"
       >
         <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border-strong/30"></div>
       </div>

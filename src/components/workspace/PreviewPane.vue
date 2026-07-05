@@ -17,6 +17,7 @@ const { getAdapter } = usePlatform()
 
 let enginePromise: Promise<ParserEngine> | null = null
 
+/** 获取 ParserEngine 单例 */
 async function getEngine() {
   if (!enginePromise) {
     const adapter = await getAdapter()
@@ -25,31 +26,35 @@ async function getEngine() {
   return enginePromise
 }
 
-watch(activeTab, async (tab) => {
-  if (!tab || tab.content) return
-  try {
-    const engine = await getEngine()
-    const content = await engine.resolveFile(tab.fileNode, '', props.encoding ?? 'utf-8')
-    if (content) {
-      tab.content = content
-    }
-  } catch {
-    // 加载失败，保持 loading 状态
-  }
-}, { immediate: true })
-
-// 编码变更时重新解析当前文件
-watch(() => props.encoding, async (newEncoding) => {
+/** 解析当前文件内容，失败时保持原状态 */
+async function resolveCurrentFile(encoding: string) {
   const tab = activeTab.value
   if (!tab) return
   try {
     const engine = await getEngine()
-    const content = await engine.resolveFile(tab.fileNode, '', newEncoding ?? 'utf-8')
+    const content = await engine.resolveFile(tab.fileNode, '', encoding)
     if (content) {
       tab.content = content
     }
   } catch {
-    // 解析失败，保持原内容
+    // 解析失败，保持当前状态
+  }
+}
+
+/** 当标签页切换或编码变更时，重新解析文件 */
+watch(
+  () => [activeTab.value, props.encoding] as const,
+  ([tab, encoding]) => {
+    if (!tab || tab.content) return
+    resolveCurrentFile(encoding ?? 'utf-8')
+  },
+  { immediate: true },
+)
+
+/** 编码变更时重新解析当前文件 */
+watch(() => props.encoding, (newEncoding) => {
+  if (activeTab.value) {
+    resolveCurrentFile(newEncoding ?? 'utf-8')
   }
 })
 

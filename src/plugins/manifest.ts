@@ -7,6 +7,11 @@ import { jsonPlugin } from './parser/json-plugin'
 import { logPlugin } from './parser/log-plugin'
 import { hexPlugin } from './parser/hex-plugin'
 
+/**
+ * 注册所有内置插件到注册表
+ * 包含压缩插件（zip、gzip）与解析插件（text、csv、json、log、hex）
+ * @param registry - 插件注册表实例
+ */
 export function registerBuiltinPlugins(registry: PluginRegistry): void {
   registry.registerCompression(zipPlugin)
   registry.registerCompression(gzipPlugin)

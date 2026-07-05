@@ -6,6 +6,32 @@
 import type { ICacheStorage, CacheMeta } from './cache-storage'
 import type { ArchiveItem } from '@/types'
 
+/**
+ * 从 ArchiveItem 提取缓存元数据字段。
+ * 统一 cacheArchive 与 updateMeta 的字段映射逻辑，消除重复。
+ * @param archive - 归档项
+ * @param overrides - 可选的字段覆盖（如 size、lastModified、lastAccessed）
+ */
+function toCacheMeta(
+  archive: ArchiveItem,
+  overrides?: Partial<Pick<CacheMeta, 'size' | 'lastModified' | 'lastAccessed'>>,
+): CacheMeta {
+  return {
+    id: archive.id,
+    name: archive.name,
+    size: overrides?.size ?? archive.compressedSize,
+    lastModified: overrides?.lastModified ?? 0,
+    status: archive.status,
+    files: archive.files,
+    originalSize: archive.originalSize,
+    compressedSize: archive.compressedSize,
+    startTime: archive.startTime,
+    endTime: archive.endTime,
+    error: archive.error,
+    lastAccessed: overrides?.lastAccessed ?? Date.now(),
+  }
+}
+
 export interface CacheManagerOptions {
   /** 最大缓存归档数量，超出后 LRU 淘汰，默认 20 */
   maxItems?: number
@@ -34,26 +60,15 @@ export class CacheManager {
    * @param file 原始 File 对象（当次会话中可用）
    */
   async cacheArchive(archive: ArchiveItem, file?: File): Promise<void> {
-    const now = Date.now()
-    // 捕获当前状态快照用于元数据保存
-    const meta: CacheMeta = {
-      id: archive.id,
-      name: archive.name,
+    const meta = toCacheMeta(archive, {
       size: file?.size ?? archive.compressedSize,
       lastModified: file?.lastModified ?? 0,
-      status: archive.status,
-      files: archive.files,
-      originalSize: archive.originalSize,
-      compressedSize: archive.compressedSize,
-      startTime: archive.startTime,
-      endTime: archive.endTime,
-      error: archive.error,
-      lastAccessed: now,
-    }
+      lastAccessed: Date.now(),
+    })
 
     // 先保存元数据（必须 await，防止后续 updateMeta 的 status 更新被此处的旧状态覆盖）
     await this.storage.saveMeta(archive.id, meta)
-    this.accessMap.set(archive.id, now)
+    this.accessMap.set(archive.id, meta.lastAccessed)
 
     // 二进制数据异步保存（不阻塞调用方，不影响元数据状态）
     if (file) {
@@ -69,16 +84,12 @@ export class CacheManager {
     const existing = await this.storage.loadMeta(archive.id)
     if (!existing) return
 
-    const updated: CacheMeta = {
-      ...existing,
-      status: archive.status,
-      files: archive.files,
-      originalSize: archive.originalSize,
-      compressedSize: archive.compressedSize,
-      startTime: archive.startTime,
-      endTime: archive.endTime,
-      error: archive.error,
-    }
+    // 复用 toCacheMeta 提取字段，保留已有的 lastAccessed 与 lastModified
+    const updated = toCacheMeta(archive, {
+      size: existing.size,
+      lastModified: existing.lastModified,
+      lastAccessed: existing.lastAccessed,
+    })
     await this.storage.saveMeta(archive.id, updated)
   }
 

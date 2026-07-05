@@ -1,5 +1,7 @@
 node_modules
 build/
+coverage/
+vibe_images/
 *.local
 .DS_Store
 src-tauri/target/

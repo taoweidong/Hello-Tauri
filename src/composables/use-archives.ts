@@ -2,19 +2,31 @@ import { ref, computed } from 'vue'
 import type { ArchiveItem } from '@/types'
 import { useCacheManager } from './use-cache'
 
+/** 所有归档项的响应式列表（模块级单例） */
 const archives = ref<ArchiveItem[]>([])
 
+/** 下一个归档 id 计数器 */
 let nextArchiveId = 0
 /** 已添加文件的身份集合，用于去重（name + size + lastModified） */
 const addedFileKeys = new Set<string>()
 
+/**
+ * 生成文件唯一标识键（用于去重）
+ * @param file - 文件对象
+ * @returns 格式为 "name:size:lastModified" 的字符串
+ */
 function fileKey(file: File): string {
   return `${file.name}:${file.size}:${file.lastModified}`
 }
 
+/** 归档管理器 composable，提供归档的增删改查与缓存恢复能力 */
 export function useArchiveManager() {
   const cacheManager = useCacheManager()
 
+  /**
+   * 添加文件到归档列表（自动去重）
+   * @param files - 待添加的文件列表
+   */
   async function addFiles(files: File[]) {
     const unique: File[] = []
     for (const file of files) {
@@ -50,12 +62,17 @@ export function useArchiveManager() {
     triggerDecompress()
   }
 
+  /** 触发解压所有待处理归档（动态导入避免循环依赖） */
   async function triggerDecompress() {
     const { useDecompress } = await import('./use-decompress')
     const { decompressAll } = useDecompress()
     decompressAll()
   }
 
+  /**
+   * 移除指定归档项（同时清理缓存与去重集合）
+   * @param id - 归档 id
+   */
   function remove(id: string) {
     const archive = archives.value.find(a => a.id === id)
     if (archive) {
@@ -72,6 +89,12 @@ export function useArchiveManager() {
     archives.value = archives.value.filter(a => a.id !== id)
   }
 
+  /**
+   * 更新归档状态与进度
+   * @param id - 归档 id
+   * @param status - 新状态
+   * @param progress - 进度百分比（可选）
+   */
   function updateStatus(id: string, status: ArchiveItem['status'], progress?: number) {
     const archive = archives.value.find(a => a.id === id)
     if (archive) {
@@ -87,6 +110,7 @@ export function useArchiveManager() {
     }
   }
 
+  /** 归档统计信息（计算属性） */
   const stats = computed(() => {
     let totalCount = 0
     let totalCompressedSize = 0
@@ -149,6 +173,7 @@ export function useArchiveManager() {
     }
   }
 
+  /** 重置所有归档状态（测试用） */
   function reset() {
     archives.value = []
     nextArchiveId = 0

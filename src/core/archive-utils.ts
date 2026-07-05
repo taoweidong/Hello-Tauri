@@ -40,3 +40,19 @@ export async function validateArchiveFiles(
   }
   return valid
 }
+
+/**
+ * 统一的压缩包上传处理流程：过滤 → 验证 → 返回有效文件列表。
+ * 抽取自 UploadZone 与 use-global-drop 的重复逻辑。
+ * @param rawFiles - 原始文件列表
+ * @param onError - 单个文件验证失败时的回调
+ * @returns 通过验证的压缩包文件列表
+ */
+export async function processArchiveUpload(
+  rawFiles: File[],
+  onError?: (fileName: string, message: string) => void,
+): Promise<File[]> {
+  const archives = filterArchiveFiles(rawFiles)
+  if (archives.length === 0) return []
+  return validateArchiveFiles(archives, onError)
+}

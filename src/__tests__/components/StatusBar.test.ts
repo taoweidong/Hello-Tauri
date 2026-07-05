@@ -44,7 +44,8 @@ describe('StatusBar', () => {
     }
 
     const wrapper = mount(StatusBar)
-    expect(wrapper.text()).toContain('2.0 KB')
+    // formatSize(2048) 输出 '2 KB'（parseFloat 去掉尾随零）
+    expect(wrapper.text()).toContain('2 KB')
   })
 
   it('包含字体缩放滑块', () => {

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useTabManager } from '@/composables/use-tabs'
+import { formatSize } from '@/core/format'
 
 const { activeTab, cursorPosition } = useTabManager()
 
+/** 当前文件摘要信息（行数、编码、插件名） */
 const fileInfo = computed(() => {
   if (!activeTab.value?.content) return '无文件打开'
   const c = activeTab.value.content
@@ -14,12 +16,10 @@ const fileInfo = computed(() => {
   return parts.join(' | ')
 })
 
+/** 当前文件大小（复用 formatSize 工具函数） */
 const fileSize = computed(() => {
-  if (!activeTab.value?.content?.size) return ''
-  const size = activeTab.value.content.size
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  const size = activeTab.value?.content?.size
+  return size ? formatSize(size) : ''
 })
 
 const hasContent = computed(() => !!activeTab.value?.content)
