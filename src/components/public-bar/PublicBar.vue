@@ -7,8 +7,8 @@ import GlobalSearch from './GlobalSearch.vue'
 
 const { archives } = useArchiveManager()
 
-/** 实时时钟 - 每分钟更新一次（60000ms） */
-const now = useNow({ interval: 60000 })
+/** 实时时钟 - 每秒更新一次 */
+const now = useNow({ interval: 1000 })
 const currentTime = computed(() => {
   return now.value.toLocaleString('zh-CN', {
     year: 'numeric',
