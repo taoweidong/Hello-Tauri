@@ -47,4 +47,38 @@ describe('PublicBar', () => {
     const dropdown = wrapper.findComponent({ name: 'Dropdown' })
     expect(dropdown.exists()).toBe(true)
   })
+
+  it('handleBatch clear 清空归档列表', async () => {
+    const { addFiles, archives } = useArchiveManager()
+    addFiles([new File(['x'], 'test.zip', { type: 'application/zip' })])
+    await nextTick()
+    expect(archives.value.length).toBeGreaterThanOrEqual(1)
+
+    const wrapper = mount(PublicBar)
+    const vm = wrapper.vm as any
+    vm.handleBatch('clear')
+    await nextTick()
+    expect(archives.value.length).toBe(0)
+  })
+
+  it('handleBatch 非 clear 操作不清空列表', async () => {
+    const { addFiles, archives } = useArchiveManager()
+    addFiles([new File(['x'], 'test.zip', { type: 'application/zip' })])
+    await nextTick()
+
+    const wrapper = mount(PublicBar)
+    const vm = wrapper.vm as any
+    vm.handleBatch('export')
+    await nextTick()
+    // 不应清空列表（export 操作无实际逻辑）
+    expect(archives.value.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('渲染实时时钟文本', () => {
+    const wrapper = mount(PublicBar)
+    // 应有日期时间格式文本
+    const text = wrapper.text()
+    // 时间格式包含分隔符（/ 和 :）
+    expect(text).toMatch(/\d{4}/)
+  })
 })

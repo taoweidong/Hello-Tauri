@@ -27,7 +27,10 @@ export class FsCacheStorage implements ICacheStorage {
   /** 缓存根目录路径 */
   private cacheDir = ''
 
-  /** 初始化缓存目录（创建 meta/data 子目录） */
+  /**
+   * 初始化缓存目录（创建 meta/data 子目录）
+   * @returns 初始化完成后 resolve
+   */
   async init(): Promise<void> {
     const fn = await getInvoke()
     const appDataDir: string = await fn('get_app_data_dir')
@@ -62,7 +65,11 @@ export class FsCacheStorage implements ICacheStorage {
     }
   }
 
-  /** 保存归档元数据为 JSON 文件 */
+  /**
+   * 保存归档元数据为 JSON 文件
+   * @param _id - 归档 id（当前未使用，由 meta.id 决定路径）
+   * @param meta - 缓存元数据
+   */
   async saveMeta(_id: string, meta: CacheMeta): Promise<void> {
     const fn = await getInvoke()
     const json = JSON.stringify(meta)
@@ -70,7 +77,11 @@ export class FsCacheStorage implements ICacheStorage {
     await fn('write_file', { path: this.metaPath(meta.id), data: Array.from(encoded) })
   }
 
-  /** 读取单个归档元数据 */
+  /**
+   * 读取单个归档元数据
+   * @param id - 归档 id
+   * @returns 缓存元数据，不存在或解析失败时返回 null
+   */
   async loadMeta(id: string): Promise<CacheMeta | null> {
     const bytes = await this.readRawBytes(this.metaPath(id))
     if (!bytes) return null
@@ -82,7 +93,10 @@ export class FsCacheStorage implements ICacheStorage {
     }
   }
 
-  /** 读取所有归档元数据，按 lastAccessed 升序排列 */
+  /**
+   * 读取所有归档元数据，按 lastAccessed 升序排列
+   * @returns 元数据数组，读取失败时返回空数组
+   */
   async loadAllMeta(): Promise<CacheMeta[]> {
     const fn = await getInvoke()
     const metaDir = joinPath(this.cacheDir, 'meta')
@@ -103,7 +117,10 @@ export class FsCacheStorage implements ICacheStorage {
     return metaList.sort((a, b) => a.lastAccessed - b.lastAccessed)
   }
 
-  /** 删除归档元数据文件 */
+  /**
+   * 删除归档元数据文件
+   * @param id - 归档 id
+   */
   async deleteMeta(id: string): Promise<void> {
     const fn = await getInvoke()
     const path = this.metaPath(id)
@@ -114,19 +131,30 @@ export class FsCacheStorage implements ICacheStorage {
     }
   }
 
-  /** 保存归档二进制数据 */
+  /**
+   * 保存归档二进制数据
+   * @param id - 归档 id
+   * @param data - 字节数组
+   */
   async saveFileData(id: string, data: Uint8Array): Promise<void> {
     const fn = await getInvoke()
     await fn('write_file', { path: this.dataPath(id), data: Array.from(data) })
   }
 
-  /** 读取归档二进制数据 */
+  /**
+   * 读取归档二进制数据
+   * @param id - 归档 id
+   * @returns 字节数组，不存在或读取出错时返回 null
+   */
   async loadFileData(id: string): Promise<Uint8Array | null> {
     const bytes = await this.readRawBytes(this.dataPath(id))
     return bytes ? new Uint8Array(bytes) : null
   }
 
-  /** 删除归档二进制数据文件 */
+  /**
+   * 删除归档二进制数据文件
+   * @param id - 归档 id
+   */
   async deleteFileData(id: string): Promise<void> {
     const fn = await getInvoke()
     const path = this.dataPath(id)
@@ -137,7 +165,10 @@ export class FsCacheStorage implements ICacheStorage {
     }
   }
 
-  /** 列出所有已缓存的归档 id */
+  /**
+   * 列出所有已缓存的归档 id
+   * @returns 归档 id 字符串数组，读取失败时返回空数组
+   */
   async listIds(): Promise<string[]> {
     const fn = await getInvoke()
     const metaDir = joinPath(this.cacheDir, 'meta')

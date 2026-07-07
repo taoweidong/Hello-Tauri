@@ -1,4 +1,24 @@
-import type { SearchMatch, SearchResults } from '@/types'
+import type { ParsedContent, SearchMatch, SearchResults } from '@/types'
+
+/**
+ * 将已解析的文件内容转换为可搜索的纯文本
+ * @param content - 已解析的文件内容（联合类型，按 type 分支处理）
+ * @returns 纯文本字符串；不支持的类型返回空串
+ */
+export function extractSearchableText(content: ParsedContent): string {
+  switch (content.type) {
+    case 'text':
+      return content.data
+    case 'csv':
+      return [content.data.headers.join(','), ...content.data.rows.map(row => row.join(','))].join('\n')
+    case 'json':
+      return typeof content.data === 'string' ? content.data : JSON.stringify(content.data, null, 2)
+    case 'log':
+      return content.data.map(line => line.raw).join('\n')
+    default:
+      return ''
+  }
+}
 
 /** 全文搜索服务，支持在多个文件内容中查找关键字 */
 export class SearchService {

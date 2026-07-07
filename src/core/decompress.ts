@@ -4,6 +4,11 @@ import type { PluginRegistry } from '@/plugins/registry'
 
 /** 解压服务，通过插件注册表检测并执行解压操作 */
 export class DecompressService {
+  /**
+   * 创建解压服务实例
+   * @param adapter - 平台适配器，用于文件操作
+   * @param registry - 插件注册表，用于查找压缩插件
+   */
   constructor(
     private adapter: IPlatformAdapter,
     private registry: PluginRegistry

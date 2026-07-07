@@ -48,21 +48,38 @@ export function useTabManager() {
     tabs.value.push(tab)
     activeTabId.value = tab.id
 
-    // 超出上限时淘汰最早的非固定标签页（FIFO）
+    // 超出上限时逐个淘汰最早的非固定标签页
     while (tabs.value.length > MAX_TABS) {
-      const victim = tabs.value.find(t => !t.pinned)
-      if (!victim) break // 全是固定标签则不再淘汰
-      const victimIdx = tabs.value.indexOf(victim)
-      tabs.value.splice(victimIdx, 1)
-      // 如果淘汰的恰好是当前激活标签，切换到最后一个
-      if (activeTabId.value === victim.id) {
-        activeTabId.value = tabs.value[Math.min(victimIdx, tabs.value.length - 1)]?.id ?? null
-      }
+      if (!evictOldestUnpinnedTab()) break
     }
 
     // 记录最近文件
     const filePath = node.path || node.label
     recentFiles.value = [filePath, ...recentFiles.value.filter(p => p !== filePath)].slice(0, 10)
+  }
+
+  /**
+   * 关闭或移除标签后，激活相邻标签页
+   * @param removedIndex - 被移除标签的原索引位置
+   * @param removedId - 被移除标签的 id
+   */
+  function activateAdjacentTab(removedIndex: number, removedId: string) {
+    if (activeTabId.value === removedId) {
+      activeTabId.value = tabs.value[Math.min(removedIndex, tabs.value.length - 1)]?.id ?? null
+    }
+  }
+
+  /**
+   * 淘汰最早的非固定标签页（FIFO），并处理激活切换
+   * @returns 是否有标签页被淘汰
+   */
+  function evictOldestUnpinnedTab(): boolean {
+    const victimIndex = tabs.value.findIndex(t => !t.pinned)
+    if (victimIndex === -1) return false
+    const victim = tabs.value[victimIndex]
+    tabs.value.splice(victimIndex, 1)
+    activateAdjacentTab(victimIndex, victim.id)
+    return true
   }
 
   /**
@@ -73,9 +90,7 @@ export function useTabManager() {
     const index = tabs.value.findIndex(t => t.id === id)
     if (index === -1) return
     tabs.value.splice(index, 1)
-    if (activeTabId.value === id) {
-      activeTabId.value = tabs.value[Math.min(index, tabs.value.length - 1)]?.id ?? null
-    }
+    activateAdjacentTab(index, id)
   }
 
   /**

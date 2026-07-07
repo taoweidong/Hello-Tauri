@@ -100,4 +100,5 @@ export class TauriAdapter implements IPlatformAdapter {
   }
 }
 
+/** Tauri 平台适配器全局单例 */
 export default new TauriAdapter()

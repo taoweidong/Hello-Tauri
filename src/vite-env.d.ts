@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+/** 编译时平台标识，由 Vite define 注入，值为 'web' 或 'tauri' */
 declare const __PLATFORM__: 'web' | 'tauri'
 
 declare module '*.vue' {

@@ -80,4 +80,5 @@ export class WebAdapter implements IPlatformAdapter {
   }
 }
 
+/** Web 平台适配器全局单例 */
 export default new WebAdapter()

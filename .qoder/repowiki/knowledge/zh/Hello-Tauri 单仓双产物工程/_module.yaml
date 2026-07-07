@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: ""
-title: Hello-Tauri 单仓双端应用
+title: Hello-Tauri 单仓双产物工程
 scope:
     - README.md
     - AGENTS.md

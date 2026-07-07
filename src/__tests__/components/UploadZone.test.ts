@@ -92,4 +92,41 @@ describe('UploadZone', () => {
     // 上传区域文字不变（因为非压缩包被过滤）
     expect(wrapper.text()).toContain('拖拽压缩包到此处，或点击上传')
   })
+
+  it('handleDrop 无文件时直接返回', async () => {
+    const wrapper = mountUploadZone()
+    const dropZone = wrapper.find('.cursor-pointer')
+    // 不传文件
+    const dt = new DataTransfer()
+    await dropZone.trigger('drop', { dataTransfer: dt })
+    // 不应报错
+    expect(wrapper.text()).toContain('拖拽压缩包到此处')
+  })
+
+  it('handleDragOver 阻止默认行为', async () => {
+    const wrapper = mountUploadZone()
+    const dropZone = wrapper.find('.cursor-pointer')
+    await dropZone.trigger('dragover', { dataTransfer: new DataTransfer() })
+    // 不报错即可
+    expect(wrapper.exists()).toBe(true)
+  })
+
+  it('多次 dragenter 后 dragleave 到 0 才取消激活', async () => {
+    const wrapper = mountUploadZone()
+    const dropZone = wrapper.find('.cursor-pointer')
+
+    // 两次 dragenter
+    await dropZone.trigger('dragenter', { dataTransfer: new DataTransfer() })
+    await dropZone.trigger('dragenter', { dataTransfer: new DataTransfer() })
+
+    // 一次 dragleave 不应取消
+    await dropZone.trigger('dragleave')
+    await nextTick()
+    expect(wrapper.find('.\\!border-primary').exists()).toBe(true)
+
+    // 第二次 dragleave 应取消
+    await dropZone.trigger('dragleave')
+    await nextTick()
+    expect(wrapper.find('.\\!border-primary').exists()).toBe(false)
+  })
 })

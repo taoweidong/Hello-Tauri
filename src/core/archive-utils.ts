@@ -9,13 +9,21 @@ const ACCEPTED_EXTENSIONS = new Set([
   '.zip', '.gz', '.gzip', '.tgz', '.7z', '.rar', '.tar',
 ])
 
-/** 判断文件名是否为支持的压缩包格式 */
+/**
+ * 判断文件名是否为支持的压缩包格式
+ * @param fileName - 文件名
+ * @returns 是否为支持的压缩包扩展名
+ */
 export function isArchiveFile(fileName: string): boolean {
   const ext = fileName.slice(fileName.lastIndexOf('.')).toLowerCase()
   return ACCEPTED_EXTENSIONS.has(ext)
 }
 
-/** 从文件列表中过滤出压缩包文件 */
+/**
+ * 从文件列表中过滤出压缩包文件
+ * @param files - 原始文件列表
+ * @returns 压缩包文件子集
+ */
 export function filterArchiveFiles(files: File[]): File[] {
   return files.filter(f => isArchiveFile(f.name))
 }
@@ -23,6 +31,9 @@ export function filterArchiveFiles(files: File[]): File[] {
 /**
  * 对文件列表执行内容验证，返回通过验证的文件。
  * 验证失败时通过 onError 回调通知调用方（用于 UI 提示）。
+ * @param files - 待验证的文件列表
+ * @param onError - 单个文件验证失败时的回调
+ * @returns 通过验证的文件列表
  */
 export async function validateArchiveFiles(
   files: File[],

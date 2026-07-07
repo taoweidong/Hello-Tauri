@@ -4,6 +4,11 @@ import type { PluginRegistry } from '@/plugins/registry'
 
 /** 文件解析引擎，根据文件扩展名选择插件并解析内容 */
 export class ParserEngine {
+  /**
+   * 创建解析引擎实例
+   * @param adapter - 平台适配器，用于读取文件
+   * @param registry - 插件注册表，用于查找解析插件
+   */
   constructor(
     private adapter: IPlatformAdapter,
     private registry: PluginRegistry

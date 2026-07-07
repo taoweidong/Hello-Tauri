@@ -140,4 +140,99 @@ describe('TabBar', () => {
 
     expect(wrapper.findComponent({ name: 'WelcomePage' }).exists()).toBe(true)
   })
+
+  it('右键菜单触发显示', async () => {
+    const { openTab } = useTabManager()
+    openTab(mockNode('menu.txt'), 'archive-1')
+
+    const wrapper = mount(TabBar)
+    await nextTick()
+
+    const tabItem = wrapper.find('.tab-item')
+    await tabItem.trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+    const vm = wrapper.vm as any
+    expect(vm.showContextMenu).toBe(true)
+    expect(vm.contextMenuX).toBe(100)
+    expect(vm.contextMenuY).toBe(200)
+  })
+
+  it('右键菜单关闭操作', async () => {
+    const { openTab, tabs } = useTabManager()
+    openTab(mockNode('close-via-menu.txt'), 'archive-1')
+
+    const wrapper = mount(TabBar)
+    await nextTick()
+
+    const vm = wrapper.vm as any
+    vm.contextMenuTabId = tabs.value[0].id
+    vm.handleContextMenuAction('close')
+
+    expect(tabs.value.length).toBe(0)
+    expect(vm.showContextMenu).toBe(false)
+  })
+
+  it('右键菜单关闭其他操作', async () => {
+    const { openTab, tabs } = useTabManager()
+    openTab(mockNode('a.txt'), 'archive-1')
+    openTab(mockNode('b.txt'), 'archive-1')
+    openTab(mockNode('c.txt'), 'archive-1')
+
+    const wrapper = mount(TabBar)
+    await nextTick()
+
+    const vm = wrapper.vm as any
+    // 保留中间标签
+    vm.contextMenuTabId = tabs.value[1].id
+    vm.handleContextMenuAction('close-others')
+
+    expect(tabs.value.length).toBe(1)
+    expect(tabs.value[0].fileNode.label).toBe('b.txt')
+  })
+
+  it('右键菜单关闭右侧操作', async () => {
+    const { openTab, tabs } = useTabManager()
+    openTab(mockNode('a.txt'), 'archive-1')
+    openTab(mockNode('b.txt'), 'archive-1')
+    openTab(mockNode('c.txt'), 'archive-1')
+
+    const wrapper = mount(TabBar)
+    await nextTick()
+
+    const vm = wrapper.vm as any
+    // 关闭第一个标签右侧的所有标签
+    vm.contextMenuTabId = tabs.value[0].id
+    vm.handleContextMenuAction('close-right')
+
+    expect(tabs.value.length).toBe(1)
+    expect(tabs.value[0].fileNode.label).toBe('a.txt')
+  })
+
+  it('右键菜单固定/取消固定操作', async () => {
+    const { openTab, tabs } = useTabManager()
+    openTab(mockNode('pin-me.txt'), 'archive-1')
+
+    const wrapper = mount(TabBar)
+    await nextTick()
+
+    const vm = wrapper.vm as any
+    vm.contextMenuTabId = tabs.value[0].id
+    vm.handleContextMenuAction('pin')
+
+    expect(tabs.value[0].pinned).toBe(true)
+
+    // 再次操作取消固定
+    vm.handleContextMenuAction('pin')
+    expect(tabs.value[0].pinned).toBe(false)
+  })
+
+  it('handleContextMenuAction 无 tabId 时不报错', async () => {
+    const wrapper = mount(TabBar)
+    await nextTick()
+
+    const vm = wrapper.vm as any
+    vm.contextMenuTabId = null
+    // 不应抛出
+    expect(() => vm.handleContextMenuAction('close')).not.toThrow()
+  })
 })

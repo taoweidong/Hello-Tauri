@@ -168,4 +168,75 @@ describe('CacheManager', () => {
       await expect(manager.updateMeta(archive)).resolves.toBeUndefined()
     })
   })
+
+  describe('cacheArchive 无 File 对象', () => {
+    it('仅保存元数据不保存二进制数据', async () => {
+      const archive = makeArchiveItem({ id: 'a1', name: 'nofile.zip' })
+      // 不传 file 参数
+      await manager.cacheArchive(archive)
+
+      const meta = await storage.loadMeta('a1')
+      expect(meta).not.toBeNull()
+      expect(meta!.name).toBe('nofile.zip')
+
+      // 二进制数据应不存在
+      const data = await storage.loadFileData('a1')
+      expect(data).toBeNull()
+    })
+  })
+
+  describe('touch 更新访问时间', () => {
+    it('touch 不存在的 id 不报错', async () => {
+      // meta 为 null 时不应报错
+      await expect(manager.touch('nonexistent')).resolves.toBeUndefined()
+    })
+
+    it('touch 已有的 id 更新 lastAccessed', async () => {
+      const archive = makeArchiveItem({ id: 'a1' })
+      await manager.cacheArchive(archive, new File(['x'], 't.zip'))
+
+      const metaBefore = await storage.loadMeta('a1')
+      const beforeTs = metaBefore!.lastAccessed
+
+      // 等待确保时间戳不同
+      await new Promise(r => setTimeout(r, 10))
+      await manager.touch('a1')
+
+      const metaAfter = await storage.loadMeta('a1')
+      expect(metaAfter!.lastAccessed).toBeGreaterThanOrEqual(beforeTs)
+    })
+  })
+
+  describe('getFileData 读取并 touch', () => {
+    it('读取已有数据并更新 lastAccessed', async () => {
+      const archive = makeArchiveItem({ id: 'a1' })
+      await manager.cacheArchive(archive, new File(['payload'], 't.zip'))
+
+      const metaBefore = await storage.loadMeta('a1')
+      await new Promise(r => setTimeout(r, 10))
+
+      const data = await manager.getFileData('a1')
+      expect(data).not.toBeNull()
+      expect(new TextDecoder().decode(data!)).toBe('payload')
+
+      const metaAfter = await storage.loadMeta('a1')
+      expect(metaAfter!.lastAccessed).toBeGreaterThanOrEqual(metaBefore!.lastAccessed)
+    })
+  })
+
+  describe('restoreAll 重建 accessMap', () => {
+    it('恢复后 touch 可正常工作', async () => {
+      const archive = makeArchiveItem({ id: 'a1' })
+      await manager.cacheArchive(archive, new File(['x'], 't.zip'))
+
+      // 新建 manager 并 restore，重建 accessMap
+      const manager2 = new CacheManager(storage, { maxItems: 3 })
+      await manager2.init()
+      const restored = await manager2.restoreAll()
+      expect(restored.length).toBe(1)
+
+      // touch 应正常工作
+      await expect(manager2.touch('a1')).resolves.toBeUndefined()
+    })
+  })
 })

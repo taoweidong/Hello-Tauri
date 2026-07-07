@@ -6,19 +6,27 @@ import type { ArchiveStatus, FileTreeNode } from '@/types'
 
 /** 归档元数据（不含二进制），用于快速恢复归档列表 */
 export interface CacheMeta {
+  /** 归档唯一标识 */
   id: string
+  /** 归档文件名 */
   name: string
   /** 原始文件大小（字节） */
   size: number
   /** 文件 lastModified 时间戳 */
   lastModified: number
+  /** 压缩包处理状态 */
   status: ArchiveStatus
   /** 已解压的文件树 */
   files: FileTreeNode[]
+  /** 解压后原始大小（字节） */
   originalSize: number
+  /** 压缩包大小（字节） */
   compressedSize: number
+  /** 开始处理的时间戳 */
   startTime?: number
+  /** 处理完成的时间戳 */
   endTime?: number
+  /** 错误信息（失败时） */
   error?: string
   /** LRU 时间戳，每次访问时更新 */
   lastAccessed: number

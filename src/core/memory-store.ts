@@ -84,4 +84,5 @@ export class MemoryStore {
   }
 }
 
+/** 全局内存存储单例，应用范围内共享的解压文件数据缓存 */
 export const memoryStore = new MemoryStore()

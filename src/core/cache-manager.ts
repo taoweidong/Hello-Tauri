@@ -32,23 +32,35 @@ function toCacheMeta(
   }
 }
 
+/**
+ * LRU 缓存管理器选项
+ */
 export interface CacheManagerOptions {
   /** 最大缓存归档数量，超出后 LRU 淘汰，默认 20 */
   maxItems?: number
 }
 
+/** LRU 缓存管理器，负责归档缓存的写入、恢复、按需读取与 LRU 淘汰 */
 export class CacheManager {
   private storage: ICacheStorage
   private maxItems: number
   /** 内存中缓存所有 id 对应的 lastAccessed，用于快速 LRU 计算 */
   private accessMap = new Map<string, number>()
 
+  /**
+   * 创建缓存管理器实例
+   * @param storage - 缓存存储后端实现
+   * @param options - 可选配置项
+   */
   constructor(storage: ICacheStorage, options?: CacheManagerOptions) {
     this.storage = storage
     this.maxItems = options?.maxItems ?? 20
   }
 
-  /** 初始化存储后端并执行 LRU 淘汰 */
+  /**
+   * 初始化存储后端并执行 LRU 淘汰
+   * @returns 初始化完成后 resolve
+   */
   async init(): Promise<void> {
     await this.storage.init()
     await this.evict()
@@ -79,6 +91,7 @@ export class CacheManager {
 
   /**
    * 更新缓存中的元数据（解压完成后更新文件树等）
+   * @param archive - 更新后的归档项
    */
   async updateMeta(archive: ArchiveItem): Promise<void> {
     const existing = await this.storage.loadMeta(archive.id)
@@ -96,6 +109,8 @@ export class CacheManager {
   /**
    * 按需读取归档的二进制文件数据
    * 读取后自动更新 lastAccessed（LRU touch）
+   * @param id - 归档 id
+   * @returns 字节数组，不存在时返回 null
    */
   async getFileData(id: string): Promise<Uint8Array | null> {
     const data = await this.storage.loadFileData(id)
@@ -109,6 +124,7 @@ export class CacheManager {
    * 启动时恢复所有归档的元数据列表
    * 不包含二进制数据，仅返回 CacheMeta 数组
    * 结果已按 lastAccessed 升序排列（loadAllMeta 保证）
+   * @returns 所有归档的元数据数组
    */
   async restoreAll(): Promise<CacheMeta[]> {
     const allMeta = await this.storage.loadAllMeta()
@@ -120,7 +136,10 @@ export class CacheManager {
     return allMeta
   }
 
-  /** 删除归档缓存（元数据 + 二进制数据） */
+  /**
+   * 删除归档缓存（元数据 + 二进制数据）
+   * @param id - 归档 id
+   */
   async remove(id: string): Promise<void> {
     await Promise.all([
       this.storage.deleteMeta(id),
@@ -129,7 +148,10 @@ export class CacheManager {
     this.accessMap.delete(id)
   }
 
-  /** 更新缓存项的 lastAccessed 时间戳 */
+  /**
+   * 更新缓存项的 lastAccessed 时间戳
+   * @param id - 归档 id
+   */
   async touch(id: string): Promise<void> {
     const now = Date.now()
     this.accessMap.set(id, now)

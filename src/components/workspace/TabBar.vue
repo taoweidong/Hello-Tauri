@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { NDropdown } from 'naive-ui'
 import type { DropdownOption } from 'naive-ui'
 import { useTabManager } from '@/composables/use-tabs'
 import WelcomePage from './WelcomePage.vue'
 
 const { tabs, activeTabId, activateTab, closeTab, togglePin, closeOthers, closeRight } = useTabManager()
-
-const tabValue = computed(() => activeTabId.value ?? undefined)
 
 // ── 标签页溢出滚动 ──
 const tabsContainerRef = ref<HTMLElement | null>(null)

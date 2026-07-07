@@ -13,7 +13,10 @@ export const MIN_RIGHT_PANEL_WIDTH = 240
 /** 右侧面板最大宽度（像素） */
 export const MAX_RIGHT_PANEL_WIDTH = 500
 
-/** 键盘快捷键配置 */
+/**
+ * 键盘快捷键配置
+ * 定义应用内全局快捷键绑定
+ */
 export const KEYBOARD_SHORTCUTS = {
   toggleLeftPanel: 'Ctrl+B',
   toggleRightPanel: 'Ctrl+Shift+B',

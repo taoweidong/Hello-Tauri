@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import LogRenderer from '@/views/renderers/LogRenderer.vue'
+import { useTabManager } from '@/composables/use-tabs'
 import type { LogLine } from '@/plugins/parsers/types'
 
 describe('LogRenderer', () => {
@@ -45,5 +47,16 @@ describe('LogRenderer', () => {
   it('空日志显示 NEmpty', () => {
     const wrapper = mount(LogRenderer, { props: { content: [] } })
     expect(wrapper.text()).toContain('空日志')
+  })
+
+  it('点击日志行调用 setCursor 设置光标位置', async () => {
+    setActivePinia(createPinia())
+    const { reset, cursorPosition } = useTabManager()
+    reset()
+    const wrapper = mount(LogRenderer, { props: { content: lines } })
+    const logLine = wrapper.findAll('.log-line')[1]
+    await logLine.trigger('click')
+    // 光标应更新为第 2 行
+    expect(cursorPosition.value.line).toBe(2)
   })
 })

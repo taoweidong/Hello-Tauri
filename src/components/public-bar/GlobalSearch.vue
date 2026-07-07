@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { NInput, NButton, NSpace, NTag } from 'naive-ui'
 import { useSearch } from '@/composables/use-search'
 import { useTabManager } from '@/composables/use-tabs'
+import { extractSearchableText } from '@/core/search'
 import type { SearchMatch } from '@/types'
 
 const keyword = ref('')
@@ -17,18 +18,49 @@ const showResults = ref(false)
 /** 可搜索的内容类型 */
 const SEARCHABLE_TYPES = new Set(['text', 'csv', 'json', 'log'])
 
-/** 按文件分组的搜索结果 */
+/** 截断后的文本片段，用于模板中高亮显示 */
+interface TruncatedSegment {
+  prefix: string
+  match: string
+  suffix: string
+}
+
+/** 按文件分组的搜索结果（含预计算的截断片段） */
 const groupedResults = computed(() => {
   if (!results.value?.matches.length) return []
-  const map = new Map<string, { filePath: string; fileName: string; matches: SearchMatch[] }>()
-  for (const m of results.value.matches) {
-    const key = `${m.archiveId}:${m.filePath}`
-    if (!map.has(key)) {
-      map.set(key, { filePath: m.filePath, fileName: m.fileName, matches: [] })
+
+  const kw = keyword.value.trim()
+  const matchLen = kw.length || 1
+  const maxSegmentLen = 80
+
+  /** 将匹配位置附近的文本截断并拆分为前缀/匹配/后缀三段 */
+  function buildSegments(line: string, start: number): TruncatedSegment {
+    const matched = line.slice(start, start + matchLen)
+    const half = Math.floor((maxSegmentLen - matched.length) / 2)
+    const lineStart = Math.max(0, start - half)
+    const lineEnd = Math.min(line.length, start + matched.length + half)
+    return {
+      prefix: (lineStart > 0 ? '…' : '') + line.slice(lineStart, start),
+      match: matched,
+      suffix: line.slice(start + matched.length, lineEnd) + (lineEnd < line.length ? '…' : ''),
     }
-    map.get(key)!.matches.push(m)
   }
-  return Array.from(map.values())
+
+  const groupMap = new Map<string, {
+    filePath: string
+    fileName: string
+    matches: (SearchMatch & { segments: TruncatedSegment })[]
+  }>()
+
+  for (const m of results.value.matches) {
+    const groupKey = `${m.archiveId}:${m.filePath}`
+    if (!groupMap.has(groupKey)) {
+      groupMap.set(groupKey, { filePath: m.filePath, fileName: m.fileName, matches: [] })
+    }
+    groupMap.get(groupKey)!.matches.push({ ...m, segments: buildSegments(m.lineContent, m.matchStart) })
+  }
+
+  return Array.from(groupMap.values())
 })
 
 /** 总匹配数 */
@@ -43,26 +75,16 @@ function handleSearch() {
   }
 
   // 从已打开的标签页中收集可搜索的文件内容
-  const files: { archiveId: string; filePath: string; content: string }[] = []
+  const searchableFiles: { archiveId: string; filePath: string; content: string }[] = []
   for (const tab of tabs.value) {
     if (!tab.content || !SEARCHABLE_TYPES.has(tab.content.type)) continue
-    let text = ''
-    const c = tab.content
-    if (c.type === 'text') {
-      text = c.data
-    } else if (c.type === 'csv') {
-      text = [c.data.headers.join(','), ...c.data.rows.map(r => r.join(','))].join('\n')
-    } else if (c.type === 'json') {
-      text = typeof c.data === 'string' ? c.data : JSON.stringify(c.data, null, 2)
-    } else if (c.type === 'log') {
-      text = c.data.map(l => l.raw).join('\n')
-    }
+    const text = extractSearchableText(tab.content)
     if (text) {
       const filePath = tab.fileNode.path || tab.fileNode.label
-      files.push({ archiveId: tab.archiveId, filePath, content: text })
+      searchableFiles.push({ archiveId: tab.archiveId, filePath, content: text })
     }
   }
-  search(files, kw)
+  search(searchableFiles, kw)
   showResults.value = true
 }
 
@@ -76,19 +98,6 @@ function navigateToResult(match: SearchMatch) {
     activateTab(tab.id)
   }
   showResults.value = false
-}
-
-/** 截断行内容，高亮匹配位置附近 */
-function truncateLine(line: string, start: number, maxLen = 80): { prefix: string; match: string; suffix: string } {
-  const matchText = line.slice(start, start + (keyword.value.trim().length || 1))
-  const half = Math.floor((maxLen - matchText.length) / 2)
-  const lineStart = Math.max(0, start - half)
-  const lineEnd = Math.min(line.length, start + matchText.length + half)
-  return {
-    prefix: (lineStart > 0 ? '…' : '') + line.slice(lineStart, start),
-    match: matchText,
-    suffix: line.slice(start + matchText.length, lineEnd) + (lineEnd < line.length ? '…' : ''),
-  }
 }
 
 /** 关闭结果面板 */
@@ -204,7 +213,7 @@ onBeforeUnmount(() => {
           >
             <span class="text-text-secondary tabular-nums shrink-0 w-8 text-right leading-5">{{ match.lineNumber }}</span>
             <span class="text-text-primary leading-5 overflow-hidden text-ellipsis whitespace-nowrap">
-              <span class="text-text-secondary">{{ truncateLine(match.lineContent, match.matchStart).prefix }}</span><mark class="bg-primary/20 text-primary rounded-sm px-0.5 font-medium">{{ truncateLine(match.lineContent, match.matchStart).match }}</mark><span class="text-text-secondary">{{ truncateLine(match.lineContent, match.matchStart).suffix }}</span>
+              <span class="text-text-secondary">{{ match.segments.prefix }}</span><mark class="bg-primary/20 text-primary rounded-sm px-0.5 font-medium">{{ match.segments.match }}</mark><span class="text-text-secondary">{{ match.segments.suffix }}</span>
             </span>
           </div>
           <div v-if="group.matches.length > 20" class="px-3 py-1 text-[11px] text-text-secondary text-center">
