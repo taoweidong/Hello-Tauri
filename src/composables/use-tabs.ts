@@ -12,6 +12,9 @@ const cursorPosition = ref<{ line: number; column: number }>({ line: 1, column: 
 /** 最近打开的文件路径（去重，最多保留 10 条） */
 const recentFiles = ref<string[]>([])
 
+/** 标签页数量上限，超出后按先进先出淘汰最早的非固定标签页 */
+const MAX_TABS = 10
+
 /** 下一个标签页 id 计数器 */
 let nextTabId = 0
 
@@ -44,6 +47,18 @@ export function useTabManager() {
     }
     tabs.value.push(tab)
     activeTabId.value = tab.id
+
+    // 超出上限时淘汰最早的非固定标签页（FIFO）
+    while (tabs.value.length > MAX_TABS) {
+      const victim = tabs.value.find(t => !t.pinned)
+      if (!victim) break // 全是固定标签则不再淘汰
+      const victimIdx = tabs.value.indexOf(victim)
+      tabs.value.splice(victimIdx, 1)
+      // 如果淘汰的恰好是当前激活标签，切换到最后一个
+      if (activeTabId.value === victim.id) {
+        activeTabId.value = tabs.value[Math.min(victimIdx, tabs.value.length - 1)]?.id ?? null
+      }
+    }
 
     // 记录最近文件
     const filePath = node.path || node.label
@@ -80,6 +95,24 @@ export function useTabManager() {
     if (tab) tab.pinned = !tab.pinned
   }
 
+  /**
+   * 关闭除指定标签页外的所有非固定标签页
+   * @param id - 保留的标签页 id
+   */
+  function closeOthers(id: string) {
+    tabs.value.filter(t => t.id !== id && !t.pinned).forEach(t => closeTab(t.id))
+  }
+
+  /**
+   * 关闭指定标签页右侧的所有标签页
+   * @param id - 标签页 id
+   */
+  function closeRight(id: string) {
+    const idx = tabs.value.findIndex(t => t.id === id)
+    if (idx === -1) return
+    tabs.value.slice(idx + 1).forEach(t => closeTab(t.id))
+  }
+
   /** 关闭所有非固定标签页 */
   function closeAll() {
     tabs.value = tabs.value.filter(t => t.pinned)
@@ -104,5 +137,5 @@ export function useTabManager() {
     recentFiles.value = []
   }
 
-  return { tabs, activeTab, activeTabId, cursorPosition, recentFiles, openTab, closeTab, activateTab, togglePin, closeAll, setCursor, reset }
+  return { tabs, activeTab, activeTabId, cursorPosition, recentFiles, openTab, closeTab, activateTab, togglePin, closeOthers, closeRight, closeAll, setCursor, reset }
 }

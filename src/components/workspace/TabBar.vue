@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { NDropdown } from 'naive-ui'
 import type { DropdownOption } from 'naive-ui'
 import { useTabManager } from '@/composables/use-tabs'
 import WelcomePage from './WelcomePage.vue'
 
-const { tabs, activeTabId, activateTab, closeTab, togglePin, closeAll } = useTabManager()
+const { tabs, activeTabId, activateTab, closeTab, togglePin, closeOthers, closeRight } = useTabManager()
 
 const tabValue = computed(() => activeTabId.value ?? undefined)
 
@@ -36,6 +36,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', checkOverflow)
 })
 
+// 标签页变化时重新检查溢出状态
+watch(tabs, () => nextTick(checkOverflow), { deep: true })
+
 // ── 右键菜单 ──
 const contextMenuTabId = ref<string | null>(null)
 const contextMenuX = ref(0)
@@ -58,14 +61,11 @@ function handleContextMenuAction(key: string) {
       closeTab(tabId)
       break
     case 'close-others':
-      tabs.value.filter(t => t.id !== tabId && !t.pinned).forEach(t => closeTab(t.id))
+      closeOthers(tabId)
       break
-    case 'close-right': {
-      const idx = tabs.value.findIndex(t => t.id === tabId)
-      if (idx === -1) break
-      tabs.value.slice(idx + 1).forEach(t => closeTab(t.id))
+    case 'close-right':
+      closeRight(tabId)
       break
-    }
     case 'pin':
       togglePin(tabId)
       break
@@ -140,6 +140,18 @@ function handleCloseClick(e: MouseEvent, tabId: string) {
   <div v-else class="flex-1">
     <WelcomePage />
   </div>
+
+  <!-- 右键菜单（始终挂载，由 show 控制显隐） -->
+  <NDropdown
+    :show="showContextMenu"
+    :x="contextMenuX"
+    :y="contextMenuY"
+    :options="contextMenuOptions"
+    placement="bottom-start"
+    trigger="manual"
+    @select="handleContextMenuAction"
+    @clickoutside="showContextMenu = false"
+  />
 </template>
 
 <style scoped>
@@ -198,6 +210,7 @@ function handleCloseClick(e: MouseEvent, tabId: string) {
   padding: 0 12px;
   height: 100%;
   min-width: 0;
+  flex-shrink: 0;
   font-size: 12px;
   color: var(--color-text-secondary);
   background: var(--color-bg-elevated);
