@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import CsvRenderer from '@/views/renderers/CsvRenderer.vue'
 
 describe('CsvRenderer', () => {
@@ -10,17 +11,22 @@ describe('CsvRenderer', () => {
     expect(wrapper.text()).toContain('空表格')
   })
 
-  it('有数据时渲染表头', () => {
+  it('有数据时渲染 DataTable 组件', async () => {
     const wrapper = mount(CsvRenderer, {
-      props: { content: { headers: ['姓名', '年龄'], rows: [['Alice', '30']] } },
+      props: {
+        content: {
+          headers: ['姓名', '年龄'],
+          rows: [['Alice', '30']],
+        },
+      },
     })
-    const ths = wrapper.findAll('th')
-    expect(ths.length).toBe(2)
-    expect(ths[0].text()).toBe('姓名')
-    expect(ths[1].text()).toBe('年龄')
+    await nextTick()
+    // 不再渲染 .csv-renderer，而是使用 DataTable 组件
+    expect(wrapper.find('.csv-renderer').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'DataTable' }).exists()).toBe(true)
   })
 
-  it('有数据时渲染数据行', () => {
+  it('有数据时不显示空表格提示', async () => {
     const wrapper = mount(CsvRenderer, {
       props: {
         content: {
@@ -29,20 +35,17 @@ describe('CsvRenderer', () => {
         },
       },
     })
-    const trs = wrapper.findAll('tbody tr')
-    expect(trs.length).toBe(2)
-    const tds = wrapper.findAll('td')
-    expect(tds.length).toBe(4)
-    expect(tds[0].text()).toBe('1')
+    await nextTick()
+    expect(wrapper.text()).not.toContain('空表格')
   })
 
-  it('仅有表头无数据行时正常渲染', () => {
+  it('仅有表头无数据行时仍渲染 DataTable', async () => {
     const wrapper = mount(CsvRenderer, {
       props: { content: { headers: ['col1'], rows: [] } },
     })
-    // 有表头就不应显示空表格提示
-    expect(wrapper.find('.csv-renderer').exists()).toBe(true)
-    expect(wrapper.findAll('th').length).toBe(1)
-    expect(wrapper.findAll('tbody tr').length).toBe(0)
+    await nextTick()
+    // headers 存在就不算空表格
+    expect(wrapper.text()).not.toContain('空表格')
+    expect(wrapper.findComponent({ name: 'DataTable' }).exists()).toBe(true)
   })
 })

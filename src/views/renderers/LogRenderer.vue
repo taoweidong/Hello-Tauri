@@ -1,11 +1,15 @@
 <script setup lang="ts">
+import { h } from 'vue'
 import { NEmpty } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
 import type { LogLine, LogLevel } from '@/plugins/parsers/types'
 import { useTabManager } from '@/composables/use-tabs'
+import DataTable from '@/components/shared/DataTable.vue'
 
-defineProps<{ content: LogLine[] }>()
+const props = defineProps<{ content: LogLine[] }>()
 const { setCursor, globalFontSize } = useTabManager()
 
+/** 日志级别对应的颜色映射 */
 const levelColor: Record<LogLevel, string> = {
   INFO: '#3B82F6',
   WARN: '#F59E0B',
@@ -14,49 +18,60 @@ const levelColor: Record<LogLevel, string> = {
   OTHER: '#d4d4d4',
 }
 
-function handleLineClick(lineNumber: number) {
-  setCursor(lineNumber, 1)
-}
+/** 日志表格列定义 */
+const logColumns: DataTableColumns<LogLine> = [
+  {
+    title: '#',
+    key: 'lineNumber',
+    width: 70,
+    sorter: (a: LogLine, b: LogLine) => a.lineNumber - b.lineNumber,
+  },
+  {
+    title: '时间',
+    key: 'timestamp',
+    width: 180,
+    sorter: 'default',
+  },
+  {
+    title: '级别',
+    key: 'level',
+    width: 80,
+    render: (row: LogLine) =>
+      h('span', { style: { color: levelColor[row.level], fontWeight: 600 } }, row.level),
+    filterOptions: ['INFO', 'WARN', 'ERROR', 'DEBUG', 'OTHER'].map(v => ({
+      label: v,
+      value: v,
+    })),
+    filter: (value: any, row: LogLine) => row.level === value,
+  },
+  {
+    title: '模块',
+    key: 'module',
+    width: 120,
+    sorter: 'default',
+  },
+  {
+    title: '消息',
+    key: 'message',
+    ellipsis: { tooltip: true },
+    render: (row: LogLine) => (row.level === 'OTHER' ? row.raw : row.message),
+  },
+]
 </script>
 
 <template>
-  <NEmpty v-if="content.length === 0" description="空日志" style="margin-top: 40px;" />
-  <div v-else class="log-renderer" :style="{ fontSize: `${globalFontSize}px` }">
-    <div v-for="line in content" :key="line.lineNumber" class="log-line" @click="handleLineClick(line.lineNumber)">
-      <span class="col-no">{{ line.lineNumber }}</span>
-      <span class="col-ts">{{ line.timestamp }}</span>
-      <span class="col-level" :style="{ color: levelColor[line.level] }">{{ line.level }}</span>
-      <span class="col-mod">{{ line.module }}</span>
-      <span v-if="line.level === 'OTHER'" class="col-msg">{{ line.raw }}</span>
-      <span v-else class="col-msg">{{ line.message }}</span>
-    </div>
-  </div>
+  <NEmpty
+    v-if="content.length === 0"
+    description="空日志"
+    style="margin-top: 40px;"
+  />
+  <DataTable
+    v-else
+    :columns="logColumns"
+    :data="content"
+    :exportable="true"
+    export-filename="log-data"
+    :font-size="globalFontSize"
+    :on-row-click="(row: LogLine) => setCursor(row.lineNumber, 1)"
+  />
 </template>
-
-<style scoped>
-.log-renderer {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 14px;
-  padding: 8px;
-  overflow: auto;
-  height: 100%;
-  background: var(--color-editor-bg);
-  color: var(--color-editor-text);
-}
-.log-line {
-  display: flex;
-  gap: 1em;
-  padding: 1px 0;
-  white-space: pre;
-}
-.col-no {
-  color: var(--color-editor-gutter);
-  min-width: 3em;
-  text-align: right;
-  user-select: none;
-}
-.col-ts { color: #6b7280; }
-.col-level { font-weight: 600; min-width: 5em; }
-.col-mod { color: #93c5fd; min-width: 8em; }
-.col-msg { flex: 1; }
-</style>

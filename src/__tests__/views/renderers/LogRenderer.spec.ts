@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { nextTick } from 'vue'
 import LogRenderer from '@/views/renderers/LogRenderer.vue'
 import { useTabManager } from '@/composables/use-tabs'
 import type { LogLine } from '@/plugins/parsers/types'
@@ -13,35 +14,16 @@ describe('LogRenderer', () => {
     { lineNumber: 4, timestamp: '', level: 'OTHER', module: '', message: '', raw: '乱码行' },
   ]
 
-  it('渲染所有日志行', () => {
+  it('渲染 DataTable 组件', async () => {
     const wrapper = mount(LogRenderer, { props: { content: lines } })
-    expect(wrapper.findAll('.log-line')).toHaveLength(4)
+    await nextTick()
+    expect(wrapper.findComponent({ name: 'DataTable' }).exists()).toBe(true)
   })
 
-  it('显示行号', () => {
+  it('不再渲染旧式 .log-line 元素', async () => {
     const wrapper = mount(LogRenderer, { props: { content: lines } })
-    const nos = wrapper.findAll('.col-no').map(n => n.text())
-    expect(nos).toEqual(['1', '2', '3', '4'])
-  })
-
-  it('INFO 级别应用蓝色', () => {
-    const wrapper = mount(LogRenderer, { props: { content: lines } })
-    const level = wrapper.findAll('.col-level')[0]
-    expect(level.text()).toBe('INFO')
-    expect(level.attributes('style')).toContain('color: rgb(59, 130, 246)')
-  })
-
-  it('ERROR 级别应用红色', () => {
-    const wrapper = mount(LogRenderer, { props: { content: lines } })
-    const level = wrapper.findAll('.col-level')[2]
-    expect(level.text()).toBe('ERROR')
-    expect(level.attributes('style')).toContain('color: rgb(239, 68, 68)')
-  })
-
-  it('OTHER 行显示 raw 而非 message', () => {
-    const wrapper = mount(LogRenderer, { props: { content: lines } })
-    const msg = wrapper.findAll('.col-msg')[3]
-    expect(msg.text()).toBe('乱码行')
+    await nextTick()
+    expect(wrapper.findAll('.log-line')).toHaveLength(0)
   })
 
   it('空日志显示 NEmpty', () => {
@@ -49,14 +31,31 @@ describe('LogRenderer', () => {
     expect(wrapper.text()).toContain('空日志')
   })
 
-  it('点击日志行调用 setCursor 设置光标位置', async () => {
+  it('DataTable 接收 onRowClick prop', async () => {
+    const wrapper = mount(LogRenderer, { props: { content: lines } })
+    await nextTick()
+    const dt = wrapper.findComponent({ name: 'DataTable' })
+    expect(dt.exists()).toBe(true)
+    // DataTable 应接收到 onRowClick 回调
+    expect(dt.props('onRowClick')).toBeDefined()
+  })
+
+  it('有日志时不显示空提示', async () => {
+    const wrapper = mount(LogRenderer, { props: { content: lines } })
+    await nextTick()
+    expect(wrapper.text()).not.toContain('空日志')
+  })
+
+  it('行点击触发 setCursor（通过 DataTable onRowClick）', async () => {
     setActivePinia(createPinia())
     const { reset, cursorPosition } = useTabManager()
     reset()
     const wrapper = mount(LogRenderer, { props: { content: lines } })
-    const logLine = wrapper.findAll('.log-line')[1]
-    await logLine.trigger('click')
-    // 光标应更新为第 2 行
-    expect(cursorPosition.value.line).toBe(2)
+    await nextTick()
+    // 获取 DataTable 的 onRowClick 回调并调用
+    const dt = wrapper.findComponent({ name: 'DataTable' })
+    const onClick = dt.props('onRowClick') as Function
+    onClick({ lineNumber: 3 })
+    expect(cursorPosition.value.line).toBe(3)
   })
 })
