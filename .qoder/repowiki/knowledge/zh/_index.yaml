@@ -3,7 +3,7 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-08T15:25:03Z"
+exported_at: "2026-07-08T21:28:07Z"
 modules:
     "":
         dir_name: Hello-Tauri 单仓双产物工程
@@ -26,8 +26,8 @@ modules:
         depends_on: []
         related_to: []
     tauri_backend:
-        dir_name: Tauri 2 桌面应用后端
-        title: Tauri 2 桌面应用后端
+        dir_name: Tauri 2 桌面应用后端（Rust crate）
+        title: Tauri 2 桌面应用后端（Rust crate）
         scope:
             - src-tauri/
         source_files: []
@@ -37,8 +37,8 @@ modules:
         depends_on: []
         related_to: []
     tauri_backend/core_app:
-        dir_name: Tauri 应用启动与错误体系
-        title: Tauri 应用启动与错误体系
+        dir_name: Tauri 应用核心启动与错误体系
+        title: Tauri 应用核心启动与错误体系
         scope:
             - src-tauri/src/lib.rs
             - src-tauri/src/main.rs
@@ -49,8 +49,8 @@ modules:
         related_to:
             - path: tauri_backend/file_commands
     tauri_backend/file_commands:
-        dir_name: Tauri 文件操作与解压命令层
-        title: Tauri 文件操作与解压命令层
+        dir_name: Tauri 文件系统与解压命令层
+        title: Tauri 文件系统与解压命令层
         scope:
             - src-tauri/src/file_ops.rs
             - src-tauri/src/decompress.rs
@@ -62,8 +62,8 @@ modules:
         related_to:
             - path: tauri_backend/core_app
     tauri_backend/file_commands/file_commands:
-        dir_name: Tauri 文件操作与解压命令层
-        title: Tauri 文件操作与解压命令层
+        dir_name: Tauri 文件系统与解压命令层
+        title: Tauri 文件系统与解压命令层
         scope:
             - src-tauri/src/file_ops.rs
             - src-tauri/src/decompress.rs

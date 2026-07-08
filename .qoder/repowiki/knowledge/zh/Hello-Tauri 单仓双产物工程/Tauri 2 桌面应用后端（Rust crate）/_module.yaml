@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: tauri_backend
-title: Tauri 2 桌面应用后端
+title: Tauri 2 桌面应用后端（Rust crate）
 scope:
     - src-tauri/
 source_files: []

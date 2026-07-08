@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: tauri_backend/core_app
-title: Tauri 应用启动与错误体系
+title: Tauri 应用核心启动与错误体系
 scope:
     - src-tauri/src/lib.rs
     - src-tauri/src/main.rs

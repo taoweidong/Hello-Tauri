@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: tauri_backend/file_commands/file_commands
-title: Tauri 文件操作与解压命令层
+title: Tauri 文件系统与解压命令层
 scope:
     - src-tauri/src/file_ops.rs
     - src-tauri/src/decompress.rs
