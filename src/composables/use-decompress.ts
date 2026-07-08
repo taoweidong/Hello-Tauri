@@ -23,7 +23,8 @@ export function useDecompress() {
   async function startDecompress(archive: ArchiveItem) {
     updateStatus(archive.id, 'running', 0)
 
-    const taskId = scheduler.enqueue(async () => {
+    try {
+      scheduler.enqueue(async () => {
       try {
         // 优先使用当次会话中的 File 对象，避免重复 IO
         // 缓存恢复时 archive.file 为 undefined，从存储层按需读取
@@ -56,7 +57,7 @@ export function useDecompress() {
 
         updateStatus(archive.id, 'running', 30)
 
-        const result = await registry.safeDecompress(plugin, data, '')
+        const result = await registry.safeDecompress(plugin, data, '', { name: archive.name })
 
         if (!result.success) {
           updateStatus(archive.id, 'failed')
@@ -75,11 +76,10 @@ export function useDecompress() {
         updateStatus(archive.id, 'failed')
         archive.error = err instanceof Error ? err.message : 'Unknown error'
       }
-    })
-
-    if (taskId === null) {
+      })
+    } catch (err) {
       updateStatus(archive.id, 'failed')
-      archive.error = 'Task queue is full'
+      archive.error = err instanceof Error ? err.message : '任务调度失败'
     }
   }
 

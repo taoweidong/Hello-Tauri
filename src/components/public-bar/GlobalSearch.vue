@@ -34,51 +34,62 @@ interface FileSearchResult {
 /** 搜索耗时（毫秒） */
 const searchTimeMs = ref(0)
 
+/** 搜索结果（改为 watch + 防抖，避免每次按键触发全量计算） */
+const searchResults = ref<FileSearchResult[]>([])
+
+/** 防抖定时器 */
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+
 /**
- * 从所有已解压归档中收集全部叶子节点（文件），
- * 按关键字过滤文件名/路径（大小写不敏感）
+ * 从所有已解压归档中搜索文件名，带 300ms 防抖
  */
-const searchResults = computed<FileSearchResult[]>(() => {
-  const kw = keyword.value.trim().toLowerCase()
-  if (!kw) return []
+function doSearch(kw: string) {
+  if (searchTimer) clearTimeout(searchTimer)
+  const trimmed = kw.trim()
+  if (!trimmed) {
+    searchResults.value = []
+    searchTimeMs.value = 0
+    return
+  }
+  searchTimer = setTimeout(() => {
+    const query = trimmed.toLowerCase()
+    const start = performance.now()
+    const results: FileSearchResult[] = []
 
-  const start = performance.now()
-  const results: FileSearchResult[] = []
-
-  for (const archive of archives.value) {
-    // 只搜索解压完成的归档
-    if (archive.status !== 'completed') continue
-    const allNodes = FileTreeBuilder.flattenTree(archive.files)
-    for (const node of allNodes) {
-      // 仅搜索文件（叶子节点），跳过目录
-      if (!node.isLeaf) continue
-      const fileName = node.label.toLowerCase()
-      const filePath = (node.path || node.label).toLowerCase()
-      if (fileName.includes(kw) || filePath.includes(kw)) {
-        results.push({
-          archiveId: archive.id,
-          archiveName: archive.name,
-          node,
-          fileName: node.label,
-          filePath: node.path || node.label,
-          alreadyOpen: tabs.value.some(
-            t => t.archiveId === archive.id && t.fileNode.key === node.key
-          ),
-        })
+    for (const archive of archives.value) {
+      if (archive.status !== 'completed') continue
+      const allNodes = FileTreeBuilder.flattenTree(archive.files)
+      for (const node of allNodes) {
+        if (!node.isLeaf) continue
+        const fileName = node.label.toLowerCase()
+        const filePath = (node.path || node.label).toLowerCase()
+        if (fileName.includes(query) || filePath.includes(query)) {
+          results.push({
+            archiveId: archive.id,
+            archiveName: archive.name,
+            node,
+            fileName: node.label,
+            filePath: node.path || node.label,
+            alreadyOpen: tabs.value.some(
+              t => t.archiveId === archive.id && t.fileNode.key === node.key
+            ),
+          })
+        }
       }
     }
-  }
 
-  searchTimeMs.value = performance.now() - start
-  return results
-})
+    searchTimeMs.value = performance.now() - start
+    searchResults.value = results
+  }, 300)
+}
 
 /** 总匹配数 */
 const totalMatches = computed(() => searchResults.value.length)
 
-/** 输入时实时搜索（无需按回车） */
+/** 输入时触发防抖搜索 */
 watch(keyword, (val) => {
   showResults.value = val.trim().length > 0
+  doSearch(val)
 })
 
 /**

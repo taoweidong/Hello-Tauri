@@ -15,13 +15,13 @@ import {
   APP_NAME,
   APP_BADGE,
   SITE_LINKS,
-  APP_LOGO_SVG,
 } from '@/config'
 import PublicBar from '@/components/public-bar/PublicBar.vue'
 import ArchivePanel from '@/components/archive-panel/ArchivePanel.vue'
 import Workspace from '@/components/workspace/Workspace.vue'
 import PropertyPanel from '@/components/property-panel/PropertyPanel.vue'
 import GlobalStatusBar from '@/components/workspace/StatusBar.vue'
+import AppLogo from '@/components/shared/AppLogo.vue'
 
 const store = useAppStore()
 const { leftCollapsed, rightCollapsed, leftWidth, rightWidth, collapseLeft, expandLeft, collapseRight, expandRight, toggleLeft, toggleRight, setLeftWidth, setRightWidth } = usePanelLayout()
@@ -155,7 +155,7 @@ function handleThemeColorSelect(key: string) {
     <header class="flex items-center gap-4 px-4 h-header bg-bg-surface/85 backdrop-blur-md border-b border-border z-10 select-none">
       <!-- 左侧：Logo + 名称 + 徽章 -->
       <div class="flex items-center gap-2.5 shrink-0">
-        <div class="w-[26px] h-[26px] flex items-center justify-center text-primary" style="filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-primary) 40%, transparent))" v-html="APP_LOGO_SVG"></div>
+        <div class="w-[26px] h-[26px] flex items-center justify-center text-primary" style="filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-primary) 40%, transparent))"><AppLogo /></div>
         <span class="text-[15px] font-bold tracking-[0.3px] bg-gradient-to-r from-primary to-[color-mix(in_srgb,var(--color-primary)_65%,#a855f7)] bg-clip-text text-transparent">{{ APP_NAME }}</span>
         <span class="text-[10px] px-2 py-0.5 rounded-[10px] bg-primary-soft text-primary font-medium tracking-[0.2px]">{{ APP_BADGE }}</span>
       </div>

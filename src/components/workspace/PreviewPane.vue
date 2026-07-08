@@ -26,37 +26,39 @@ async function getEngine() {
   return enginePromise
 }
 
+/** 解析请求 ID，用于防止并发 resolve 的竞态条件 */
+let resolveRequestId = 0
+
 /** 解析当前文件内容，失败时保持原状态 */
 async function resolveCurrentFile(encoding: string) {
   const tab = activeTab.value
   if (!tab) return
+  const requestId = ++resolveRequestId
   try {
     const engine = await getEngine()
     const content = await engine.resolveFile(tab.fileNode, '', encoding)
-    if (content) {
+    // 仅在请求仍为最新时应用结果
+    if (requestId === resolveRequestId && content) {
       tab.content = content
     }
-  } catch {
-    // 解析失败，保持当前状态
+  } catch (e) {
+    console.warn('[PreviewPane] 文件解析失败', e)
   }
 }
 
-/** 当标签页切换或编码变更时，重新解析文件 */
+/** 当标签页切换或编码变更时，重新解析文件（合并为单个 watch 避免竞态） */
 watch(
-  () => [activeTab.value, props.encoding] as const,
-  ([tab, encoding]) => {
-    if (!tab || tab.content) return
-    resolveCurrentFile(encoding ?? 'utf-8')
+  () => [activeTab.value?.id, props.encoding] as const,
+  ([, encoding]) => {
+    const tab = activeTab.value
+    if (!tab) return
+    // 标签切换时清空旧内容，编码变更时强制重新解析
+    if (!tab.content || encoding !== undefined) {
+      resolveCurrentFile(encoding ?? 'utf-8')
+    }
   },
   { immediate: true },
 )
-
-/** 编码变更时重新解析当前文件 */
-watch(() => props.encoding, (newEncoding) => {
-  if (activeTab.value) {
-    resolveCurrentFile(newEncoding ?? 'utf-8')
-  }
-})
 
 const rendererComponent = computed(() => {
   if (!activeTab.value?.content) return null

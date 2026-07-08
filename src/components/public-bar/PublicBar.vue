@@ -3,9 +3,11 @@ import { computed } from 'vue'
 import { NSpace, NButton, NDropdown, NText } from 'naive-ui'
 import { useNow } from '@vueuse/core'
 import { useArchiveManager } from '@/composables/use-archives'
+import { useTabManager } from '@/composables/use-tabs'
 import GlobalSearch from './GlobalSearch.vue'
 
 const { archives } = useArchiveManager()
+const { closeAll } = useTabManager()
 
 /** 实时时钟 - 每秒更新一次 */
 const now = useNow({ interval: 1000 })
@@ -29,6 +31,8 @@ const batchOptions = [
 
 function handleBatch(key: string) {
   if (key === 'clear') {
+    // 同步清理标签页、归档列表和缓存
+    closeAll()
     archives.value = []
   }
 }

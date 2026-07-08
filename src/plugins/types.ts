@@ -50,9 +50,10 @@ export interface ICompressionPlugin {
    * 执行解压操作
    * @param data - 压缩包字节数据
    * @param outputDir - 输出目录
+   * @param file - 原始文件信息（可选，用于推断输出文件名）
    * @returns 解压结果
    */
-  decompress(data: Uint8Array, outputDir: string): Promise<DecompressResult>
+  decompress(data: Uint8Array, outputDir: string, file?: { name: string }): Promise<DecompressResult>
 }
 
 /**

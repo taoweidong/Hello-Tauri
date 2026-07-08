@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   node: unknown
   name?: string
   defaultOpen?: boolean
-}>()
+  depth?: number
+}>(), {
+  depth: 0,
+})
 
-const open = ref(props.defaultOpen ?? true)
+/** 深层嵌套默认折叠：depth > 3 时默认关闭 */
+const open = ref(props.defaultOpen ?? (props.depth <= 3))
 
 function toggle() {
   open.value = !open.value
@@ -59,6 +63,7 @@ function count(v: unknown): number {
         :name="k"
         :node="v"
         :default-open="defaultOpen"
+        :depth="depth + 1"
       />
     </div>
     <span
@@ -76,13 +81,13 @@ function count(v: unknown): number {
 
 <style scoped>
 .json-node { padding-left: 1.2em; }
-.json-key { color: #93c5fd; }
-.json-string { color: #86efac; }
-.json-number { color: #fdba74; }
-.json-boolean { color: #c4b5fd; }
-.json-null { color: #9ca3af; }
-.json-punct { color: #d4d4d4; }
-.json-count { color: #6b7280; font-size: 0.85em; margin-left: 0.3em; }
+.json-key { color: var(--color-json-key); }
+.json-string { color: var(--color-json-string); }
+.json-number { color: var(--color-json-number); }
+.json-boolean { color: var(--color-json-boolean); }
+.json-null { color: var(--color-json-null); }
+.json-punct { color: var(--color-json-punct); }
+.json-count { color: var(--color-json-count); font-size: 0.85em; margin-left: 0.3em; }
 .toggle { cursor: pointer; user-select: none; margin: 0 0.2em; }
-.children { border-left: 1px dashed #333; margin-left: 0.4em; }
+.children { border-left: 1px dashed var(--color-json-border); margin-left: 0.4em; }
 </style>

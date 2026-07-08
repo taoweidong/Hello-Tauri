@@ -34,11 +34,14 @@ export class ZipExtensionValidator implements FileValidator {
   }
 }
 
+/** 大文件阈值（200MB），超过此值跳过内容验证以避免内存溢出 */
+const LARGE_FILE_THRESHOLD = 200 * 1024 * 1024
+
 /**
  * 检查 ZIP 内是否包含 VERSION.txt 文件。
  * 使用 fflate 的 unzipSync 解压并获取文件名列表。
  * 注意：unzipSync 会解压所有内容到内存，对于大型 ZIP 文件可能占用较多内存。
- * 如需优化，可改用仅读取 ZIP 中央目录（Central Directory）的方案。
+ * 超过 LARGE_FILE_THRESHOLD 的文件仅验证扩展名，跳过内容解析。
  */
 export class ZipContentValidator implements FileValidator {
   /** 必须存在的文件路径（支持精确匹配或后缀匹配） */
@@ -56,6 +59,12 @@ export class ZipContentValidator implements FileValidator {
 
   async validate(file: File): Promise<ValidationResult> {
     try {
+      // 大文件保护：超过阈值时跳过内容验证，避免内存溢出
+      if (file.size > LARGE_FILE_THRESHOLD) {
+        console.warn(`文件过大 (${(file.size / 1048576).toFixed(0)} MB)，跳过内容验证: ${file.name}`)
+        return { ok: true }
+      }
+
       const data = new Uint8Array(await file.arrayBuffer())
 
       // 优先使用 fflate 的 unzipSync 获取文件名列表
@@ -79,7 +88,8 @@ export class ZipContentValidator implements FileValidator {
 
       // 兜底：无法解析时视为通过（交给后续解压流程处理）
       return { ok: true }
-    } catch {
+    } catch (e) {
+      console.warn('[Validator] ZIP 内容解析失败', e)
       return { ok: false, message: '无法读取压缩包内容，文件可能已损坏' }
     }
   }

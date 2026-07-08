@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import LogRenderer from '@/views/renderers/LogRenderer.vue'
-import type { LogLine } from '@/plugins/parsers/types'
+import type { LogLine } from '@/types'
 
 vi.mock('@/composables/use-tabs', () => ({
   useTabManager: () => ({ setCursor: vi.fn(), globalFontSize: 13 }),

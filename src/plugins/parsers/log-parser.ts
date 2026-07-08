@@ -1,5 +1,5 @@
 import type { ParsedResult } from '@/plugins/types'
-import type { LogLine, LogLevel } from './types'
+import type { LogLine, LogLevel } from '@/types'
 
 /** 标准日志行正则表达式（匹配时间戳 + 级别 + 模块 + 消息） */
 const LOG_RE = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s+\[(\w+)\]\s*\[([\w-]+)\]\s*(.*)$/

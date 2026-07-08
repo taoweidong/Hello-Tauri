@@ -33,8 +33,8 @@ export class WebAdapter implements IPlatformAdapter {
   }
 
   /** Web 模式（无 WASM）不支持原生解压 */
-  async decompress(_data: Uint8Array, _format: string, _outputDir: string): Promise<DecompressResult> {
-    throw new Error('decompress is not supported in Web mode without WASM')
+  async decompress(_data: Uint8Array, _format: string, _outputDir: string, _fileName?: string): Promise<DecompressResult> {
+    throw new Error('Web 模式不支持原生解压')
   }
 
   /** 通过 HTTP Range 请求读取文件指定区间 */

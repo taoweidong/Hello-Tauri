@@ -26,6 +26,11 @@ function mockArchive(id: string, name: string, files: FileTreeNode[]): ArchiveIt
   }
 }
 
+/** 等待防抖定时器完成（300ms + 缓冲） */
+function flushDebounce() {
+  return new Promise(resolve => setTimeout(resolve, 350))
+}
+
 describe('GlobalSearch', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -76,6 +81,7 @@ describe('GlobalSearch', () => {
     const vm = wrapper.vm as any
     vm.keyword = 'hello'
     await nextTick()
+    await flushDebounce()
     expect(vm.searchResults).toHaveLength(1)
     expect(vm.searchResults[0].fileName).toBe('hello.txt')
   })
@@ -93,6 +99,7 @@ describe('GlobalSearch', () => {
     const vm = wrapper.vm as any
     vm.keyword = 'sub'
     await nextTick()
+    await flushDebounce()
     expect(vm.searchResults).toHaveLength(1)
     expect(vm.searchResults[0].fileName).toBe('data.json')
   })
@@ -108,6 +115,7 @@ describe('GlobalSearch', () => {
     const vm = wrapper.vm as any
     vm.keyword = 'test'
     await nextTick()
+    await flushDebounce()
     expect(vm.searchResults).toHaveLength(2)
   })
 
@@ -122,6 +130,7 @@ describe('GlobalSearch', () => {
     const vm = wrapper.vm as any
     vm.keyword = 'hello'
     await nextTick()
+    await flushDebounce()
     expect(vm.searchResults).toHaveLength(1)
     expect(vm.searchResults[0].archiveId).toBe('a1')
   })
@@ -138,6 +147,7 @@ describe('GlobalSearch', () => {
     const vm = wrapper.vm as any
     vm.keyword = 'sub'
     await nextTick()
+    await flushDebounce()
     // 目录本身不出现在结果中，但路径包含 sub 的文件会匹配
     expect(vm.searchResults).toHaveLength(1)
     expect(vm.searchResults[0].fileName).toBe('a.txt')
@@ -154,6 +164,7 @@ describe('GlobalSearch', () => {
     const vm = wrapper.vm as any
     vm.keyword = 'hello'
     await nextTick()
+    await flushDebounce()
     expect(vm.searchResults).toHaveLength(1)
   })
 
@@ -168,6 +179,7 @@ describe('GlobalSearch', () => {
     const vm = wrapper.vm as any
     vm.keyword = 'hello'
     await nextTick()
+    await flushDebounce()
 
     const result = vm.searchResults[0]
     vm.navigateToResult(result)
@@ -193,6 +205,7 @@ describe('GlobalSearch', () => {
     const vm = wrapper.vm as any
     vm.keyword = 'hello'
     await nextTick()
+    await flushDebounce()
 
     const result = vm.searchResults[0]
     expect(result.alreadyOpen).toBe(true)
@@ -217,6 +230,7 @@ describe('GlobalSearch', () => {
     const vm = wrapper.vm as any
     vm.keyword = 'test'
     await nextTick()
+    await flushDebounce()
     expect(vm.totalMatches).toBe(2)
   })
 

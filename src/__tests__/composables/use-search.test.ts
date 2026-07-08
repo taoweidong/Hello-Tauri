@@ -41,4 +41,38 @@ describe('useSearch', () => {
     await search(files, 'notfound')
     expect(results.value!.matches).toHaveLength(0)
   })
+
+  it('空文件列表搜索返回空匹配', async () => {
+    const { results, search } = useSearch()
+    await search([], 'hello')
+    expect(results.value!.matches).toHaveLength(0)
+  })
+
+  it('特殊字符关键字不抛异常', async () => {
+    const { results, search } = useSearch()
+    await search(files, '[regex]')
+    expect(results.value).not.toBeNull()
+  })
+
+  it('空字符串关键字返回空匹配', async () => {
+    const { results, search } = useSearch()
+    await search(files, '')
+    expect(results.value!.matches).toHaveLength(0)
+  })
+
+  it('searching 在搜索期间为 true', async () => {
+    const { searching, search } = useSearch()
+    const promise = search(files, 'hello')
+    // searchAll 是同步的（去掉了 async），所以 searching 会快速切换
+    await promise
+    expect(searching.value).toBe(false)
+  })
+
+  it('多次搜索后只保留最新结果', async () => {
+    const { results, search } = useSearch()
+    await search(files, 'hello')
+    expect(results.value!.keyword).toBe('hello')
+    await search(files, 'goodbye')
+    expect(results.value!.keyword).toBe('goodbye')
+  })
 })

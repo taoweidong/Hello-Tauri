@@ -18,12 +18,13 @@ describe('TaskScheduler', () => {
       running--
     }
 
-    await Promise.all([
+    const ids = [
       scheduler.enqueue(task),
       scheduler.enqueue(task),
       scheduler.enqueue(task),
       scheduler.enqueue(task),
-    ])
+    ]
+    await Promise.all(ids.map(id => scheduler.getPromise(id)))
 
     expect(maxRunning).toBeLessThanOrEqual(2)
   })
@@ -38,19 +39,19 @@ describe('TaskScheduler', () => {
     }
 
     const id = scheduler.enqueue(failingTask)
-    await expect(scheduler.getPromise(id!)).rejects.toThrow('fail')
+    await expect(scheduler.getPromise(id)).rejects.toThrow('fail')
 
-    const retryId = scheduler.retry(id!)
+    const retryId = scheduler.retry(id)
+    expect(retryId).not.toBeNull()
     await expect(scheduler.getPromise(retryId!)).resolves.toBeUndefined()
     expect(attempts).toBe(2)
   })
 
-  it('returns null when max concurrency reached and queue full', () => {
+  it('throws when max concurrency reached and queue full', () => {
     const scheduler = new TaskScheduler(1, 1)
     const slowTask = () => delay(1000)
     scheduler.enqueue(slowTask)
     scheduler.enqueue(slowTask)
-    const third = scheduler.enqueue(slowTask)
-    expect(third).toBeNull()
+    expect(() => scheduler.enqueue(slowTask)).toThrow('任务队列已满')
   })
 })

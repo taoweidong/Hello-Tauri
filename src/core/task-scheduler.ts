@@ -35,10 +35,13 @@ export class TaskScheduler {
   /**
    * 将任务加入执行队列
    * @param fn - 异步任务函数
-   * @returns 任务 id，队列已满时返回 null
+   * @returns 任务 id
+   * @throws 队列已满时抛出错误
    */
-  enqueue<T>(fn: TaskFn<T>): string | null {
-    if (this.queue.length >= this.maxQueueSize) return null
+  enqueue<T>(fn: TaskFn<T>): string {
+    if (this.queue.length >= this.maxQueueSize) {
+      throw new Error(`任务队列已满 (上限 ${this.maxQueueSize})`)
+    }
 
     const id = `task_${this.nextId++}`
     let resolve!: (value: T) => void
@@ -64,21 +67,27 @@ export class TaskScheduler {
 
   /**
    * 重试指定任务（重新入队）
+   * 主动拒绝原任务的 Promise，防止外部悬挂等待
    * @param id - 原任务 id
-   * @returns 新任务 id，失败时返回 null
+   * @returns 新任务 id，找不到原任务时返回 null
    */
   retry(id: string): string | null {
     const fn = this.taskFns.get(id)
     if (!fn) return null
-    // 拒绝原任务的 promise，防止 resolve/reject 悬挂
+    // 拒绝原任务的 Promise，防止外部等待悬挂
     const oldPromise = this.promises.get(id)
     if (oldPromise) {
-      // 通过删除引用让原任务完成时不再影响外部
-      this.promises.delete(id)
-      this.taskFns.delete(id)
-    } else {
-      this.taskFns.delete(id)
+      // 通过内部 reject 函数拒绝原任务
+      const task = this.queue.find(t => t.id === id)
+      if (task) {
+        task.reject(new Error('任务已重试，原任务已废弃'))
+      }
     }
+    // 清理原任务引用
+    this.promises.delete(id)
+    this.taskFns.delete(id)
+    // 从队列中移除原任务（如果还在排队）
+    this.queue = this.queue.filter(t => t.id !== id)
     return this.enqueue(fn)
   }
 
@@ -100,13 +109,13 @@ export class TaskScheduler {
       task.fn()
         .then(result => {
           task.resolve(result)
-          this.promises.delete(task.id)
-          this.taskFns.delete(task.id)
         })
         .catch(err => {
           task.reject(err)
         })
         .finally(() => {
+          // promises 完成后清理，taskFns 保留以供 retry 使用
+          this.promises.delete(task.id)
           this.running--
           this.processNext()
         })

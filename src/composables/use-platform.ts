@@ -6,17 +6,24 @@ let adapterPromise: Promise<IPlatformAdapter> | null = null
 /**
  * 获取平台适配器实例（懒加载单例）
  * 根据 __PLATFORM__ 编译时常量决定加载 Tauri 或 Web 适配器
+ * 加载失败时重置缓存，允许下次调用重试
  * @returns 平台适配器实例
  */
 async function getAdapter(): Promise<IPlatformAdapter> {
   if (!adapterPromise) {
-    if (__PLATFORM__ === 'tauri') {
-      const mod = await import('@/adapters/tauri-adapter')
-      adapterPromise = Promise.resolve(mod.default)
-    } else {
-      const mod = await import('@/adapters/web-adapter')
-      adapterPromise = Promise.resolve(mod.default)
-    }
+    adapterPromise = (async () => {
+      if (__PLATFORM__ === 'tauri') {
+        const mod = await import('@/adapters/tauri-adapter')
+        return mod.default
+      } else {
+        const mod = await import('@/adapters/web-adapter')
+        return mod.default
+      }
+    })()
+    // 加载失败时重置缓存，允许下次调用重试
+    adapterPromise.catch(() => {
+      adapterPromise = null
+    })
   }
   return adapterPromise
 }

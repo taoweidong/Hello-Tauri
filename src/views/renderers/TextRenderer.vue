@@ -2,6 +2,9 @@
 import { NEmpty } from 'naive-ui'
 import { useTabManager } from '@/composables/use-tabs'
 
+/** 大文件显示行数上限，超出后截断以防止渲染卡死 */
+const MAX_VISIBLE_LINES = 10000
+
 defineProps<{ content: string }>()
 const { setCursor, globalFontSize } = useTabManager()
 
@@ -19,9 +22,14 @@ function handleLineClick(lineIndex: number, event: MouseEvent) {
 <template>
   <NEmpty v-if="!content" description="空文件" style="margin-top: 40px;" />
   <div v-else class="text-renderer" :style="{ fontSize: `${globalFontSize}px` }">
-    <div v-for="(line, i) in content.split('\n')" :key="i" class="line" @click="handleLineClick(i, $event)">
-      <span class="line-no">{{ i + 1 }}</span>
-      <span class="line-text">{{ line }}</span>
+    <template v-for="(line, i) in content.split('\n').slice(0, MAX_VISIBLE_LINES)" :key="i">
+      <div class="line" @click="handleLineClick(i, $event)">
+        <span class="line-no">{{ i + 1 }}</span>
+        <span class="line-text">{{ line }}</span>
+      </div>
+    </template>
+    <div v-if="content.split('\n').length > MAX_VISIBLE_LINES" class="truncated-notice">
+      … 仅显示前 {{ MAX_VISIBLE_LINES }} 行，共 {{ content.split('\n').length }} 行
     </div>
   </div>
 </template>
@@ -46,4 +54,10 @@ function handleLineClick(lineIndex: number, event: MouseEvent) {
   user-select: none;
 }
 .line-text { white-space: pre; }
+.truncated-notice {
+  color: var(--color-editor-gutter);
+  text-align: center;
+  padding: 12px;
+  font-style: italic;
+}
 </style>

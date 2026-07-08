@@ -62,10 +62,10 @@ export class SearchService {
    * @param keyword - 搜索关键字
    * @returns 搜索结果（含耗时统计）
    */
-  async searchAll(
+  searchAll(
     files: { archiveId: string; filePath: string; content: string }[],
     keyword: string
-  ): Promise<SearchResults> {
+  ): SearchResults {
     const start = performance.now()
     const allMatches: SearchMatch[] = []
 

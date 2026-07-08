@@ -60,7 +60,8 @@ export class FsCacheStorage implements ICacheStorage {
     if (!exists) return null
     try {
       return await fn('read_file', { path })
-    } catch {
+    } catch (e) {
+      console.warn(`[CacheFS] 读取文件失败: ${path}`, e)
       return null
     }
   }
@@ -88,7 +89,8 @@ export class FsCacheStorage implements ICacheStorage {
     try {
       const json = new TextDecoder().decode(new Uint8Array(bytes))
       return JSON.parse(json) as CacheMeta
-    } catch {
+    } catch (e) {
+      console.warn(`[CacheFS] 元数据解析失败: ${id}`, e)
       return null
     }
   }
@@ -103,7 +105,8 @@ export class FsCacheStorage implements ICacheStorage {
     let entries: Array<{ name: string; isDirectory: boolean }>
     try {
       entries = await fn('list_files', { dir: metaDir })
-    } catch {
+    } catch (e) {
+      console.warn('[CacheFS] 读取元数据目录失败', e)
       return []
     }
     const metaList: CacheMeta[] = []
@@ -126,8 +129,9 @@ export class FsCacheStorage implements ICacheStorage {
     const path = this.metaPath(id)
     try {
       await fn('delete_file', { path })
-    } catch {
-      // 文件不存在时忽略
+    } catch (e) {
+      // 文件不存在时忽略，其他错误记录警告
+      console.warn(`[CacheFS] 删除元数据失败: ${id}`, e)
     }
   }
 
@@ -160,8 +164,9 @@ export class FsCacheStorage implements ICacheStorage {
     const path = this.dataPath(id)
     try {
       await fn('delete_file', { path })
-    } catch {
-      // 文件不存在时忽略
+    } catch (e) {
+      // 文件不存在时忽略，其他错误记录警告
+      console.warn(`[CacheFS] 删除数据文件失败: ${id}`, e)
     }
   }
 
@@ -178,7 +183,8 @@ export class FsCacheStorage implements ICacheStorage {
       return entries
         .filter(e => !e.isDirectory && e.name.endsWith('.json'))
         .map(e => e.name.replace(/\.json$/, ''))
-    } catch {
+    } catch (e) {
+      console.warn('[CacheFS] 列出缓存 ID 失败', e)
       return []
     }
   }

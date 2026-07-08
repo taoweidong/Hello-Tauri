@@ -2,6 +2,9 @@ import { defineComponent, h } from 'vue'
 import type { IFileParserPlugin } from '../types'
 import { useTabManager } from '@/composables/use-tabs'
 
+/** Hex 查看器最大渲染行数，超出后截断以防止大文件卡死 */
+const MAX_HEX_LINES = 10000
+
 /** Hex 查看器渲染组件，以偏移量 + 十六进制 + ASCII 格式展示二进制数据 */
 const HexRenderer = defineComponent({
   name: 'HexRenderer',
@@ -12,14 +15,20 @@ const HexRenderer = defineComponent({
     const { globalFontSize } = useTabManager()
     return () => {
       const data = props.content as Uint8Array
-      const lines: string[] = []
       const bytesPerLine = 16
-      for (let i = 0; i < data.length; i += bytesPerLine) {
-        const slice = data.slice(i, i + bytesPerLine)
+      const maxBytes = MAX_HEX_LINES * bytesPerLine
+      const truncated = data.length > maxBytes
+      const displayData = truncated ? data.slice(0, maxBytes) : data
+      const lines: string[] = []
+      for (let i = 0; i < displayData.length; i += bytesPerLine) {
+        const slice = displayData.slice(i, i + bytesPerLine)
         const hex = Array.from(slice).map(b => b.toString(16).padStart(2, '0')).join(' ')
         const ascii = Array.from(slice).map(b => b >= 32 && b < 127 ? String.fromCharCode(b) : '.').join('')
         const offset = i.toString(16).padStart(8, '0')
         lines.push(`${offset}  ${hex.padEnd(47)}  ${ascii}`)
+      }
+      if (truncated) {
+        lines.push(`\n… 仅显示前 ${MAX_HEX_LINES} 行 (${(maxBytes / 1048576).toFixed(1)} MB)，共 ${Math.ceil(data.length / bytesPerLine)} 行`)
       }
       return h('pre', {
         style: {

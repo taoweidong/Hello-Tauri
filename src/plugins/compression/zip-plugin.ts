@@ -17,10 +17,16 @@ export const zipPlugin: ICompressionPlugin = {
       return adapter.decompress(data, 'zip', _outputDir)
     }
     try {
-      const { unzipSync } = await import('fflate')
+      const { unzip } = await import('fflate')
       const { memoryStore } = await import('@/core/memory-store')
       const files: FileEntry[] = []
-      const unzipped = unzipSync(data)
+      // 使用异步 unzip 替代 unzipSync，避免阻塞主线程
+      const unzipped = await new Promise<Record<string, Uint8Array>>((resolve, reject) => {
+        unzip(data, (err, result) => {
+          if (err) reject(err)
+          else resolve(result)
+        })
+      })
       for (const [name, content] of Object.entries(unzipped)) {
         const isDir = name.endsWith('/')
         if (!isDir) {

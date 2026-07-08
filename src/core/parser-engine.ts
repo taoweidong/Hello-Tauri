@@ -40,7 +40,8 @@ export class ParserEngine {
         loadTimeMs: performance.now() - start,
         pluginName: plugin.name,
       } as ParsedContent
-    } catch {
+    } catch (e) {
+      console.warn(`[ParserEngine] 解析文件失败: ${node.path}`, e)
       return null
     }
   }

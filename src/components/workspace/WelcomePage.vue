@@ -3,7 +3,8 @@ import { computed } from 'vue'
 import { NButton } from 'naive-ui'
 import { usePanelLayout } from '@/composables/use-panel-layout'
 import { useTabManager } from '@/composables/use-tabs'
-import { APP_NAME, APP_DESCRIPTION, APP_LOGO_SVG } from '@/config'
+import { APP_NAME, APP_DESCRIPTION } from '@/config'
+import AppLogo from '@/components/shared/AppLogo.vue'
 
 const { leftCollapsed, expandLeft } = usePanelLayout()
 const { recentFiles } = useTabManager()
@@ -22,7 +23,7 @@ const displayRecentFiles = computed(() => {
     <div class="flex flex-col items-center gap-6 px-8 py-12">
       <!-- 图标 -->
       <div class="w-20 h-20 rounded-2xl bg-primary-soft flex items-center justify-center text-primary">
-        <div class="w-10 h-10" v-html="APP_LOGO_SVG"></div>
+        <AppLogo class="w-10 h-10" />
       </div>
 
       <!-- 标题 -->

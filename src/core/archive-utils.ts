@@ -15,7 +15,9 @@ const ACCEPTED_EXTENSIONS = new Set([
  * @returns 是否为支持的压缩包扩展名
  */
 export function isArchiveFile(fileName: string): boolean {
-  const ext = fileName.slice(fileName.lastIndexOf('.')).toLowerCase()
+  const dotIndex = fileName.lastIndexOf('.')
+  if (dotIndex <= 0) return false
+  const ext = fileName.slice(dotIndex).toLowerCase()
   return ACCEPTED_EXTENSIONS.has(ext)
 }
 

@@ -28,6 +28,7 @@ export function useCacheManager(): CacheManager {
 /**
  * 初始化缓存系统并恢复上一次的归档列表
  * 应在应用启动时调用一次（main.ts）
+ * 初始化失败时重置 Promise 缓存，允许下次重试
  */
 export async function initCache(): Promise<CacheManager> {
   if (initPromise) return initPromise
@@ -37,6 +38,11 @@ export async function initCache(): Promise<CacheManager> {
     await manager.init()
     return manager
   })()
+
+  // 初始化失败时重置缓存，允许下次重试
+  initPromise.catch(() => {
+    initPromise = null
+  })
 
   return initPromise
 }

@@ -46,6 +46,8 @@ export class CacheManager {
   private maxItems: number
   /** 内存中缓存所有 id 对应的 lastAccessed，用于快速 LRU 计算 */
   private accessMap = new Map<string, number>()
+  /** per-id Promise chain 锁，防止并发 touch 操作互相覆盖 */
+  private touchChains = new Map<string, Promise<void>>()
 
   /**
    * 创建缓存管理器实例
@@ -150,16 +152,28 @@ export class CacheManager {
 
   /**
    * 更新缓存项的 lastAccessed 时间戳
+   * 使用 per-id Promise chain 锁防止并发覆盖
    * @param id - 归档 id
    */
   async touch(id: string): Promise<void> {
-    const now = Date.now()
-    this.accessMap.set(id, now)
-    const meta = await this.storage.loadMeta(id)
-    if (meta) {
-      meta.lastAccessed = now
-      await this.storage.saveMeta(id, meta)
-    }
+    const prev = this.touchChains.get(id) ?? Promise.resolve()
+    const next = prev.then(async () => {
+      const now = Date.now()
+      this.accessMap.set(id, now)
+      const meta = await this.storage.loadMeta(id)
+      if (meta) {
+        meta.lastAccessed = now
+        await this.storage.saveMeta(id, meta)
+      }
+    })
+    this.touchChains.set(id, next)
+    // 清理已完成的 chain 引用
+    next.finally(() => {
+      if (this.touchChains.get(id) === next) {
+        this.touchChains.delete(id)
+      }
+    })
+    return next
   }
 
   /** LRU 淘汰：若缓存数量超过 maxItems，删除最久未访问的缓存 */

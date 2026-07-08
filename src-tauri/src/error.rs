@@ -2,15 +2,20 @@ use serde::Serialize;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
-    #[error("IO error: {0}")]
+    #[error("IO 错误: {0}")]
     Io(#[from] std::io::Error),
-    #[error("Decompress error: {0}")]
+    #[error("解压错误: {0}")]
     Decompress(String),
-    #[error("Not found: {0}")]
-    #[allow(dead_code)]
+    #[error("Zip 错误: {0}")]
+    Zip(String),
+    #[error("未找到: {0}")]
     NotFound(String),
-    #[error("Permission denied: {0}")]
+    #[error("权限拒绝: {0}")]
     Permission(String),
+    #[error("不支持的格式: {0}")]
+    UnsupportedFormat(String),
+    #[error("无效输入: {0}")]
+    InvalidInput(String),
 }
 
 impl Serialize for AppError {

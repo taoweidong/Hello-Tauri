@@ -40,7 +40,13 @@ export class FileTreeBuilder {
         : file.path.substring(0, file.path.lastIndexOf('/'))
 
       if (parentPath && this.nodeMap.has(parentPath)) {
-        this.nodeMap.get(parentPath)!.children!.push(node)
+        const parent = this.nodeMap.get(parentPath)!
+        if (parent.children) {
+          parent.children.push(node)
+        } else {
+          // 父节点意外地没有 children 数组，作为根节点处理
+          rootNodes.push(node)
+        }
       } else {
         rootNodes.push(node)
       }

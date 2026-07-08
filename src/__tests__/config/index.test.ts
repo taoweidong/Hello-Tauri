@@ -16,7 +16,8 @@ describe('config/index.ts 桶导出', () => {
 
   it('导出 site 站点配置', () => {
     expect(config.APP_NAME).toBe('Hello Tauri')
-    expect(config.PAGE_TITLE).toBe('日志解析工具')
+    // PAGE_TITLE 统一为 APP_NAME
+    expect(config.PAGE_TITLE).toBe('Hello Tauri')
     expect(config.SITE_LINKS.github).toContain('Hello-Tauri')
   })
 })

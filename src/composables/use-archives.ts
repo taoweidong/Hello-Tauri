@@ -55,8 +55,9 @@ export function useArchiveManager() {
       // 先等待元数据持久化完成，防止后续 updateMeta 被 cacheArchive 的旧状态覆盖
       try {
         await cacheManager.cacheArchive(archive, file)
-      } catch {
-        // 缓存写入失败不影响主流程
+      } catch (e) {
+        // 缓存写入失败不影响主流程，记录警告
+        console.warn(`[Archives] 缓存写入失败: ${archive.name}`, e)
       }
     }
     triggerDecompress()
@@ -84,7 +85,9 @@ export function useArchiveManager() {
         addedFileKeys.delete(`restored:${archive.cacheId}`)
       }
       // 异步清理缓存
-      cacheManager.remove(archive.cacheId).catch(() => {})
+      cacheManager.remove(archive.cacheId).catch((e: unknown) => {
+        console.warn(`[Archives] 缓存清理失败: ${archive.cacheId}`, e)
+      })
     }
     archives.value = archives.value.filter(a => a.id !== id)
   }
@@ -105,7 +108,9 @@ export function useArchiveManager() {
 
       // 解压完成或失败时更新缓存元数据
       if (status === 'completed' || status === 'failed') {
-        cacheManager.updateMeta(archive).catch(() => {})
+        cacheManager.updateMeta(archive).catch((e: unknown) => {
+          console.warn(`[Archives] 缓存元数据更新失败: ${archive.id}`, e)
+        })
       }
     }
   }

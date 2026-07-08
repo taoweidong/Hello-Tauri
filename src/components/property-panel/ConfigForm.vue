@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { NForm, NFormItem, NInput, NSelect, NSwitch, NInputNumber, NText } from 'naive-ui'
 import { useTabManager } from '@/composables/use-tabs'
 import { usePluginEngine } from '@/composables/use-plugins'
@@ -7,12 +7,25 @@ import { usePluginEngine } from '@/composables/use-plugins'
 const { activeTab } = useTabManager()
 const { registry } = usePluginEngine()
 
+/** 当前表单值（响应式） */
+const formValues = ref<Record<string, any>>({})
+
 const configSchema = computed(() => {
   if (!activeTab.value) return null
   const ext = '.' + (activeTab.value.fileNode.label.split('.').pop() ?? '')
   const plugin = registry.getParser(ext)
   return plugin?.getConfigSchema?.() ?? null
 })
+
+/** 标签页切换时重置表单默认值 */
+watch(configSchema, (schema) => {
+  if (!schema) return
+  const defaults: Record<string, any> = {}
+  for (const field of schema.fields) {
+    defaults[field.key] = field.default
+  }
+  formValues.value = defaults
+}, { immediate: true })
 </script>
 
 <template>
@@ -26,10 +39,11 @@ const configSchema = computed(() => {
         :key="field.key"
         :label="field.label"
       >
-        <NInput v-if="field.type === 'input'" :default-value="field.default" size="small" />
-        <NSelect v-else-if="field.type === 'select'" :options="field.options" :default-value="field.default" size="small" />
-        <NSwitch v-else-if="field.type === 'switch'" :default-value="field.default" />
-        <NInputNumber v-else-if="field.type === 'number'" :default-value="field.default" size="small" />
+        <NInput v-if="field.type === 'input'" v-model:value="formValues[field.key]" size="small" />
+        <NSelect v-else-if="field.type === 'select'" v-model:value="formValues[field.key]" :options="field.options" size="small" />
+        <NSwitch v-else-if="field.type === 'switch'" v-model:value="formValues[field.key]" />
+        <NInputNumber v-else-if="field.type === 'number'" v-model:value="formValues[field.key]" size="small" />
+        <NInput v-else v-model:value="formValues[field.key]" size="small" />
       </NFormItem>
     </NForm>
   </div>

@@ -115,20 +115,30 @@ export function useTabManager() {
 
   /**
    * 关闭除指定标签页外的所有非固定标签页
+   * 批量过滤避免多次 splice + 响应式触发
    * @param id - 保留的标签页 id
    */
   function closeOthers(id: string) {
-    tabs.value.filter(t => t.id !== id && !t.pinned).forEach(t => closeTab(t.id))
+    tabs.value = tabs.value.filter(t => t.id === id || t.pinned)
+    // 若当前激活的标签被关闭，切换到保留的标签
+    if (!tabs.value.some(t => t.id === activeTabId.value)) {
+      activeTabId.value = tabs.value[0]?.id ?? null
+    }
   }
 
   /**
    * 关闭指定标签页右侧的所有标签页
+   * 批量过滤避免多次 splice + 响应式触发
    * @param id - 标签页 id
    */
   function closeRight(id: string) {
     const idx = tabs.value.findIndex(t => t.id === id)
     if (idx === -1) return
-    tabs.value.slice(idx + 1).forEach(t => closeTab(t.id))
+    tabs.value = tabs.value.slice(0, idx + 1)
+    // 若当前激活的标签被关闭，切换到最后一个
+    if (!tabs.value.some(t => t.id === activeTabId.value)) {
+      activeTabId.value = tabs.value[tabs.value.length - 1]?.id ?? null
+    }
   }
 
   /** 关闭所有非固定标签页 */

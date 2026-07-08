@@ -180,7 +180,8 @@ export class PluginRegistry {
   async safeParse(plugin: IFileParserPlugin, data: Uint8Array, options?: Record<string, any>): Promise<ParsedResult> {
     try {
       return await withTimeout(plugin.parse(data, options), PLUGIN_TIMEOUT_MS)
-    } catch {
+    } catch (e) {
+      console.warn(`[Registry] 插件 ${plugin.name} 解析失败，回退为 hex 展示`, e)
       return { type: 'hex', data: data }
     }
   }
@@ -190,16 +191,17 @@ export class PluginRegistry {
    * @param plugin - 压缩插件
    * @param data - 压缩包字节数据
    * @param outputDir - 输出目录
+   * @param file - 原始文件信息（可选，用于推断输出文件名）
    * @returns 解压结果
    */
-  async safeDecompress(plugin: ICompressionPlugin, data: Uint8Array, outputDir: string): Promise<DecompressResult> {
+  async safeDecompress(plugin: ICompressionPlugin, data: Uint8Array, outputDir: string, file?: { name: string }): Promise<DecompressResult> {
     try {
-      return await withTimeout(plugin.decompress(data, outputDir), PLUGIN_TIMEOUT_MS)
+      return await withTimeout(plugin.decompress(data, outputDir, file), PLUGIN_TIMEOUT_MS)
     } catch (err) {
       return {
         success: false,
         files: [],
-        error: err instanceof Error ? err.message : 'Unknown error',
+        error: err instanceof Error ? err.message : '解压失败',
       }
     }
   }

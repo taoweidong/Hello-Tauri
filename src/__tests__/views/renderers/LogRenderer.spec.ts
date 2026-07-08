@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import LogRenderer from '@/views/renderers/LogRenderer.vue'
 import { useTabManager } from '@/composables/use-tabs'
-import type { LogLine } from '@/plugins/parsers/types'
+import type { LogLine } from '@/types'
 
 describe('LogRenderer', () => {
   const lines: LogLine[] = [

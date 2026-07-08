@@ -9,12 +9,16 @@ export const gzipPlugin: ICompressionPlugin = {
   canHandle(file: FileEntry): boolean {
     return matchesAnyExtension(file.name, this.supportedExtensions)
   },
-  async decompress(data: Uint8Array, _outputDir: string) {
+  async decompress(data: Uint8Array, _outputDir: string, file?: { name: string }) {
+    // 从原始文件名推断输出名，去掉 .gz/.gzip/.tgz 后缀
+    const rawName = file?.name ?? 'decompressed'
+    const outputName = rawName.replace(/\.(gz|gzip|tgz)$/i, '') || 'decompressed'
+
     if (__PLATFORM__ === 'tauri') {
       const { usePlatform } = await import('@/composables/use-platform')
       const { getAdapter } = usePlatform()
       const adapter = await getAdapter()
-      return adapter.decompress(data, 'gzip', _outputDir)
+      return adapter.decompress(data, 'gzip', _outputDir, outputName)
     }
     if (typeof DecompressionStream !== 'undefined') {
       const ds = new DecompressionStream('gzip')
@@ -37,13 +41,12 @@ export const gzipPlugin: ICompressionPlugin = {
       }
       // 将解压结果写入内存存储，供后续 readFile 使用
       const { memoryStore } = await import('@/core/memory-store')
-      const filePath = 'decompressed'
-      memoryStore.write(filePath, result)
+      memoryStore.write(outputName, result)
       return {
         success: true,
-        files: [{ name: 'decompressed', path: filePath, size: result.length, isDirectory: false }],
+        files: [{ name: outputName, path: outputName, size: result.length, isDirectory: false }],
       }
     }
-    return { success: false, files: [], error: 'Gzip decompression not available' }
+    return { success: false, files: [], error: 'Gzip 解压不可用' }
   },
 }

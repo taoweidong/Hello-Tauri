@@ -48,7 +48,7 @@ describe('gzipPlugin', () => {
       const data = new Uint8Array([1, 2, 3])
       const result = await gzipPlugin.decompress(data, '')
       expect(result.success).toBe(false)
-      expect(result.error).toContain('not available')
+      expect(result.error).toContain('解压不可用')
     } finally {
       // 恢复
       if (origDS) {

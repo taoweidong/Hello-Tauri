@@ -33,6 +33,23 @@
   --color-editor-text: #d4d4d4;
   --color-editor-gutter: #666;
 
+  /* JSON 语法高亮色 */
+  --color-json-key: #93c5fd;
+  --color-json-string: #86efac;
+  --color-json-number: #fdba74;
+  --color-json-boolean: #c4b5fd;
+  --color-json-null: #9ca3af;
+  --color-json-punct: #d4d4d4;
+  --color-json-count: #6b7280;
+  --color-json-border: #333;
+
+  /* 日志级别色 */
+  --color-log-info: #3B82F6;
+  --color-log-warn: #F59E0B;
+  --color-log-error: #EF4444;
+  --color-log-debug: #9ca3af;
+  --color-log-other: #d4d4d4;
+
   /* 间距 Token */
   --spacing-header: 48px;
   --spacing-statusbar: 26px;
@@ -57,6 +74,22 @@
   --color-text-disabled: rgba(0, 0, 0, 0.3);
   --color-border: rgba(0, 0, 0, 0.06);
   --color-border-strong: rgba(0, 0, 0, 0.12);
+  --color-editor-bg: #f8f8fc;
+  --color-editor-text: #1a1a1a;
+  --color-editor-gutter: #999;
+  --color-json-key: #2563EB;
+  --color-json-string: #16a34a;
+  --color-json-number: #ea580c;
+  --color-json-boolean: #7c3aed;
+  --color-json-null: #6b7280;
+  --color-json-punct: #444;
+  --color-json-count: #9ca3af;
+  --color-json-border: #ccc;
+  --color-log-info: #2563EB;
+  --color-log-warn: #d97706;
+  --color-log-error: #dc2626;
+  --color-log-debug: #6b7280;
+  --color-log-other: #444;
 }
 
 /* ===== 全局样式 ===== */

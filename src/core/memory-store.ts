@@ -23,28 +23,42 @@ export class MemoryStore {
    * 写入数据到内存存储
    * @param path - 存储路径键
    * @param data - 要存储的字节数据
+   * @returns 是否写入成功（淘汰后仍不足空间时拒绝写入）
    */
-  write(path: string, data: Uint8Array): void {
+  write(path: string, data: Uint8Array): boolean {
     // 写入前清理旧数据占用
     const old = this.store.get(path)
     if (old) {
       this.totalBytes -= old.byteLength
+      this.store.delete(path)
     }
-    // 容量检查：超出上限时拒绝写入并淘汰最早条目
+    // 容量检查：超出上限时淘汰旧条目
     if (this.totalBytes + data.byteLength > this.maxBytes) {
       this.evict(data.byteLength)
     }
+    // 淘汰后仍不足空间，拒绝写入
+    if (this.totalBytes + data.byteLength > this.maxBytes) {
+      return false
+    }
     this.store.set(path, data)
     this.totalBytes += data.byteLength
+    return true
   }
 
   /**
    * 读取指定路径的数据
+   * 读取时更新访问顺序（delete + set），实现真正的 LRU
    * @param path - 存储路径键
    * @returns 对应的字节数据，不存在时返回 undefined
    */
   read(path: string): Uint8Array | undefined {
-    return this.store.get(path)
+    const data = this.store.get(path)
+    if (data !== undefined) {
+      // 更新访问顺序：删除后重新插入，使 Map 迭代顺序将该项置后
+      this.store.delete(path)
+      this.store.set(path, data)
+    }
+    return data
   }
 
   /**

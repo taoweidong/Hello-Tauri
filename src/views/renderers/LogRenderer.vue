@@ -2,20 +2,20 @@
 import { h } from 'vue'
 import { NEmpty } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import type { LogLine, LogLevel } from '@/plugins/parsers/types'
+import type { LogLine, LogLevel } from '@/types'
 import { useTabManager } from '@/composables/use-tabs'
 import DataTable from '@/components/shared/DataTable.vue'
 
 const props = defineProps<{ content: LogLine[] }>()
 const { setCursor, globalFontSize } = useTabManager()
 
-/** 日志级别对应的颜色映射 */
+/** 日志级别对应的颜色映射（使用 CSS 变量以支持主题切换） */
 const levelColor: Record<LogLevel, string> = {
-  INFO: '#3B82F6',
-  WARN: '#F59E0B',
-  ERROR: '#EF4444',
-  DEBUG: '#9ca3af',
-  OTHER: '#d4d4d4',
+  INFO: 'var(--color-log-info)',
+  WARN: 'var(--color-log-warn)',
+  ERROR: 'var(--color-log-error)',
+  DEBUG: 'var(--color-log-debug)',
+  OTHER: 'var(--color-log-other)',
 }
 
 /** 日志表格列定义 */

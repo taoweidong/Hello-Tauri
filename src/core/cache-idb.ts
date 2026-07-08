@@ -29,11 +29,21 @@ function openDB(): Promise<IDBDatabase> {
   })
 }
 
-/** 执行单个 IDB 事务请求并返回结果 */
+/** 执行单个 IDB 事务请求并返回结果，含事务级错误监听 */
 function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
+  })
+}
+
+/** 执行事务并等待完成，含 abort/error 监听 */
+function txRequest(tx: IDBTransaction, request: IDBRequest): Promise<void> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve()
+    request.onerror = () => reject(request.error)
+    tx.onabort = () => reject(tx.error ?? new Error('事务已中止'))
+    tx.onerror = () => reject(tx.error ?? new Error('事务错误'))
   })
 }
 
@@ -48,6 +58,16 @@ export class IdbCacheStorage implements ICacheStorage {
    */
   async init(): Promise<void> {
     this.db = await openDB()
+  }
+
+  /**
+   * 关闭数据库连接（用于清理资源或版本升级）
+   */
+  close(): void {
+    if (this.db) {
+      this.db.close()
+      this.db = null
+    }
   }
 
   /** 获取数据库实例，未初始化时抛出异常 */

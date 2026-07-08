@@ -182,6 +182,6 @@ describe('PluginRegistry', () => {
     registry.registerCompression(failingPlugin)
     const result = await registry.safeDecompress(failingPlugin, new Uint8Array(0), '/tmp')
     expect(result.success).toBe(false)
-    expect(result.error).toBe('Unknown error')
+    expect(result.error).toBe('解压失败')
   })
 })
