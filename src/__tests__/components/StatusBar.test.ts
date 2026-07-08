@@ -52,8 +52,8 @@ describe('StatusBar', () => {
     const wrapper = mount(StatusBar)
     const rangeInput = wrapper.find('input[type="range"]')
     expect(rangeInput.exists()).toBe(true)
-    expect(rangeInput.attributes('min')).toBe('80')
-    expect(rangeInput.attributes('max')).toBe('150')
+    expect(rangeInput.attributes('min')).toBe('10')
+    expect(rangeInput.attributes('max')).toBe('24')
   })
 
   it('文件大小小于 1KB 时显示 B', () => {

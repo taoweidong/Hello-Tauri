@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { NEmpty } from 'naive-ui'
+import { useTabManager } from '@/composables/use-tabs'
 import JsonNode from './JsonNode.vue'
 
 defineProps<{ content: unknown }>()
+const { globalFontSize } = useTabManager()
 </script>
 
 <template>
@@ -11,7 +13,7 @@ defineProps<{ content: unknown }>()
     description="空内容"
     style="margin-top: 40px;"
   />
-  <div v-else class="json-renderer">
+  <div v-else class="json-renderer" :style="{ fontSize: `${globalFontSize}px` }">
     <JsonNode :node="content" :default-open="true" />
   </div>
 </template>

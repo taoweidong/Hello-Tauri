@@ -1,14 +1,15 @@
 import { defineComponent, h } from 'vue'
 import type { IFileParserPlugin } from '../types'
+import { useTabManager } from '@/composables/use-tabs'
 
 /** Hex 查看器渲染组件，以偏移量 + 十六进制 + ASCII 格式展示二进制数据 */
 const HexRenderer = defineComponent({
   name: 'HexRenderer',
   props: {
     content: { required: true },
-    fontSize: { type: Number, default: 14 },
   },
   setup(props) {
+    const { globalFontSize } = useTabManager()
     return () => {
       const data = props.content as Uint8Array
       const lines: string[] = []
@@ -23,7 +24,7 @@ const HexRenderer = defineComponent({
       return h('pre', {
         style: {
           fontFamily: '"JetBrains Mono", monospace',
-          fontSize: `${props.fontSize}px`,
+          fontSize: `${globalFontSize.value}px`,
           padding: '8px',
           overflow: 'auto',
           height: '100%',

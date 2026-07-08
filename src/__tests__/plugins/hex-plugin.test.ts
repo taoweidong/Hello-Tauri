@@ -1,8 +1,14 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { hexPlugin } from '@/plugins/parser/hex-plugin'
 import { mount } from '@vue/test-utils'
+import { useTabManager } from '@/composables/use-tabs'
 
 describe('hexPlugin', () => {
+  beforeEach(() => {
+    const { reset } = useTabManager()
+    reset()
+  })
+
   it('canParse always returns true (fallback parser)', () => {
     expect(hexPlugin.canParse({ name: 'file.bin', path: '/', size: 0, isDirectory: false })).toBe(true)
   })
@@ -51,10 +57,12 @@ describe('hexPlugin', () => {
   })
 
   it('HexRenderer 支持自定义 fontSize', () => {
+    const { globalFontSize } = useTabManager()
+    globalFontSize.value = 18
     const component = hexPlugin.getComponent()
     const data = new Uint8Array([0x00])
     const wrapper = mount(component, {
-      props: { content: data, fontSize: 18 },
+      props: { content: data },
     })
     const pre = wrapper.find('pre')
     expect(pre.attributes('style')).toContain('font-size: 18px')

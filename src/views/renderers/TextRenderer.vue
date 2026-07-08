@@ -3,7 +3,7 @@ import { NEmpty } from 'naive-ui'
 import { useTabManager } from '@/composables/use-tabs'
 
 defineProps<{ content: string }>()
-const { setCursor } = useTabManager()
+const { setCursor, globalFontSize } = useTabManager()
 
 function handleLineClick(lineIndex: number, event: MouseEvent) {
   const target = event.currentTarget as HTMLElement
@@ -18,7 +18,7 @@ function handleLineClick(lineIndex: number, event: MouseEvent) {
 
 <template>
   <NEmpty v-if="!content" description="空文件" style="margin-top: 40px;" />
-  <div v-else class="text-renderer">
+  <div v-else class="text-renderer" :style="{ fontSize: `${globalFontSize}px` }">
     <div v-for="(line, i) in content.split('\n')" :key="i" class="line" @click="handleLineClick(i, $event)">
       <span class="line-no">{{ i + 1 }}</span>
       <span class="line-text">{{ line }}</span>

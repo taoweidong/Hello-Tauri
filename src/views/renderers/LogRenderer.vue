@@ -4,7 +4,7 @@ import type { LogLine, LogLevel } from '@/plugins/parsers/types'
 import { useTabManager } from '@/composables/use-tabs'
 
 defineProps<{ content: LogLine[] }>()
-const { setCursor } = useTabManager()
+const { setCursor, globalFontSize } = useTabManager()
 
 const levelColor: Record<LogLevel, string> = {
   INFO: '#3B82F6',
@@ -21,7 +21,7 @@ function handleLineClick(lineNumber: number) {
 
 <template>
   <NEmpty v-if="content.length === 0" description="空日志" style="margin-top: 40px;" />
-  <div v-else class="log-renderer">
+  <div v-else class="log-renderer" :style="{ fontSize: `${globalFontSize}px` }">
     <div v-for="line in content" :key="line.lineNumber" class="log-line" @click="handleLineClick(line.lineNumber)">
       <span class="col-no">{{ line.lineNumber }}</span>
       <span class="col-ts">{{ line.timestamp }}</span>

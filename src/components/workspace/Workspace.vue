@@ -5,9 +5,8 @@ import PreviewToolbar from './PreviewToolbar.vue'
 import PreviewPane from './PreviewPane.vue'
 import { useTabManager } from '@/composables/use-tabs'
 
-const { activeTab, tabs } = useTabManager()
+const { activeTab, tabs, globalFontSize } = useTabManager()
 
-const fontSize = ref(14)
 const wrap = ref(false)
 const showLineNumbers = ref(true)
 const encoding = ref('utf-8')
@@ -25,7 +24,7 @@ const hasTabs = computed(() => tabs.value.length > 0)
     <template v-if="hasTabs">
       <PreviewToolbar
         :type="contentType"
-        v-model:fontSize="fontSize"
+        v-model:fontSize="globalFontSize"
         v-model:wrap="wrap"
         v-model:showLineNumbers="showLineNumbers"
         v-model:encoding="encoding"

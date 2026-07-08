@@ -9,6 +9,9 @@ const activeTabId = ref<string | null>(null)
 /** 光标位置（行:列），由渲染器更新 */
 const cursorPosition = ref<{ line: number; column: number }>({ line: 1, column: 1 })
 
+/** 全局字体大小（px），由状态栏滑块和工具栏共同控制 */
+const globalFontSize = ref(14)
+
 /** 最近打开的文件路径（去重，最多保留 10 条） */
 const recentFiles = ref<string[]>([])
 
@@ -150,7 +153,8 @@ export function useTabManager() {
     nextTabId = 0
     cursorPosition.value = { line: 1, column: 1 }
     recentFiles.value = []
+    globalFontSize.value = 14
   }
 
-  return { tabs, activeTab, activeTabId, cursorPosition, recentFiles, openTab, closeTab, activateTab, togglePin, closeOthers, closeRight, closeAll, setCursor, reset }
+  return { tabs, activeTab, activeTabId, cursorPosition, recentFiles, globalFontSize, openTab, closeTab, activateTab, togglePin, closeOthers, closeRight, closeAll, setCursor, reset }
 }

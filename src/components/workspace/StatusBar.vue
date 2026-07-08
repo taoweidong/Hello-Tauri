@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useTabManager } from '@/composables/use-tabs'
 import { formatSize } from '@/core/format'
 
-const { activeTab, cursorPosition } = useTabManager()
+const { activeTab, cursorPosition, globalFontSize } = useTabManager()
 
 /** 当前文件摘要信息（行数、编码、插件名） */
 const fileInfo = computed(() => {
@@ -37,12 +37,13 @@ const hasContent = computed(() => !!activeTab.value?.content)
       <span class="text-[10px] opacity-50">字体缩放</span>
       <input
         type="range"
-        min="80"
-        max="150"
-        value="100"
+        min="10"
+        max="24"
+        v-model.number="globalFontSize"
         class="w-20 h-1 accent-primary cursor-pointer"
         title="字体缩放"
       />
+      <span class="text-[10px] opacity-50 tabular-nums">{{ globalFontSize }}px</span>
     </div>
   </div>
 </template>

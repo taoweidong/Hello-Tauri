@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { NEmpty } from 'naive-ui'
+import { useTabManager } from '@/composables/use-tabs'
 
 defineProps<{ content: { headers: string[]; rows: string[][] } }>()
+const { globalFontSize } = useTabManager()
 </script>
 
 <template>
@@ -10,7 +12,7 @@ defineProps<{ content: { headers: string[]; rows: string[][] } }>()
     description="空表格"
     style="margin-top: 40px;"
   />
-  <div v-else class="csv-renderer">
+  <div v-else class="csv-renderer" :style="{ fontSize: `${globalFontSize}px` }">
     <table>
       <thead>
         <tr>
@@ -35,7 +37,6 @@ defineProps<{ content: { headers: string[]; rows: string[][] } }>()
 table {
   border-collapse: collapse;
   width: 100%;
-  font-size: 14px;
   font-family: "JetBrains Mono", monospace;
 }
 th, td {
