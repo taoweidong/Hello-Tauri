@@ -156,8 +156,8 @@ function handleThemeColorSelect(key: string) {
       <!-- 左侧：Logo + 名称 + 徽章 -->
       <div class="flex items-center gap-2.5 shrink-0">
         <div class="w-[26px] h-[26px] flex items-center justify-center text-primary" style="filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-primary) 40%, transparent))"><AppLogo /></div>
-        <span class="text-[15px] font-bold tracking-[0.3px] bg-gradient-to-r from-primary to-[color-mix(in_srgb,var(--color-primary)_65%,#a855f7)] bg-clip-text text-transparent">{{ APP_NAME }}</span>
-        <span class="text-[10px] px-2 py-0.5 rounded-[10px] bg-primary-soft text-primary font-medium tracking-[0.2px]">{{ APP_BADGE }}</span>
+        <span class="text-[15px] font-bold tracking-[0.3px] bg-gradient-to-r from-primary to-[color-mix(in_srgb,var(--color-primary)_60%,#94a3b8)] bg-clip-text text-transparent">{{ APP_NAME }}</span>
+        <span class="text-[11px] px-2 py-0.5 rounded-[10px] bg-primary-soft text-primary font-medium tracking-[0.2px]">{{ APP_BADGE }}</span>
       </div>
 
       <!-- 中央：PublicBar -->
@@ -213,10 +213,9 @@ function handleThemeColorSelect(key: string) {
       <!-- 左侧拖拽手柄 -->
       <div
         v-if="!leftCollapsed"
-        class="shrink-0 w-[4px] h-full cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors duration-200 relative z-[4]"
+        class="shrink-0 w-[4px] h-full cursor-col-resize bg-border-strong/40 hover:bg-primary/50 transition-colors duration-200 relative z-[4]"
         @mousedown="(e) => startDrag('left', e)"
       >
-        <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border-strong/30 group-hover:bg-primary/40"></div>
       </div>
 
       <!-- 左侧折叠按钮 -->
@@ -239,10 +238,9 @@ function handleThemeColorSelect(key: string) {
       <!-- 右侧拖拽手柄 -->
       <div
         v-if="!rightCollapsed"
-        class="shrink-0 w-[4px] h-full cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors duration-200 relative z-[4]"
+        class="shrink-0 w-[4px] h-full cursor-col-resize bg-border-strong/40 hover:bg-primary/50 transition-colors duration-200 relative z-[4]"
         @mousedown="(e) => startDrag('right', e)"
       >
-        <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border-strong/30"></div>
       </div>
 
       <!-- 右侧折叠按钮 -->
@@ -313,18 +311,5 @@ function handleThemeColorSelect(key: string) {
   opacity: 0;
 }
 
-/* 面板内滚动条 */
-aside div::-webkit-scrollbar {
-  width: 5px;
-}
-aside div::-webkit-scrollbar-track {
-  background: transparent;
-}
-aside div::-webkit-scrollbar-thumb {
-  background: var(--color-border-strong);
-  border-radius: 3px;
-}
-aside div::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-secondary);
-}
+/* 面板内滚动条统一使用全局 6px 样式（见 main.css） */
 </style>

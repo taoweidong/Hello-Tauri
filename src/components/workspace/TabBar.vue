@@ -110,7 +110,9 @@ function handleCloseClick(e: MouseEvent, tabId: string) {
         @click="handleTabClick(tab.id)"
         @contextmenu="(e) => handleContextMenu(e, tab.id)"
       >
-        <span v-if="tab.pinned" class="tab-pin-icon">📌</span>
+        <svg v-if="tab.pinned" viewBox="0 0 24 24" fill="currentColor" class="w-2.5 h-2.5 text-primary shrink-0">
+          <path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/>
+        </svg>
         <span class="tab-label">{{ tab.fileNode.label }}</span>
         <button
           v-if="!tab.pinned"
@@ -209,7 +211,7 @@ function handleCloseClick(e: MouseEvent, tabId: string) {
   height: 100%;
   min-width: 0;
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--color-text-secondary);
   background: var(--color-bg-elevated);
   border-right: 1px solid var(--color-border);
@@ -237,8 +239,7 @@ function handleCloseClick(e: MouseEvent, tabId: string) {
   max-width: 160px;
 }
 .tab-pin-icon {
-  font-size: 10px;
-  line-height: 1;
+  display: none;
 }
 
 /* ── 关闭按钮 ── */

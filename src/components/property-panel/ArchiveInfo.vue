@@ -85,7 +85,7 @@ const STATUS_LABEL: Record<ArchiveStatus, string> = {
           {{ decompressDuration }}
         </NDescriptionsItem>
         <NDescriptionsItem label="版本文件" v-if="versionInfo">
-          <span style="font-size: 11px; opacity: 0.7;">{{ versionInfo.path }}</span>
+          <span style="font-size: 12px; opacity: 0.7;">{{ versionInfo.path }}</span>
         </NDescriptionsItem>
       </NDescriptions>
     </template>
@@ -106,14 +106,14 @@ const STATUS_LABEL: Record<ArchiveStatus, string> = {
   font-weight: 600;
   margin-bottom: 8px;
   padding-bottom: 6px;
-  border-bottom: 1px solid var(--border, #333);
-  color: var(--text-primary, #fff);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-primary);
 }
 
 .empty-hint {
   text-align: center;
   padding: 20px 0;
-  color: var(--text-secondary, #666);
+  color: var(--color-text-secondary);
   font-size: 12px;
 }
 </style>
