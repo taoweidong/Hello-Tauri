@@ -1,0 +1,28 @@
+{
+  "project": "Hello-Tauri 测试数据",
+  "version": "1.0.0",
+  "generatedAt": "2026-06-30T12:00:00+08:00",
+  "author": "opencode",
+  "description": "用于 zip 压缩测试的 JSON 示例文件",
+  "tags": ["test", "demo", "zip", "compression"],
+  "stats": {
+    "totalUsers": 10,
+    "activeUsers": 8,
+    "pendingUsers": 2
+  },
+  "users": [
+    { "id": 1, "name": "张三", "role": "admin", "email": "zhangsan@example.com" },
+    { "id": 2, "name": "李四", "role": "editor", "email": "lisi@example.com" },
+    { "id": 3, "name": "王五", "role": "viewer", "email": "wangwu@example.com" }
+  ],
+  "config": {
+    "theme": "dark",
+    "language": "zh-CN",
+    "features": {
+      "search": true,
+      "export": true,
+      "compression": true
+    }
+  },
+  "notes": null
+}

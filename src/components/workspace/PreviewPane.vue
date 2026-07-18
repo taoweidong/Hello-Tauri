@@ -73,6 +73,20 @@ const rendererComponent = computed(() => {
   <div class="preview-container">
     <NEmpty v-if="!activeTab" description="选择一个文件以预览" />
     <NEmpty v-else-if="!activeTab.content" description="加载中..." />
+    <!--
+      CSV 渲染器内部使用 Splitpanes 实现左右分栏，且 DataTable 与 CsvTreeDetail 各自管理滚动。
+      若外层再用 NScrollbar 包裹，Splitpanes 的 height:100% 会因 NScrollbar 内容容器高度 auto 而塌陷，
+      导致左右分栏退化为上下堆叠。因此 CSV 类型直接渲染，其余类型保留 NScrollbar。
+    -->
+    <div v-else-if="activeTab.content.type === 'csv'" class="preview-full">
+      <ErrorBoundary>
+        <component
+          :is="rendererComponent"
+          :content="activeTab.content.data"
+          v-if="rendererComponent"
+        />
+      </ErrorBoundary>
+    </div>
     <NScrollbar v-else class="preview-scrollbar">
       <ErrorBoundary>
         <component
@@ -96,5 +110,11 @@ const rendererComponent = computed(() => {
 .preview-scrollbar {
   flex: 1;
   min-height: 0;
+}
+
+.preview-full {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 </style>

@@ -1,0 +1,16 @@
+2026-06-30 12:00:00 [INFO]  [main] 应用启动，版本 v1.0.0
+2026-06-30 12:00:01 [DEBUG] [config] 加载配置文件 config.json
+2026-06-30 12:00:02 [INFO]  [database] 成功连接数据库 localhost:5432
+2026-06-30 12:00:05 [INFO]  [server] HTTP 服务监听端口 3000
+2026-06-30 12:00:10 [WARN]  [auth] 登录失败：用户名不存在 user=admin
+2026-06-30 12:00:11 [INFO]  [auth] 登录成功 user=zhangsan ip=192.168.1.100
+2026-06-30 12:00:15 [DEBUG] [cache] 缓存命中 key=user:1 ttl=3600
+2026-06-30 12:00:20 [INFO]  [api] GET /api/users 200 45ms
+2026-06-30 12:00:25 [INFO]  [api] POST /api/login 200 120ms
+2026-06-30 12:00:30 [ERROR] [api] GET /api/unknown 404 5ms
+2026-06-30 12:00:35 [ERROR] [database] 查询超时 query=SELECT * FROM large_table duration=30000ms
+2026-06-30 12:00:36 [WARN]  [retry] 第 1 次重试任务 task=export-data
+2026-06-30 12:00:40 [INFO]  [api] GET /api/health 200 2ms
+2026-06-30 12:00:45 [INFO]  [task] 后台任务完成 task=cleanup duration=5000ms
+2026-06-30 12:00:50 [WARN]  [memory] 内存使用率 85%，建议清理
+2026-06-30 12:01:00 [INFO]  [main] 应用正常关闭
