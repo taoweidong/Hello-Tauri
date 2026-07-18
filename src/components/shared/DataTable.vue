@@ -64,6 +64,8 @@ interface Props {
   maxHeight?: number | string
   /** 行点击回调 */
   onRowClick?: (row: any, index: number) => void
+  /** 行类名生成器（透传给 NDataTable，用于行级样式如选中高亮） */
+  rowClassName?: (row: any, index: number) => string
   /** 字体大小（px），默认 13 */
   fontSize?: number
   /** 是否显示全局搜索框，默认 true */
@@ -466,6 +468,7 @@ defineExpose({
         :virtual-scroll="useVirtualScroll"
         :max-height="useVirtualScroll ? maxHeight : undefined"
         :row-props="rowProps"
+        :row-class-name="props.rowClassName"
         :bordered="false"
         size="small"
         remote
