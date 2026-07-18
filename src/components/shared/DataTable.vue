@@ -19,6 +19,7 @@ import {
   NInput,
   NButton,
   NSelect,
+  NBadge,
   type DataTableColumns,
   type DataTableColumn,
   type SelectOption,
