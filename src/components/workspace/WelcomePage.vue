@@ -43,8 +43,8 @@ const displayRecentFiles = computed(() => {
             </svg>
           </div>
           <div>
-            <p class="text-[12px] font-medium text-text-primary">拖放文件</p>
-            <p class="text-[11px] text-text-secondary">将压缩包拖放到窗口任意位置</p>
+            <p class="text-[13px] font-medium text-text-primary">拖放文件</p>
+            <p class="text-[12px] text-text-secondary">将压缩包拖放到窗口任意位置</p>
           </div>
         </div>
 
@@ -55,8 +55,8 @@ const displayRecentFiles = computed(() => {
             </svg>
           </div>
           <div>
-            <p class="text-[12px] font-medium text-text-primary">上传文件</p>
-            <p class="text-[11px] text-text-secondary">点击左侧面板上传区域选择文件</p>
+            <p class="text-[13px] font-medium text-text-primary">上传文件</p>
+            <p class="text-[12px] text-text-secondary">点击左侧面板上传区域选择文件</p>
           </div>
         </div>
 
@@ -68,8 +68,8 @@ const displayRecentFiles = computed(() => {
             </svg>
           </div>
           <div>
-            <p class="text-[12px] font-medium text-text-primary">搜索内容</p>
-            <p class="text-[11px] text-text-secondary">使用顶部搜索栏或快捷键 Ctrl+K</p>
+            <p class="text-[13px] font-medium text-text-primary">搜索内容</p>
+            <p class="text-[12px] text-text-secondary">使用顶部搜索栏或快捷键 Ctrl+K</p>
           </div>
         </div>
 
@@ -82,9 +82,9 @@ const displayRecentFiles = computed(() => {
             </svg>
           </div>
           <div class="flex-1 min-w-0">
-            <p class="text-[12px] font-medium text-text-primary mb-1">最近文件</p>
+            <p class="text-[13px] font-medium text-text-primary mb-1">最近文件</p>
             <div class="flex flex-col gap-0.5">
-              <span v-for="(file, idx) in displayRecentFiles" :key="idx" class="text-[11px] text-text-secondary truncate">
+              <span v-for="(file, idx) in displayRecentFiles" :key="idx" class="text-[12px] text-text-secondary truncate">
                 {{ file }}
               </span>
             </div>
@@ -93,7 +93,7 @@ const displayRecentFiles = computed(() => {
       </div>
 
       <!-- 快捷键提示 -->
-      <div class="flex flex-wrap justify-center gap-2 text-[10px] text-text-disabled">
+      <div class="flex flex-wrap justify-center gap-2 text-[11px] text-text-disabled">
         <kbd class="px-1.5 py-0.5 rounded bg-bg-elevated border border-border">Ctrl+B</kbd>
         <span>切换左侧面板</span>
         <kbd class="px-1.5 py-0.5 rounded bg-bg-elevated border border-border">Ctrl+Shift+B</kbd>

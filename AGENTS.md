@@ -105,7 +105,7 @@ $env:https_proxy = ""; $env:no_proxy = "*"
 
 ## 页面布局
 
-`AppLayout.vue` 实现四栏布局：顶部 `PublicBar`（64px）+ 左侧 `ArchivePanel`（可折叠侧栏）+ 中间 `Workspace`（标签页+预览）+ 右侧 `PropertyPanel`（可折叠侧栏）。使用 Naive UI 的 `NLayout`/`NLayoutSider` 组件，面板宽度由 Pinia store 管理。
+`AppLayout.vue` 实现四栏布局：顶部 `PublicBar`（48px）+ 左侧 `ArchivePanel`（可折叠侧栏）+ 中间 `Workspace`（标签页+预览）+ 右侧 `PropertyPanel`（可折叠侧栏）。使用 Naive UI 的 `NLayout`/`NLayoutSider` 组件，面板宽度由 Pinia store 管理。
 
 ## 关键约定
 

@@ -188,7 +188,7 @@ onBeforeUnmount(() => {
           style="width: 240px; padding-right: 52px;"
           @focus="keyword.trim() && (showResults = true)"
         />
-        <kbd class="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[10px] leading-none rounded bg-bg-elevated border border-border text-text-secondary pointer-events-none select-none">
+        <kbd class="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[11px] leading-none rounded bg-bg-elevated border border-border text-text-secondary pointer-events-none select-none">
           {{ shortcutLabel }}
         </kbd>
       </div>
@@ -201,10 +201,10 @@ onBeforeUnmount(() => {
     <Transition name="results-fade">
       <div
         v-if="showResults && keyword.trim()"
-        class="absolute top-full left-0 mt-1.5 w-[420px] max-h-[400px] overflow-y-auto rounded-lg bg-bg-surface border border-border shadow-lg z-50"
+        class="absolute top-full left-0 mt-1.5 w-[420px] max-w-[calc(100vw-32px)] max-h-[400px] overflow-y-auto rounded-lg bg-bg-surface border border-border shadow-lg z-50"
       >
         <!-- 结果统计栏 -->
-        <div class="flex items-center justify-between px-3 py-2 border-b border-border/60 text-[11px] text-text-secondary sticky top-0 bg-bg-surface z-10">
+        <div class="flex items-center justify-between px-3 py-2 border-b border-border/60 text-[12px] text-text-secondary sticky top-0 bg-bg-surface z-10">
           <span>
             找到 <strong class="text-text-primary">{{ totalMatches }}</strong> 个文件
             <span v-if="searchTimeMs">（{{ searchTimeMs.toFixed(1) }}ms）</span>
@@ -236,21 +236,21 @@ onBeforeUnmount(() => {
           <div class="flex-1 min-w-0">
             <div class="text-[13px] text-text-primary leading-tight truncate font-medium">
               <span>{{ highlightMatch(result.fileName).before }}</span><mark class="bg-primary/20 text-primary rounded-sm px-0.5">{{ highlightMatch(result.fileName).match }}</mark><span>{{ highlightMatch(result.fileName).after }}</span>
-              <span v-if="result.alreadyOpen" class="ml-1.5 text-[10px] text-primary/60">已打开</span>
+              <span v-if="result.alreadyOpen" class="ml-1.5 text-[11px] text-primary/60">已打开</span>
             </div>
-            <div class="text-[10px] text-text-secondary leading-tight truncate mt-0.5">
+            <div class="text-[11px] text-text-secondary leading-tight truncate mt-0.5">
               {{ getDirPath(result.filePath) || '/' }}
             </div>
           </div>
 
           <!-- 归档来源标签 -->
-          <span class="text-[10px] text-text-secondary shrink-0 bg-bg-elevated px-1.5 py-0.5 rounded max-w-[100px] truncate">
+          <span class="text-[11px] text-text-secondary shrink-0 bg-bg-elevated px-1.5 py-0.5 rounded max-w-[100px] truncate">
             {{ result.archiveName }}
           </span>
         </div>
 
         <!-- 截断提示 -->
-        <div v-if="totalMatches > 50" class="px-3 py-2 text-[11px] text-text-secondary text-center border-t border-border/30">
+        <div v-if="totalMatches > 50" class="px-3 py-2 text-[12px] text-text-secondary text-center border-t border-border/30">
           仅显示前 50 个结果，共 {{ totalMatches }} 个
         </div>
       </div>

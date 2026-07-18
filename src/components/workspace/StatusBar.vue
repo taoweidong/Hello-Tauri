@@ -34,16 +34,16 @@ const hasContent = computed(() => !!activeTab.value?.content)
       <span v-if="fileSize" class="opacity-60">{{ fileSize }}</span>
     </div>
     <div class="flex items-center gap-2">
-      <span class="text-[10px] opacity-50">字体缩放</span>
+      <span class="text-[11px] opacity-50">字体缩放</span>
       <input
         type="range"
         min="10"
         max="24"
         v-model.number="globalFontSize"
-        class="w-20 h-1 accent-primary cursor-pointer"
+        class="w-20 h-1.5 accent-primary cursor-pointer"
         title="字体缩放"
       />
-      <span class="text-[10px] opacity-50 tabular-nums">{{ globalFontSize }}px</span>
+      <span class="text-[11px] opacity-50 tabular-nums">{{ globalFontSize }}px</span>
     </div>
   </div>
 </template>
