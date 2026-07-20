@@ -22,6 +22,8 @@ function createMockAdapter(): IPlatformAdapter {
 function createMockRegistry() {
   return {
     getParser: vi.fn(),
+    getParserByName: vi.fn(),
+    resolveFileType: vi.fn(),
     safeParse: vi.fn(),
     detectCompression: vi.fn(),
     safeDecompress: vi.fn(),
@@ -61,13 +63,15 @@ describe('ParserEngine', () => {
 
     ;(adapter.readFile as any).mockResolvedValue(data)
     const plugin = createMockParser('text')
-    registry.getParser.mockReturnValue(plugin)
+    registry.resolveFileType.mockReturnValue('text')
+    registry.getParserByName.mockReturnValue(plugin)
     registry.safeParse.mockResolvedValue(parseResult)
 
     const result = await engine.resolveFile(node, 'archive1')
 
     expect(adapter.readFile).toHaveBeenCalledWith('/a.txt')
-    expect(registry.getParser).toHaveBeenCalledWith('.txt')
+    expect(registry.resolveFileType).toHaveBeenCalledWith('a.txt')
+    expect(registry.getParserByName).toHaveBeenCalledWith('text')
     expect(registry.safeParse).toHaveBeenCalledWith(plugin, data, { encoding: 'utf-8' })
     expect(result).not.toBeNull()
     expect(result!.type).toBe('text')
@@ -75,32 +79,29 @@ describe('ParserEngine', () => {
     expect(result!.loadTimeMs).toBeGreaterThanOrEqual(0)
   })
 
-  it('无扩展名时回退到空字符串查找 hex 插件', async () => {
+  it('无扩展名文件通过前缀规则识别（如 APPLOG）', async () => {
     const data = new Uint8Array([1, 2, 3])
-    const node: FileTreeNode = { key: '/noext', label: 'noext', isLeaf: true, path: '/noext' }
+    const node: FileTreeNode = { key: '/APPLOG1', label: 'APPLOG1', isLeaf: true, path: '/APPLOG1' }
 
     ;(adapter.readFile as any).mockResolvedValue(data)
-    const hexPlugin = createMockParser('hex')
-    // 第一次调用 getParser('') 返回 hex 插件
-    registry.getParser.mockImplementation((ext: string) => {
-      if (ext === '') return hexPlugin
-      return null
-    })
-    registry.safeParse.mockResolvedValue({ type: 'hex', data })
+    const logPlugin = createMockParser('log')
+    registry.resolveFileType.mockReturnValue('log')
+    registry.getParserByName.mockReturnValue(logPlugin)
+    registry.safeParse.mockResolvedValue({ type: 'log', data: [] })
 
     const result = await engine.resolveFile(node, 'archive1')
 
-    expect(registry.getParser).toHaveBeenCalledWith('')
+    expect(registry.resolveFileType).toHaveBeenCalledWith('APPLOG1')
     expect(result).not.toBeNull()
-    expect(result!.pluginName).toBe('hex')
+    expect(result!.pluginName).toBe('log')
   })
 
-  it('无任何插件匹配时返回 null', async () => {
+  it('不支持的文件类型返回 null', async () => {
     const data = new Uint8Array([1])
-    const node: FileTreeNode = { key: '/x', label: 'x', isLeaf: true, path: '/x' }
+    const node: FileTreeNode = { key: '/x', label: 'x.unknown', isLeaf: true, path: '/x' }
 
     ;(adapter.readFile as any).mockResolvedValue(data)
-    registry.getParser.mockReturnValue(null)
+    registry.resolveFileType.mockReturnValue('unsupported')
 
     const result = await engine.resolveFile(node, 'archive1')
     expect(result).toBeNull()
@@ -109,6 +110,8 @@ describe('ParserEngine', () => {
   it('adapter.readFile 抛出异常时返回 null', async () => {
     const node: FileTreeNode = { key: '/err', label: 'err.txt', isLeaf: true, path: '/err' }
     ;(adapter.readFile as any).mockRejectedValue(new Error('IO error'))
+    registry.resolveFileType.mockReturnValue('text')
+    registry.getParserByName.mockReturnValue(createMockParser('text'))
 
     const result = await engine.resolveFile(node, 'archive1')
     expect(result).toBeNull()
@@ -120,7 +123,8 @@ describe('ParserEngine', () => {
 
     ;(adapter.readFile as any).mockResolvedValue(data)
     const plugin = createMockParser('hex')
-    registry.getParser.mockReturnValue(plugin)
+    registry.resolveFileType.mockReturnValue('hex')
+    registry.getParserByName.mockReturnValue(plugin)
     registry.safeParse.mockResolvedValue(null)
 
     const result = await engine.resolveFile(node, 'archive1')
@@ -133,7 +137,8 @@ describe('ParserEngine', () => {
     const plugin = createMockParser('log')
 
     ;(adapter.readFile as any).mockResolvedValue(data)
-    registry.getParser.mockReturnValue(plugin)
+    registry.resolveFileType.mockReturnValue('log')
+    registry.getParserByName.mockReturnValue(plugin)
     registry.safeParse.mockResolvedValue({ type: 'log', data: [] })
 
     await engine.resolveFile(node, 'archive1', 'gbk')

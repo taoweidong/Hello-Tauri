@@ -8,6 +8,7 @@ const MAX_VISIBLE_LINES = 10000
 defineProps<{ content: string }>()
 const { setCursor, globalFontSize } = useTabManager()
 
+/** 处理行点击事件，计算并更新光标位置 */
 function handleLineClick(lineIndex: number, event: MouseEvent) {
   const target = event.currentTarget as HTMLElement
   if (!target) return

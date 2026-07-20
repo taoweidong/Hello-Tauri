@@ -29,7 +29,7 @@ const isOpen = computed<boolean>(() => {
 // 根节点特殊处理：depth === 1 且 key === 'root' 时不显示 key 行
 const isRoot = computed<boolean>(() => props.depth === 1 && props.node.key === 'root')
 
-// 切换展开/折叠（受控模式下为空操作，由父级通过 prop 控制）
+/** 切换展开/折叠（受控模式下为空操作） */
 function toggle(): void {
   if (props.expandedDepths == null) {
     internalOpen.value = !internalOpen.value

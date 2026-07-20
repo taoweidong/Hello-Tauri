@@ -1,5 +1,47 @@
 import { describe, it, expect } from 'vitest'
-import { SearchService } from '@/core/search'
+import { SearchService, extractSearchableText } from '@/core/search'
+import type { ParsedContent } from '@/types'
+
+describe('extractSearchableText', () => {
+  it('提取 text 类型内容', () => {
+    const content: ParsedContent = { type: 'text', data: 'hello world' } as any
+    expect(extractSearchableText(content)).toBe('hello world')
+  })
+
+  it('提取 csv 类型内容（含表头和行）', () => {
+    const content: ParsedContent = {
+      type: 'csv',
+      data: { headers: ['name', 'age'], rows: [['Alice', '30'], ['Bob', '25']] },
+    } as any
+    const result = extractSearchableText(content)
+    expect(result).toBe('name,age\nAlice,30\nBob,25')
+  })
+
+  it('提取 json 类型内容（对象）', () => {
+    const content: ParsedContent = { type: 'json', data: { key: 'value' } } as any
+    const result = extractSearchableText(content)
+    expect(result).toContain('key')
+    expect(result).toContain('value')
+  })
+
+  it('提取 json 类型内容（字符串）', () => {
+    const content: ParsedContent = { type: 'json', data: 'raw string' } as any
+    expect(extractSearchableText(content)).toBe('raw string')
+  })
+
+  it('提取 log 类型内容', () => {
+    const content: ParsedContent = {
+      type: 'log',
+      data: [{ raw: 'line1' }, { raw: 'line2' }],
+    } as any
+    expect(extractSearchableText(content)).toBe('line1\nline2')
+  })
+
+  it('不支持的类型返回空串', () => {
+    const content: ParsedContent = { type: 'unknown', data: null } as any
+    expect(extractSearchableText(content)).toBe('')
+  })
+})
 
 describe('SearchService', () => {
   const svc = new SearchService()

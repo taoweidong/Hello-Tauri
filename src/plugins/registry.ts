@@ -1,5 +1,6 @@
 import type { ICompressionPlugin, IFileParserPlugin, ParsedResult } from './types'
 import type { DecompressResult, FileEntry } from '@/types'
+import { ARCHIVE_MANIFEST, UNSUPPORTED_TYPE } from '@/config/archive-manifest'
 
 /** 插件执行超时时间（毫秒） */
 const PLUGIN_TIMEOUT_MS = 30000
@@ -79,17 +80,48 @@ export class PluginRegistry {
   }
 
   /**
+   * 根据插件名称获取解析插件
+   * @param name - 插件名称（如 'csv'、'log'、'table-tree'）
+   * @returns 对应的解析插件，未找到或已禁用时返回 null
+   */
+  getParserByName(name: string): IFileParserPlugin | null {
+    if (this.disabled.has(name)) return null
+    return this.parserPlugins.get(name) ?? null
+  }
+
+  /**
    * 根据文件条目自动检测对应的解析插件
+   * 两层识别策略：nameRules → suffixRules → prefixRules
    * @param file - 文件条目
    * @returns 匹配的解析插件或 null
    */
   detect(file: FileEntry): IFileParserPlugin | null {
-    for (const [ext, name] of this.extToParser) {
-      if (file.name.endsWith(ext) && !this.disabled.has(name)) {
-        return this.parserPlugins.get(name) ?? null
-      }
+    const type = this.resolveFileType(file.name)
+    if (type === UNSUPPORTED_TYPE) return null
+    return this.getParserByName(type)
+  }
+
+  /**
+   * 根据文件名解析业务类型（两层识别策略）
+   * 优先级：nameRules → suffixRules → prefixRules → unsupported
+   * @param fileName - 文件名
+   * @returns 业务类型标识
+   */
+  resolveFileType(fileName: string): string {
+    // 第一层：特殊名称规则（最高优先，如 _table_tree.csv）
+    for (const rule of ARCHIVE_MANIFEST.nameRules) {
+      if (rule.pattern.test(fileName)) return rule.type
     }
-    return null
+    // 第二层：后缀规则（主策略：后缀明确的按后缀解析）
+    for (const rule of ARCHIVE_MANIFEST.suffixRules) {
+      if (rule.pattern.test(fileName)) return rule.type
+    }
+    // 第三层：前缀规则（补充策略：无后缀文件，同类前缀相同）
+    for (const rule of ARCHIVE_MANIFEST.prefixRules) {
+      if (rule.pattern.test(fileName)) return rule.type
+    }
+    // 未命中任何规则 → 不支持
+    return UNSUPPORTED_TYPE
   }
 
   /**
@@ -160,29 +192,30 @@ export class PluginRegistry {
   }
 
   /**
-   * 根据文件名检测对应的解析插件
+   * 根据文件名检测对应的解析插件（统一走 resolveFileType 两层策略）
    * @param fileName - 文件名
    * @returns 匹配的解析插件或 null
    */
   detectByFileName(fileName: string): IFileParserPlugin | null {
-    const ext = '.' + (fileName.split('.').pop() ?? '')
-    return this.getParser(ext)
+    const type = this.resolveFileType(fileName)
+    if (type === UNSUPPORTED_TYPE) return null
+    return this.getParserByName(type)
   }
 
   /**
    * 安全执行解析插件（带超时保护）
-   * 失败时回退为 hex 类型展示
+   * 失败时返回 null，由调用方决定如何展示（调度器会显示 UnsupportedPlaceholder）
    * @param plugin - 解析插件
    * @param data - 文件字节数据
    * @param options - 解析选项
-   * @returns 解析结果
+   * @returns 解析结果，失败时返回 null
    */
-  async safeParse(plugin: IFileParserPlugin, data: Uint8Array, options?: Record<string, any>): Promise<ParsedResult> {
+  async safeParse(plugin: IFileParserPlugin, data: Uint8Array, options?: Record<string, any>): Promise<ParsedResult | null> {
     try {
       return await withTimeout(plugin.parse(data, options), PLUGIN_TIMEOUT_MS)
     } catch (e) {
-      console.warn(`[Registry] 插件 ${plugin.name} 解析失败，回退为 hex 展示`, e)
-      return { type: 'hex', data: data }
+      console.warn(`[Registry] 插件 ${plugin.name} 解析失败`, e)
+      return null
     }
   }
 

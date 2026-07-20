@@ -68,7 +68,7 @@ describe('PluginRegistry', () => {
     expect(registry.getParser('.txt')).toBe(plugin)
   })
 
-  it('safeParse catches errors and returns fallback', async () => {
+  it('safeParse catches errors and returns null', async () => {
     const failingPlugin: IFileParserPlugin = {
       name: 'failing',
       supportedExtensions: ['.txt'],
@@ -78,8 +78,7 @@ describe('PluginRegistry', () => {
     }
     registry.registerParser(failingPlugin)
     const result = await registry.safeParse(failingPlugin, new Uint8Array(0))
-    expect(result).not.toBeNull()
-    expect(result.type).toBe('hex')
+    expect(result).toBeNull()
   })
 
   it('safeDecompress catches errors and returns failure', async () => {
@@ -156,8 +155,9 @@ describe('PluginRegistry', () => {
     plugin.parse = async () => ({ type: 'text', data: 'hello world' })
     registry.registerParser(plugin)
     const result = await registry.safeParse(plugin, new Uint8Array(0))
-    expect(result.type).toBe('text')
-    expect(result.data).toBe('hello world')
+    expect(result).not.toBeNull()
+    expect(result!.type).toBe('text')
+    expect(result!.data).toBe('hello world')
   })
 
   it('safeDecompress 成功路径返回解压结果', async () => {

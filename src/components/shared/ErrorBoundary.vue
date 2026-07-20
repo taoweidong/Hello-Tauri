@@ -9,6 +9,7 @@ onErrorCaptured((err) => {
   return false
 })
 
+/** 重置错误状态，重新渲染子组件 */
 function reset() {
   error.value = null
 }

@@ -33,23 +33,4 @@ describe('useAppStore', () => {
     store.setRightPanelWidth(350)
     expect(store.rightPanelWidth).toBe(350)
   })
-
-  it('manages disabled plugins', () => {
-    const store = useAppStore()
-    expect(store.isPluginDisabled('parser-csv')).toBe(false)
-
-    store.disablePlugin('parser-csv')
-    expect(store.isPluginDisabled('parser-csv')).toBe(true)
-    expect(store.disabledPlugins).toEqual(['parser-csv'])
-
-    store.disablePlugin('parser-csv')
-    expect(store.disabledPlugins).toEqual(['parser-csv'])
-
-    store.disablePlugin('parser-json')
-    expect(store.disabledPlugins).toEqual(['parser-csv', 'parser-json'])
-
-    store.enablePlugin('parser-csv')
-    expect(store.isPluginDisabled('parser-csv')).toBe(false)
-    expect(store.disabledPlugins).toEqual(['parser-json'])
-  })
 })

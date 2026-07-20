@@ -9,8 +9,8 @@ describe('hexPlugin', () => {
     reset()
   })
 
-  it('canParse always returns true (fallback parser)', () => {
-    expect(hexPlugin.canParse({ name: 'file.bin', path: '/', size: 0, isDirectory: false })).toBe(true)
+  it('canParse 返回 false（不再作为默认兜底解析器）', () => {
+    expect(hexPlugin.canParse({ name: 'file.bin', path: '/', size: 0, isDirectory: false })).toBe(false)
   })
 
   it('parse returns hex dump with correct lineCount', async () => {
@@ -68,7 +68,7 @@ describe('hexPlugin', () => {
     expect(pre.attributes('style')).toContain('font-size: 18px')
   })
 
-  it('supportedExtensions 为空数组（兆底解析器）', () => {
+  it('supportedExtensions 为空数组（仅显式调用）', () => {
     expect(hexPlugin.supportedExtensions).toEqual([])
   })
 })

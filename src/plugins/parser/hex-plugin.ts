@@ -46,12 +46,14 @@ const HexRenderer = defineComponent({
   }
 })
 
-/** 十六进制解析插件，作为未知格式的兆底解析器，以 Hex 视图展示原始字节 */
+/** 十六进制解析插件，仅在用户显式选择"以 Hex 查看"时启用，不再作为未知文件的默认兜底 */
 export const hexPlugin: IFileParserPlugin = {
   name: 'hex',
   supportedExtensions: [],
   canParse() {
-    return true
+    // 不再无条件返回 true，避免未知文件被伪装成"可展示"
+    // 仅在用户显式选择 Hex 查看时通过外部调用 parse()
+    return false
   },
   async parse(data: Uint8Array) {
     return {

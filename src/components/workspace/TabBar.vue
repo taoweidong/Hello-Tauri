@@ -12,6 +12,7 @@ const tabsContainerRef = ref<HTMLElement | null>(null)
 const showScrollLeft = ref(false)
 const showScrollRight = ref(false)
 
+/** 检查标签栏是否溢出，更新滚动箭头显示状态 */
 function checkOverflow() {
   const el = tabsContainerRef.value
   if (!el) return
@@ -19,9 +20,11 @@ function checkOverflow() {
   showScrollRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 2
 }
 
+/** 向左滚动标签栏 */
 function scrollLeft() {
   tabsContainerRef.value?.scrollBy({ left: -200, behavior: 'smooth' })
 }
+/** 向右滚动标签栏 */
 function scrollRight() {
   tabsContainerRef.value?.scrollBy({ left: 200, behavior: 'smooth' })
 }
@@ -43,6 +46,7 @@ const contextMenuX = ref(0)
 const contextMenuY = ref(0)
 const showContextMenu = ref(false)
 
+/** 打开右键上下文菜单 */
 function handleContextMenu(e: MouseEvent, tabId: string) {
   e.preventDefault()
   contextMenuTabId.value = tabId
@@ -51,6 +55,7 @@ function handleContextMenu(e: MouseEvent, tabId: string) {
   showContextMenu.value = true
 }
 
+/** 执行右键菜单操作（关闭/关闭其他/关闭右侧/固定） */
 function handleContextMenuAction(key: string) {
   const tabId = contextMenuTabId.value
   if (!tabId) return
@@ -79,10 +84,12 @@ const contextMenuOptions: DropdownOption[] = [
 ]
 
 // ── 标签页点击关闭按钮时停止冒泡 ──
+/** 点击标签页时激活对应标签 */
 function handleTabClick(tabId: string) {
   activateTab(tabId)
 }
 
+/** 点击关闭按钮，停止冒泡并关闭标签页 */
 function handleCloseClick(e: MouseEvent, tabId: string) {
   e.stopPropagation()
   closeTab(tabId)

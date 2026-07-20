@@ -13,6 +13,7 @@ const props = defineProps<{
 const { openTab } = useTabManager()
 const pattern = ref('')
 
+/** 处理树节点选中事件，叶子节点时打开标签页 */
 function handleSelect(keys: string[]) {
   if (keys.length === 0) return
   const key = keys[0]

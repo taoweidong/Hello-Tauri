@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, watch, markRaw } from 'vue'
 import { NEmpty, NScrollbar } from 'naive-ui'
 import { useTabManager } from '@/composables/use-tabs'
 import { usePluginEngine } from '@/composables/use-plugins'
 import { usePlatform } from '@/composables/use-platform'
 import { ParserEngine } from '@/core/parser-engine'
+import { FileDispatcher } from '@/core/file-dispatcher'
 import ErrorBoundary from '@/components/shared/ErrorBoundary.vue'
 
 const props = defineProps<{
@@ -14,6 +15,9 @@ const props = defineProps<{
 const { activeTab } = useTabManager()
 const { registry } = usePluginEngine()
 const { getAdapter } = usePlatform()
+
+/** 核心文件调度器：统一的文件名 → 渲染器分派 */
+const dispatcher = new FileDispatcher(registry)
 
 let enginePromise: Promise<ParserEngine> | null = null
 
@@ -39,7 +43,8 @@ async function resolveCurrentFile(encoding: string) {
     const content = await engine.resolveFile(tab.fileNode, '', encoding)
     // 仅在请求仍为最新时应用结果
     if (requestId === resolveRequestId && content) {
-      tab.content = content
+      // markRaw 避免大体积解析结果被 Vue 深度响应式代理（P4 性能优化）
+      tab.content = markRaw(content)
     }
   } catch (e) {
     console.warn('[PreviewPane] 文件解析失败', e)
@@ -60,12 +65,10 @@ watch(
   { immediate: true },
 )
 
+/** 渲染组件：通过核心调度器按文件名分派，不再自行提取扩展名 */
 const rendererComponent = computed(() => {
   if (!activeTab.value?.content) return null
-  const dotIndex = activeTab.value.fileNode.label.lastIndexOf('.')
-  const ext = dotIndex > 0 ? activeTab.value.fileNode.label.slice(dotIndex) : ''
-  const plugin = registry.getParser(ext)
-  return plugin?.getComponent() ?? null
+  return dispatcher.getRendererFor(activeTab.value.fileNode.label)
 })
 </script>
 
@@ -74,9 +77,9 @@ const rendererComponent = computed(() => {
     <NEmpty v-if="!activeTab" description="选择一个文件以预览" />
     <NEmpty v-else-if="!activeTab.content" description="加载中..." />
     <!--
-      CSV 渲染器内部使用 Splitpanes 实现左右分栏，且 DataTable 与 CsvTreeDetail 各自管理滚动。
+      CSV/TableTree 渲染器内部使用 Splitpanes 实现左右分栏，且 DataTable 与 CsvTreeDetail 各自管理滚动。
       若外层再用 NScrollbar 包裹，Splitpanes 的 height:100% 会因 NScrollbar 内容容器高度 auto 而塌陷，
-      导致左右分栏退化为上下堆叠。因此 CSV 类型直接渲染，其余类型保留 NScrollbar。
+      导致左右分栏退化为上下堆叠。因此 csv 类型（含 table-tree）直接渲染，其余类型保留 NScrollbar。
     -->
     <div v-else-if="activeTab.content.type === 'csv'" class="preview-full">
       <ErrorBoundary>

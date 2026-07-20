@@ -1,5 +1,6 @@
 export { default as TextRenderer } from './TextRenderer.vue'
 export { default as CsvRenderer } from './CsvRenderer.vue'
+export { default as TableTreeRenderer } from './TableTreeRenderer.vue'
 export { default as JsonRenderer } from './JsonRenderer.vue'
 export { default as LogRenderer } from './LogRenderer.vue'
 export { default as CsvTreeDetail } from './CsvTreeDetail.vue'

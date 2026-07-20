@@ -50,6 +50,7 @@ function startDrag(side: 'left' | 'right', e: MouseEvent) {
   e.preventDefault()
 }
 
+/** 鼠标移动时实时更新面板宽度 */
 function onMouseMove(e: MouseEvent) {
   if (draggingLeft.value) {
     const newWidth = Math.max(MIN_LEFT_PANEL_WIDTH, Math.min(MAX_LEFT_PANEL_WIDTH, e.clientX))
@@ -61,6 +62,7 @@ function onMouseMove(e: MouseEvent) {
   }
 }
 
+/** 停止拖拽，恢复光标与选择样式 */
 function stopDrag() {
   if (draggingLeft.value || draggingRight.value) {
     draggingLeft.value = false
@@ -137,6 +139,7 @@ function setCssVars(vars: Record<string, string>) {
   }
 }
 
+/** 处理主题色选择，更新 CSS 自定义属性 */
 function handleThemeColorSelect(key: string) {
   currentThemeColor.value = key as ThemeColorKey
   const color = themeColors[key as ThemeColorKey]

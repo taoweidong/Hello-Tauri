@@ -16,6 +16,7 @@ const emit = defineEmits<{
 
 const collapsed = ref(false)
 
+/** 切换归档卡片的展开/折叠状态 */
 function toggleCollapse() {
   collapsed.value = !collapsed.value
 }

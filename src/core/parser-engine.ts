@@ -1,9 +1,14 @@
 import type { IPlatformAdapter } from '@/adapters/types'
 import type { ParsedContent, FileTreeNode } from '@/types'
 import type { PluginRegistry } from '@/plugins/registry'
+import { FileDispatcher } from '@/core/file-dispatcher'
+import { UNSUPPORTED_TYPE } from '@/config/archive-manifest'
 
-/** 文件解析引擎，根据文件扩展名选择插件并解析内容 */
+/** 文件解析引擎，通过核心调度器按文件名识别类型并解析内容 */
 export class ParserEngine {
+  /** 核心文件调度器 */
+  private dispatcher: FileDispatcher
+
   /**
    * 创建解析引擎实例
    * @param adapter - 平台适配器，用于读取文件
@@ -12,34 +17,27 @@ export class ParserEngine {
   constructor(
     private adapter: IPlatformAdapter,
     private registry: PluginRegistry
-  ) {}
+  ) {
+    this.dispatcher = new FileDispatcher(registry)
+  }
 
   /**
    * 解析指定文件节点的内容
+   * 通过 FileDispatcher 统一调度：文件名 → 类型识别 → 解析器选择 → 执行解析
    * @param node - 文件树节点
    * @param archivePath - 归档路径前缀
    * @param encoding - 字符编码，默认 'utf-8'
-   * @returns 解析结果，失败时返回 null
+   * @returns 解析结果，失败或不支持时返回 null
    */
   async resolveFile(node: FileTreeNode, archivePath: string, encoding = 'utf-8'): Promise<ParsedContent | null> {
-    const start = performance.now()
-
     try {
+      // 类型识别：不支持的文件直接返回 null
+      const fileType = this.dispatcher.resolveType(node.label)
+      if (fileType.type === UNSUPPORTED_TYPE) return null
+
       const data = await this.adapter.readFile(node.path)
-      // 安全提取扩展名：无扩展名时回退为空字符串，匹配 hex 插件
-      const dotIndex = node.label.lastIndexOf('.')
-      const ext = dotIndex > 0 ? node.label.slice(dotIndex) : ''
-      const plugin = this.registry.getParser(ext) ?? this.registry.getParser('')
-      if (!plugin) return null
-
-      const result = await this.registry.safeParse(plugin, data, { encoding })
-      if (!result) return null
-
-      return {
-        ...result,
-        loadTimeMs: performance.now() - start,
-        pluginName: plugin.name,
-      } as ParsedContent
+      const result = await this.dispatcher.dispatch(node.label, data, { encoding })
+      return result.content
     } catch (e) {
       console.warn(`[ParserEngine] 解析文件失败: ${node.path}`, e)
       return null

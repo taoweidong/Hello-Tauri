@@ -1,3 +1,4 @@
+import { markRaw } from 'vue'
 import { useArchiveManager } from './use-archives'
 import { usePluginEngine } from './use-plugins'
 import { useCacheManager } from './use-cache'
@@ -68,7 +69,8 @@ export function useDecompress() {
         updateStatus(archive.id, 'running', 80)
 
         const tree = treeBuilder.build(result.files, '')
-        archive.files = tree
+        // markRaw 避免大体积文件树被 Vue 深度响应式代理（P4 性能优化）
+        archive.files = markRaw(tree)
         archive.originalSize = result.files.reduce((sum, f) => sum + f.size, 0)
 
         updateStatus(archive.id, 'completed', 100)

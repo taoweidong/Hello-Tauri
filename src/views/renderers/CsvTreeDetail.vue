@@ -88,19 +88,19 @@ const levelOptions = computed<Array<{ label: string; value: number }>>(() => {
   return opts
 })
 
-// 全部展开：expandedDepths 设置为包含所有深度 1~maxDepth 的 Set
+/** 全部展开：展开所有深度层级 */
 function expandAll(): void {
   expandedDepths.value = new Set(
     Array.from({ length: maxDepth.value }, (_, i) => i + 1),
   )
 }
 
-// 全部折叠：仅展开根层
+/** 全部折叠：仅保留根层展开 */
 function collapseAll(): void {
   expandedDepths.value = new Set([1])
 }
 
-// 按层级展开：expandedDepths 设置为 {1, 2, ..., level}
+/** 按层级展开：展开指定深度及其以上所有层 */
 function applyLevel(level: number): void {
   expandedDepths.value = new Set(
     Array.from({ length: level }, (_, i) => i + 1),
@@ -108,7 +108,7 @@ function applyLevel(level: number): void {
   selectedLevel.value = level
 }
 
-// 关闭按钮回调
+/** 关闭详情面板 */
 function handleClose(): void {
   emit('close')
 }

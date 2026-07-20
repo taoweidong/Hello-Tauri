@@ -29,6 +29,7 @@ const batchOptions = [
   { label: '批量重新解压', key: 'reDecompress' },
 ]
 
+/** 处理批量操作菜单选项 */
 function handleBatch(key: string) {
   if (key === 'clear') {
     // 同步清理标签页、归档列表和缓存

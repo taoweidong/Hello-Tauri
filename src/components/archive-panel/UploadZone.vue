@@ -18,6 +18,7 @@ async function processFiles(rawFiles: File[]) {
   if (validFiles.length) addFiles(validFiles)
 }
 
+/** 处理文件拖放事件 */
 async function handleDrop(e: DragEvent) {
   e.preventDefault()
   isDragging.value = false
@@ -28,12 +29,14 @@ async function handleDrop(e: DragEvent) {
 }
 
 
+/** 处理拖拽进入事件 */
 function handleDragEnter(e: DragEvent) {
   e.preventDefault()
   dragDepth++
   isDragging.value = true
 }
 
+/** 处理拖拽离开事件 */
 function handleDragLeave() {
   dragDepth--
   if (dragDepth <= 0) {
@@ -42,14 +45,17 @@ function handleDragLeave() {
   }
 }
 
+/** 处理拖拽悬停事件 */
 function handleDragOver(e: DragEvent) {
   e.preventDefault()
 }
 
+/** 点击上传区域时触发文件选择 */
 function handleClick() {
   fileInput.value?.click()
 }
 
+/** 处理文件输入框 change 事件 */
 async function handleInputChange(e: Event) {
   const input = e.target as HTMLInputElement
   if (!input.files?.length) return

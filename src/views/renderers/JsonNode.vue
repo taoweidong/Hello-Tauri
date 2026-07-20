@@ -13,10 +13,12 @@ const props = withDefaults(defineProps<{
 /** 深层嵌套默认折叠：depth > 3 时默认关闭 */
 const open = ref(props.defaultOpen ?? (props.depth <= 3))
 
+/** 切换节点展开/折叠状态 */
 function toggle() {
   open.value = !open.value
 }
 
+/** 判断值的 JSON 类型 */
 function typeOf(v: unknown): 'array' | 'object' | 'string' | 'number' | 'boolean' | 'null' | 'other' {
   if (v === null) return 'null'
   if (Array.isArray(v)) return 'array'
@@ -26,11 +28,13 @@ function typeOf(v: unknown): 'array' | 'object' | 'string' | 'number' | 'boolean
   return 'other'
 }
 
+/** 获取对象/数组的键值对列表 */
 function entries(v: object): Array<readonly [string, unknown]> {
   if (Array.isArray(v)) return v.map((val, i) => [String(i), val] as const)
   return Object.entries(v).map(([k, val]) => [k, val] as const)
 }
 
+/** 获取对象/数组的子项数量 */
 function count(v: unknown): number {
   if (Array.isArray(v)) return v.length
   if (v && typeof v === 'object') return Object.keys(v).length
