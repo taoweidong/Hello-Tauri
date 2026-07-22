@@ -5,6 +5,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
+import 'splitpanes/dist/splitpanes.css'
 import './styles/main.css'
 import { initCache } from './composables/use-cache'
 import { useArchiveManager } from './composables/use-archives'
