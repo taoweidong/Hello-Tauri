@@ -19,7 +19,7 @@ function createMockRegistry(plugins: Map<string, IFileParserPlugin> = new Map())
   return {
     resolveFileType: vi.fn((fileName: string) => {
       for (const [name, plugin] of plugins) {
-        if (plugin.canParse({ name: fileName, size: 0, path: fileName })) {
+        if (plugin.canParse({ name: fileName, size: 0, path: fileName, isDirectory: false })) {
           return name
         }
       }

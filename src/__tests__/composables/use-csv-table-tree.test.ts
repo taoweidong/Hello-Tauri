@@ -32,7 +32,7 @@ describe('useCsvTableTree', () => {
 
     it('列定义包含 sorter', () => {
       const { columns } = useCsvTableTree(() => csvData)
-      expect(columns.value[0].sorter).toBe('default')
+      expect((columns.value[0] as any).sorter).toBe('default')
     })
 
     it('唯一值 ≤ 50 时生成筛选选项', () => {
