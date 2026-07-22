@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 树形节点组件（递归）
+ * 渲染单个 RowTreeNode 及其子节点，支持受控/非受控展开、关键字高亮
+ */
 import { computed, ref } from 'vue'
 import type { RowTreeNode } from '@/core/csv-row-tree'
 // 显式自引用以支持递归渲染

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 日志渲染器
+ * 以表格形式展示结构化日志数据，支持级别筛选、排序与 CSV 导出
+ */
 import { h } from 'vue'
 import { NEmpty } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'

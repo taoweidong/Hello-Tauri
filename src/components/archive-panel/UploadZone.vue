@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 上传区域组件
+ * 支持点击选择与拖放上传压缩包，内部执行过滤→验证→添加流程
+ */
 import { ref } from 'vue'
 import { NText, useMessage } from 'naive-ui'
 import { useArchiveManager } from '@/composables/use-archives'

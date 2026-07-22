@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 错误边界组件
+ * 捕获子组件渲染异常，展示错误信息与重试按钮，防止全局崩溃
+ */
 import { ref, onErrorCaptured } from 'vue'
 import { NResult, NButton } from 'naive-ui'
 

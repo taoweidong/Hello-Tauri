@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 文件树组件
+ * 展示归档解压后的文件树结构，支持关键字过滤与叶子节点点击打开标签页
+ */
 import { ref } from 'vue'
 import { NTree, NInput } from 'naive-ui'
 import type { FileTreeNode } from '@/types'

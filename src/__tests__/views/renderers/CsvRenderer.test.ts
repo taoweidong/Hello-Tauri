@@ -22,11 +22,11 @@ describe('CsvRenderer', () => {
       },
     })
     await nextTick()
-    // 单栏模式：.csv-renderer 存在，DataTable 组件被使用
-    expect(wrapper.find('.csv-renderer').exists()).toBe(true)
+    // 单栏模式：.csv-table-tree-view 存在，DataTable 组件被使用
+    expect(wrapper.find('.csv-table-tree-view').exists()).toBe(true)
     expect(wrapper.findComponent(DataTable).exists()).toBe(true)
     // 不应出现分栏容器
-    expect(wrapper.find('.csv-split-container').exists()).toBe(false)
+    expect(wrapper.find('.csv-table-tree-split').exists()).toBe(false)
   })
 
   it('有数据时不显示空表格提示', async () => {
@@ -62,13 +62,13 @@ describe('CsvRenderer', () => {
     })
     await nextTick()
     // 初始为单栏模式
-    expect(wrapper.find('.csv-split-container').exists()).toBe(false)
+    expect(wrapper.find('.csv-table-tree-split').exists()).toBe(false)
     // 通过组件内部状态切换到分栏模式（避免依赖 NDataTable 行 DOM）
-    const vm = wrapper.vm as any
+    const vm = wrapper.findComponent({ name: 'CsvTableTreeView' }).vm as any
     vm.selectedIndex = 0
     await nextTick()
     // 进入分栏模式
-    expect(wrapper.find('.csv-split-container').exists()).toBe(true)
+    expect(wrapper.find('.csv-table-tree-split').exists()).toBe(true)
     // 树形详情面板渲染
     expect(wrapper.find('.csv-tree-detail').exists()).toBe(true)
   })
@@ -84,17 +84,17 @@ describe('CsvRenderer', () => {
     })
     await nextTick()
     // 先进入分栏模式
-    const vm = wrapper.vm as any
+    const vm = wrapper.findComponent({ name: 'CsvTableTreeView' }).vm as any
     vm.selectedIndex = 0
     await nextTick()
-    expect(wrapper.find('.csv-split-container').exists()).toBe(true)
+    expect(wrapper.find('.csv-table-tree-split').exists()).toBe(true)
     // 模拟点击详情面板关闭按钮
     const closeBtn = wrapper.find('button[aria-label="关闭"]')
     expect(closeBtn.exists()).toBe(true)
     await closeBtn.trigger('click')
     await nextTick()
     // 回到单栏模式
-    expect(wrapper.find('.csv-split-container').exists()).toBe(false)
-    expect(wrapper.find('.csv-renderer').exists()).toBe(true)
+    expect(wrapper.find('.csv-table-tree-split').exists()).toBe(false)
+    expect(wrapper.find('.csv-table-tree-view').exists()).toBe(true)
   })
 })

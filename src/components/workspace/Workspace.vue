@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 工作区容器组件
+ * 组合标签栏、预览工具栏与预览面板，管理编码/换行/行号等局部状态
+ */
 import { computed, ref } from 'vue'
 import TabBar from './TabBar.vue'
 import PreviewToolbar from './PreviewToolbar.vue'

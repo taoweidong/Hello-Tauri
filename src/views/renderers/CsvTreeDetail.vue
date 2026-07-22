@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * CSV 树形详情面板
+ * 展示选中行派生的树形结构数据，支持关键字搜索、按层级展开/折叠
+ */
 import { computed, ref, watch } from 'vue'
 import { NButton, NEmpty, NInput, NSelect } from 'naive-ui'
 import type { RowTreeNode } from '@/core/csv-row-tree'

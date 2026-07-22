@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 归档卡片组件
+ * 展示单个压缩包的状态、错误信息与文件树，支持展开/折叠、删除与重试
+ */
 import { ref } from 'vue'
 import { NCard, NButton, NCollapseTransition } from 'naive-ui'
 import type { ArchiveItem } from '@/types'

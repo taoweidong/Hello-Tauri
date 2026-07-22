@@ -1,4 +1,9 @@
 <script setup lang="ts">
+/**
+ * 应用主布局组件
+ * 实现四栏布局：顶部导航栏 + 左侧归档面板 + 中央工作区 + 右侧属性面板
+ * 包含面板拖拽调整宽度、键盘快捷键、全局拖放上传、主题色切换等功能
+ */
 import { ref, computed, h, onMounted, onBeforeUnmount } from 'vue'
 import { NButton, NTooltip, NDropdown } from 'naive-ui'
 import type { DropdownOption } from 'naive-ui'

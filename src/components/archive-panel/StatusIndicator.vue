@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 归档状态指示器
+ * 根据压缩包处理状态显示对应标签（已完成/解压中/排队中/失败）及进度条
+ */
 import { NTag, NProgress, NSpace } from 'naive-ui'
 import type { ArchiveStatus } from '@/types'
 

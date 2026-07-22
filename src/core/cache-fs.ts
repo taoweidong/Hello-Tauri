@@ -100,15 +100,7 @@ export class FsCacheStorage implements ICacheStorage {
    * @returns 元数据数组，读取失败时返回空数组
    */
   async loadAllMeta(): Promise<CacheMeta[]> {
-    const fn = await getInvoke()
-    const metaDir = joinPath(this.cacheDir, 'meta')
-    let entries: Array<{ name: string; isDirectory: boolean }>
-    try {
-      entries = await fn('list_files', { dir: metaDir })
-    } catch (e) {
-      console.warn('[CacheFS] 读取元数据目录失败', e)
-      return []
-    }
+    const entries = await this.listMetaEntries()
     const metaList: CacheMeta[] = []
     for (const entry of entries) {
       if (entry.isDirectory || !entry.name.endsWith('.json')) continue
@@ -121,18 +113,40 @@ export class FsCacheStorage implements ICacheStorage {
   }
 
   /**
+   * 删除指定路径的文件（不存在时忽略，其他错误记录警告）
+   * @param path - 文件路径
+   * @param label - 日志标识（用于警告信息）
+   */
+  private async deleteFileSafe(path: string, label: string): Promise<void> {
+    const fn = await getInvoke()
+    try {
+      await fn('delete_file', { path })
+    } catch (e) {
+      console.warn(`[CacheFS] 删除${label}失败: ${path}`, e)
+    }
+  }
+
+  /**
+   * 列出 meta 目录下的所有 .json 条目
+   * @returns 条目数组，读取失败时返回空数组
+   */
+  private async listMetaEntries(): Promise<Array<{ name: string; isDirectory: boolean }>> {
+    const fn = await getInvoke()
+    const metaDir = joinPath(this.cacheDir, 'meta')
+    try {
+      return await fn('list_files', { dir: metaDir })
+    } catch (e) {
+      console.warn('[CacheFS] 读取元数据目录失败', e)
+      return []
+    }
+  }
+
+  /**
    * 删除归档元数据文件
    * @param id - 归档 id
    */
   async deleteMeta(id: string): Promise<void> {
-    const fn = await getInvoke()
-    const path = this.metaPath(id)
-    try {
-      await fn('delete_file', { path })
-    } catch (e) {
-      // 文件不存在时忽略，其他错误记录警告
-      console.warn(`[CacheFS] 删除元数据失败: ${id}`, e)
-    }
+    await this.deleteFileSafe(this.metaPath(id), '元数据')
   }
 
   /**
@@ -160,14 +174,7 @@ export class FsCacheStorage implements ICacheStorage {
    * @param id - 归档 id
    */
   async deleteFileData(id: string): Promise<void> {
-    const fn = await getInvoke()
-    const path = this.dataPath(id)
-    try {
-      await fn('delete_file', { path })
-    } catch (e) {
-      // 文件不存在时忽略，其他错误记录警告
-      console.warn(`[CacheFS] 删除数据文件失败: ${id}`, e)
-    }
+    await this.deleteFileSafe(this.dataPath(id), '数据文件')
   }
 
   /**
@@ -175,17 +182,9 @@ export class FsCacheStorage implements ICacheStorage {
    * @returns 归档 id 字符串数组，读取失败时返回空数组
    */
   async listIds(): Promise<string[]> {
-    const fn = await getInvoke()
-    const metaDir = joinPath(this.cacheDir, 'meta')
-    try {
-      const entries: Array<{ name: string; isDirectory: boolean }> =
-        await fn('list_files', { dir: metaDir })
-      return entries
-        .filter(e => !e.isDirectory && e.name.endsWith('.json'))
-        .map(e => e.name.replace(/\.json$/, ''))
-    } catch (e) {
-      console.warn('[CacheFS] 列出缓存 ID 失败', e)
-      return []
-    }
+    const entries = await this.listMetaEntries()
+    return entries
+      .filter(e => !e.isDirectory && e.name.endsWith('.json'))
+      .map(e => e.name.replace(/\.json$/, ''))
   }
 }

@@ -1,25 +1,23 @@
 import type { ICompressionPlugin } from '../types'
-import { matchesAnyExtension } from '../types'
-import type { FileEntry } from '@/types'
+import { createExtensionMatcher, decompressViaTauri } from '../helpers'
+
+const EXTENSIONS = ['.gz', '.gzip', '.tgz']
 
 /** Gzip 压缩插件，Tauri 端调用后端解压，Web 端使用 DecompressionStream API */
 export const gzipPlugin: ICompressionPlugin = {
   name: 'gzip',
-  supportedExtensions: ['.gz', '.gzip', '.tgz'],
-  canHandle(file: FileEntry): boolean {
-    return matchesAnyExtension(file.name, this.supportedExtensions)
-  },
+  supportedExtensions: EXTENSIONS,
+  canHandle: createExtensionMatcher(EXTENSIONS),
   async decompress(data: Uint8Array, _outputDir: string, file?: { name: string }) {
     // 从原始文件名推断输出名，去掉 .gz/.gzip/.tgz 后缀
     const rawName = file?.name ?? 'decompressed'
     const outputName = rawName.replace(/\.(gz|gzip|tgz)$/i, '') || 'decompressed'
 
-    if (__PLATFORM__ === 'tauri') {
-      const { usePlatform } = await import('@/composables/use-platform')
-      const { getAdapter } = usePlatform()
-      const adapter = await getAdapter()
-      return adapter.decompress(data, 'gzip', _outputDir, outputName)
-    }
+    // Tauri 平台：通过后端解压
+    const tauriResult = await decompressViaTauri(data, 'gzip', _outputDir, outputName)
+    if (tauriResult) return tauriResult
+
+    // Web 平台：使用 DecompressionStream API
     if (typeof DecompressionStream !== 'undefined') {
       const ds = new DecompressionStream('gzip')
       const writer = ds.writable.getWriter()

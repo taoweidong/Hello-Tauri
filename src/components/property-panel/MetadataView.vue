@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 文件元数据视图
+ * 展示当前活动标签页的文件名、路径、大小、类型、行数、解析插件与加载耗时
+ */
 import { NDescriptions, NDescriptionsItem } from 'naive-ui'
 import { useTabManager } from '@/composables/use-tabs'
 

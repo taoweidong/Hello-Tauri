@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 路径面包屑导航
+ * 将当前文件路径按 '/' 拆分为层级面包屑展示
+ */
 import { computed } from 'vue'
 import { NBreadcrumb, NBreadcrumbItem } from 'naive-ui'
 import { useTabManager } from '@/composables/use-tabs'

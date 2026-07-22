@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * JSON 渲染器
+ * 以可折叠树形结构展示 JSON/JSONL 解析结果，支持深层嵌套自动折叠
+ */
 import { NEmpty } from 'naive-ui'
 import { useTabManager } from '@/composables/use-tabs'
 import JsonNode from './JsonNode.vue'

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 纯文本渲染器
+ * 以行号 + 内容形式展示文本文件，支持行点击定位光标、大文件截断保护
+ */
 import { NEmpty } from 'naive-ui'
 import { useTabManager } from '@/composables/use-tabs'
 

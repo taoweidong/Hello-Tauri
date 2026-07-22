@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 压缩包信息组件
+ * 展示当前文件所属压缩包的状态、大小、文件数、解压耗时与版本文件信息
+ */
 import { computed } from 'vue'
 import { NDescriptions, NDescriptionsItem, NTag } from 'naive-ui'
 import { useTabManager } from '@/composables/use-tabs'

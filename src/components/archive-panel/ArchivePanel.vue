@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 归档列表面板（左侧边栏）
+ * 组合上传区域与归档卡片列表，提供解压重试能力
+ */
 import { NScrollbar } from 'naive-ui'
 import { useArchiveManager } from '@/composables/use-archives'
 import { useDecompress } from '@/composables/use-decompress'

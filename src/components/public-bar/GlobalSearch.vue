@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 全局搜索组件
+ * 提供归档文件名搜索、快捷键聚焦、结果高亮与标签页跳转能力
+ */
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { NInput, NButton, NSpace } from 'naive-ui'
 import { useArchiveManager } from '@/composables/use-archives'

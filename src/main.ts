@@ -1,3 +1,7 @@
+/**
+ * 应用入口文件
+ * 初始化 Vue 应用实例、Pinia 状态管理、缓存系统恢复
+ */
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'

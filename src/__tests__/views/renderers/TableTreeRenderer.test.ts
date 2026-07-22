@@ -53,7 +53,7 @@ describe('TableTreeRenderer', () => {
       },
     })
     await nextTick()
-    expect(wrapper.find('.table-tree-renderer').exists()).toBe(true)
+    expect(wrapper.find('.csv-table-tree-view').exists()).toBe(true)
   })
 
   it('未选中行时显示单栏模式', async () => {
@@ -70,8 +70,8 @@ describe('TableTreeRenderer', () => {
     })
     await nextTick()
     // 未选中行时应该显示单栏模式
-    expect(wrapper.find('.table-tree-renderer').exists()).toBe(true)
-    expect(wrapper.find('.table-tree-split-container').exists()).toBe(false)
+    expect(wrapper.find('.csv-table-tree-view').exists()).toBe(true)
+    expect(wrapper.find('.csv-table-tree-split').exists()).toBe(false)
   })
 
   it('有数据时不显示空表格提示', async () => {

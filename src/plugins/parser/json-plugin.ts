@@ -1,18 +1,17 @@
 import type { IFileParserPlugin } from '../types'
-import { matchesAnyExtension } from '../types'
+import { createExtensionMatcher, decodeText } from '../helpers'
 import { parseJson } from '@/plugins/parsers/json-parser'
 import JsonRenderer from '@/views/renderers/JsonRenderer.vue'
+
+const EXTENSIONS = ['.json', '.jsonl']
 
 /** JSON/JSONL 解析插件，支持标准 JSON 与按行分隔的 JSONL 格式 */
 export const jsonPlugin: IFileParserPlugin = {
   name: 'json',
-  supportedExtensions: ['.json', '.jsonl'],
-  canParse(file) {
-    return matchesAnyExtension(file.name, this.supportedExtensions)
-  },
+  supportedExtensions: EXTENSIONS,
+  canParse: createExtensionMatcher(EXTENSIONS),
   async parse(data: Uint8Array, options?: Record<string, any>) {
-    const encoding = options?.encoding ?? 'utf-8'
-    const text = new TextDecoder(encoding).decode(data)
+    const text = decodeText(data, options?.encoding ?? 'utf-8')
     return parseJson(text)
   },
   getComponent() {

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 右侧属性面板
+ * 上半部分展示压缩包信息，下半部分展示当前文件元数据与路径面包屑
+ */
 import { NScrollbar } from 'naive-ui'
 import ArchiveInfo from './ArchiveInfo.vue'
 import MetadataView from './MetadataView.vue'

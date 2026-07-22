@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 顶部公共栏组件
+ * 包含全局搜索、批量操作菜单与实时时钟显示
+ */
 import { computed } from 'vue'
 import { NSpace, NButton, NDropdown, NText } from 'naive-ui'
 import { useNow } from '@vueuse/core'

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 欢迎页组件
+ * 无标签页打开时展示应用引导信息、操作提示、最近文件与快捷键说明
+ */
 import { computed } from 'vue'
 import { NButton } from 'naive-ui'
 import { usePanelLayout } from '@/composables/use-panel-layout'

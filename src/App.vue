@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 应用根组件
+ * 提供全局主题配置（Naive UI NConfigProvider）、消息/对话框 Provider 及错误边界
+ */
 import { computed } from 'vue'
 import { NConfigProvider, NMessageProvider, NDialogProvider, darkTheme, lightTheme } from 'naive-ui'
 import { themeOverrides } from './styles/theme'

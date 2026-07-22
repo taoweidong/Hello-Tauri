@@ -1,5 +1,5 @@
 import type { IFileParserPlugin } from '../types'
-import { parseCsv } from '@/plugins/parsers/csv-parser'
+import { decodeAndParseCsv } from '../helpers'
 import TableTreeRenderer from '@/views/renderers/TableTreeRenderer.vue'
 
 /** 表格+树形联动解析插件，用于 *_table_tree.csv 类型文件 */
@@ -11,10 +11,7 @@ export const tableTreePlugin: IFileParserPlugin = {
     return /_table_tree\.csv$/i.test(file.name)
   },
   async parse(data: Uint8Array, options?: Record<string, any>) {
-    const encoding = options?.encoding ?? 'utf-8'
-    const text = new TextDecoder(encoding).decode(data)
-    const delimiter = options?.delimiter ?? ','
-    return parseCsv(text, delimiter)
+    return decodeAndParseCsv(data, options)
   },
   getComponent() {
     return TableTreeRenderer

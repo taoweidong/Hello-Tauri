@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 插件配置表单组件
+ * 根据当前文件对应的解析插件 ConfigSchema 动态渲染配置表单项
+ */
 import { computed, ref, watch } from 'vue'
 import { NForm, NFormItem, NInput, NSelect, NSwitch, NInputNumber, NText } from 'naive-ui'
 import { useTabManager } from '@/composables/use-tabs'

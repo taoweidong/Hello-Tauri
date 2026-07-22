@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 预览工具栏
+ * 提供字号调节、自动换行、行号显示、编码切换等文件预览控制项
+ */
 import { NInputNumber, NSwitch, NSelect, NSpace, NText } from 'naive-ui'
 
 defineProps<{

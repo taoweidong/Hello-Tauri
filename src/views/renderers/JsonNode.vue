@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * JSON 节点组件（递归）
+ * 渲染单个 JSON 值（对象/数组/原始类型），支持展开/折叠与深层自动折叠
+ */
 import { ref } from 'vue'
 
 const props = withDefaults(defineProps<{
