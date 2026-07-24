@@ -1,5 +1,5 @@
 import type { IPlatformAdapter } from './types'
-import type { FileEntry, DecompressResult } from '@/types'
+import type { FileEntry } from '@/types'
 import { memoryStore } from '@/core/memory-store'
 
 /**
@@ -30,11 +30,6 @@ export class WebAdapter implements IPlatformAdapter {
   /** 返回固定的临时目录路径 */
   async getTempDir(): Promise<string> {
     return '/tmp/web'
-  }
-
-  /** Web 模式（无 WASM）不支持原生解压 */
-  async decompress(_data: Uint8Array, _format: string, _outputDir: string, _fileName?: string): Promise<DecompressResult> {
-    throw new Error('Web 模式不支持原生解压')
   }
 
   /** 通过 HTTP Range 请求读取文件指定区间 */

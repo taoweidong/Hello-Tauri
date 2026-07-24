@@ -1,20 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { DecompressService } from '@/core/decompress'
-import type { IPlatformAdapter } from '@/adapters/types'
 import type { DecompressResult, FileEntry } from '@/types'
 import type { ICompressionPlugin } from '@/plugins/types'
-
-function createMockAdapter(): IPlatformAdapter {
-  return {
-    readFile: vi.fn(),
-    writeFile: vi.fn(),
-    listFiles: vi.fn(),
-    getTempDir: vi.fn(),
-    decompress: vi.fn(),
-    mmapRead: vi.fn(),
-    streamRead: vi.fn(),
-  } as any
-}
 
 function createMockRegistry() {
   return {
@@ -40,14 +27,12 @@ function createMockCompressionPlugin(): ICompressionPlugin {
 }
 
 describe('DecompressService', () => {
-  let adapter: IPlatformAdapter
   let registry: ReturnType<typeof createMockRegistry>
   let service: DecompressService
 
   beforeEach(() => {
-    adapter = createMockAdapter()
     registry = createMockRegistry()
-    service = new DecompressService(adapter, registry)
+    service = new DecompressService(registry)
   })
 
   it('找到压缩插件时调用 safeDecompress 并返回结果', async () => {

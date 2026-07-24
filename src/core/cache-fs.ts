@@ -2,19 +2,29 @@
  * 缓存目录结构：
  *   {app_data_dir}/.cache/meta/{id}.json  — 元数据
  *   {app_data_dir}/.cache/data/{id}.bin   — 二进制文件数据
+ *
+ * 使用 Tauri 官方插件（plugin-fs / api-path）实现文件操作，不依赖自定义 Rust 命令
  */
 import type { ICacheStorage, CacheMeta } from './cache-storage'
 
-/** 懒加载 Tauri invoke 函数 */
-let invoke: (cmd: string, args?: Record<string, unknown>) => Promise<any>
+/** 懒加载 Tauri 插件模块 */
+let fsModule: typeof import('@tauri-apps/plugin-fs') | null = null
+let pathModule: typeof import('@tauri-apps/api/path') | null = null
 
-/** 获取 Tauri invoke 函数单例 */
-async function getInvoke() {
-  if (!invoke) {
-    const tauri = await import('@tauri-apps/api/core')
-    invoke = tauri.invoke
+/** 获取 fs 插件模块单例 */
+async function getFs() {
+  if (!fsModule) {
+    fsModule = await import('@tauri-apps/plugin-fs')
   }
-  return invoke
+  return fsModule
+}
+
+/** 获取 path 模块单例 */
+async function getPath() {
+  if (!pathModule) {
+    pathModule = await import('@tauri-apps/api/path')
+  }
+  return pathModule
 }
 
 /** 拼接路径片段（兼容 Windows 和 POSIX） */
@@ -32,12 +42,13 @@ export class FsCacheStorage implements ICacheStorage {
    * @returns 初始化完成后 resolve
    */
   async init(): Promise<void> {
-    const fn = await getInvoke()
-    const appDataDir: string = await fn('get_app_data_dir')
+    const path = await getPath()
+    const fs = await getFs()
+    const appDataDir = await path.appDataDir()
     this.cacheDir = joinPath(appDataDir, '.cache')
     // 确保 meta 和 data 子目录存在
-    await fn('ensure_dir', { path: joinPath(this.cacheDir, 'meta') })
-    await fn('ensure_dir', { path: joinPath(this.cacheDir, 'data') })
+    await fs.mkdir(joinPath(this.cacheDir, 'meta'), { recursive: true })
+    await fs.mkdir(joinPath(this.cacheDir, 'data'), { recursive: true })
   }
 
   /** 获取元数据文件路径 */
@@ -54,12 +65,12 @@ export class FsCacheStorage implements ICacheStorage {
    * 读取文件原始字节（存在检查 + 错误处理）
    * @returns 字节数组，文件不存在或读取出错时返回 null
    */
-  private async readRawBytes(path: string): Promise<number[] | null> {
-    const fn = await getInvoke()
-    const exists: boolean = await fn('file_exists', { path })
-    if (!exists) return null
+  private async readRawBytes(path: string): Promise<Uint8Array | null> {
+    const fs = await getFs()
+    const fileExists = await fs.exists(path)
+    if (!fileExists) return null
     try {
-      return await fn('read_file', { path })
+      return await fs.readFile(path)
     } catch (e) {
       console.warn(`[CacheFS] 读取文件失败: ${path}`, e)
       return null
@@ -72,10 +83,10 @@ export class FsCacheStorage implements ICacheStorage {
    * @param meta - 缓存元数据
    */
   async saveMeta(_id: string, meta: CacheMeta): Promise<void> {
-    const fn = await getInvoke()
+    const fs = await getFs()
     const json = JSON.stringify(meta)
     const encoded = new TextEncoder().encode(json)
-    await fn('write_file', { path: this.metaPath(meta.id), data: Array.from(encoded) })
+    await fs.writeFile(this.metaPath(meta.id), encoded)
   }
 
   /**
@@ -87,7 +98,7 @@ export class FsCacheStorage implements ICacheStorage {
     const bytes = await this.readRawBytes(this.metaPath(id))
     if (!bytes) return null
     try {
-      const json = new TextDecoder().decode(new Uint8Array(bytes))
+      const json = new TextDecoder().decode(bytes)
       return JSON.parse(json) as CacheMeta
     } catch (e) {
       console.warn(`[CacheFS] 元数据解析失败: ${id}`, e)
@@ -118,9 +129,9 @@ export class FsCacheStorage implements ICacheStorage {
    * @param label - 日志标识（用于警告信息）
    */
   private async deleteFileSafe(path: string, label: string): Promise<void> {
-    const fn = await getInvoke()
+    const fs = await getFs()
     try {
-      await fn('delete_file', { path })
+      await fs.remove(path)
     } catch (e) {
       console.warn(`[CacheFS] 删除${label}失败: ${path}`, e)
     }
@@ -131,10 +142,11 @@ export class FsCacheStorage implements ICacheStorage {
    * @returns 条目数组，读取失败时返回空数组
    */
   private async listMetaEntries(): Promise<Array<{ name: string; isDirectory: boolean }>> {
-    const fn = await getInvoke()
+    const fs = await getFs()
     const metaDir = joinPath(this.cacheDir, 'meta')
     try {
-      return await fn('list_files', { dir: metaDir })
+      const entries = await fs.readDir(metaDir)
+      return entries.map(e => ({ name: e.name, isDirectory: e.isDirectory }))
     } catch (e) {
       console.warn('[CacheFS] 读取元数据目录失败', e)
       return []
@@ -155,8 +167,8 @@ export class FsCacheStorage implements ICacheStorage {
    * @param data - 字节数组
    */
   async saveFileData(id: string, data: Uint8Array): Promise<void> {
-    const fn = await getInvoke()
-    await fn('write_file', { path: this.dataPath(id), data: Array.from(data) })
+    const fs = await getFs()
+    await fs.writeFile(this.dataPath(id), data)
   }
 
   /**
@@ -165,8 +177,7 @@ export class FsCacheStorage implements ICacheStorage {
    * @returns 字节数组，不存在或读取出错时返回 null
    */
   async loadFileData(id: string): Promise<Uint8Array | null> {
-    const bytes = await this.readRawBytes(this.dataPath(id))
-    return bytes ? new Uint8Array(bytes) : null
+    return this.readRawBytes(this.dataPath(id))
   }
 
   /**

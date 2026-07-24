@@ -4,9 +4,8 @@
  * - 文本解码
  * - CSV 解码+解析
  * - 扩展名匹配 canParse 工厂
- * - Tauri 平台适配器获取
  */
-import type { FileEntry, DecompressResult } from '@/types'
+import type { FileEntry } from '@/types'
 import type { ParsedResult } from './types'
 import { parseCsv } from './parsers/csv-parser'
 
@@ -39,35 +38,4 @@ export function decodeAndParseCsv(data: Uint8Array, options?: Record<string, any
  */
 export function createExtensionMatcher(extensions: string[]): (file: FileEntry) => boolean {
   return (file: FileEntry) => extensions.some(ext => file.name.endsWith(ext))
-}
-
-/**
- * 获取 Tauri 平台适配器（压缩插件共用的平台判断 + 动态导入逻辑）
- * 仅在 __PLATFORM__ === 'tauri' 时返回适配器，否则返回 null
- * @returns 平台适配器或 null
- */
-export async function getTauriAdapter(): Promise<import('@/adapters/types').IPlatformAdapter | null> {
-  if (__PLATFORM__ !== 'tauri') return null
-  const { usePlatform } = await import('@/composables/use-platform')
-  const { getAdapter } = usePlatform()
-  return getAdapter()
-}
-
-/**
- * 通过 Tauri 后端执行解压（gzip/zip 压缩插件共用的 Tauri 分支逻辑）
- * @param data - 压缩包字节数据
- * @param format - 压缩格式标识（'gzip' | 'zip'）
- * @param outputDir - 输出目录
- * @param outputName - 输出文件名（可选）
- * @returns 解压结果，非 Tauri 平台时返回 null
- */
-export async function decompressViaTauri(
-  data: Uint8Array,
-  format: string,
-  outputDir: string,
-  outputName?: string,
-): Promise<DecompressResult | null> {
-  const adapter = await getTauriAdapter()
-  if (!adapter) return null
-  return adapter.decompress(data, format, outputDir, outputName)
 }

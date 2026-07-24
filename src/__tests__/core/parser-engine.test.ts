@@ -13,7 +13,6 @@ function createMockAdapter(): IPlatformAdapter {
     writeFile: vi.fn(),
     listFiles: vi.fn(),
     getTempDir: vi.fn(),
-    decompress: vi.fn(),
     mmapRead: vi.fn(),
     streamRead: vi.fn(),
   } as any

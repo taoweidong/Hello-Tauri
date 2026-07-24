@@ -3,6 +3,19 @@
   "description": "Default capabilities for the main window",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "fs:allow-read-file",
+    "fs:allow-write-file",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    "fs:allow-read-dir",
+    "fs:allow-exists",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$APPDATA/**" },
+        { "path": "$TEMP/**" }
+      ]
+    }
   ]
 }

@@ -11,7 +11,6 @@ const mockAdapter = {
   listFiles: vi.fn(),
   writeFile: vi.fn(),
   getTempDir: vi.fn(),
-  decompress: vi.fn(),
   mmapRead: vi.fn(),
   streamRead: vi.fn(),
 }

@@ -1,9 +1,9 @@
 import type { ICompressionPlugin } from '../types'
-import { createExtensionMatcher, decompressViaTauri } from '../helpers'
+import { createExtensionMatcher } from '../helpers'
 
 const EXTENSIONS = ['.gz', '.gzip', '.tgz']
 
-/** Gzip 压缩插件，Tauri 端调用后端解压，Web 端使用 DecompressionStream API */
+/** Gzip 压缩插件，统一使用 DecompressionStream API 解压（Web/Tauri 通用） */
 export const gzipPlugin: ICompressionPlugin = {
   name: 'gzip',
   supportedExtensions: EXTENSIONS,
@@ -13,11 +13,7 @@ export const gzipPlugin: ICompressionPlugin = {
     const rawName = file?.name ?? 'decompressed'
     const outputName = rawName.replace(/\.(gz|gzip|tgz)$/i, '') || 'decompressed'
 
-    // Tauri 平台：通过后端解压
-    const tauriResult = await decompressViaTauri(data, 'gzip', _outputDir, outputName)
-    if (tauriResult) return tauriResult
-
-    // Web 平台：使用 DecompressionStream API
+    // 使用 DecompressionStream API
     if (typeof DecompressionStream !== 'undefined') {
       const ds = new DecompressionStream('gzip')
       const writer = ds.writable.getWriter()

@@ -1,8 +1,8 @@
-import type { DecompressResult, FileEntry } from '@/types'
+import type { FileEntry } from '@/types'
 
 /**
  * 平台适配器接口
- * 抽象文件读取、写入、解压等操作，屏蔽 Web 与 Tauri 平台差异
+ * 抽象文件读取、写入等操作，屏蔽 Web 与 Tauri 平台差异
  */
 export interface IPlatformAdapter {
   /**
@@ -33,17 +33,7 @@ export interface IPlatformAdapter {
   getTempDir(): Promise<string>
 
   /**
-   * 解压数据到指定目录
-   * @param data - 压缩包字节数据
-   * @param format - 压缩格式（如 'zip'、'gzip'）
-   * @param outputDir - 输出目录路径
-   * @param fileName - 输出文件名（可选，用于 gzip 等单文件压缩格式）
-   * @returns 解压结果
-   */
-  decompress(data: Uint8Array, format: string, outputDir: string, fileName?: string): Promise<DecompressResult>
-
-  /**
-   * 内存映射读取（或 HTTP Range 请求），读取文件指定区间的字节
+   * 读取文件指定区间的字节（替代原 mmap 实现）
    * @param path - 文件路径
    * @param offset - 起始偏移量
    * @param length - 读取长度
