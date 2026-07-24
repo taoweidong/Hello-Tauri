@@ -6,26 +6,7 @@
  * 使用 Tauri 官方插件（plugin-fs / api-path）实现文件操作，不依赖自定义 Rust 命令
  */
 import type { ICacheStorage, CacheMeta } from './cache-storage'
-
-/** 懒加载 Tauri 插件模块 */
-let fsModule: typeof import('@tauri-apps/plugin-fs') | null = null
-let pathModule: typeof import('@tauri-apps/api/path') | null = null
-
-/** 获取 fs 插件模块单例 */
-async function getFs() {
-  if (!fsModule) {
-    fsModule = await import('@tauri-apps/plugin-fs')
-  }
-  return fsModule
-}
-
-/** 获取 path 模块单例 */
-async function getPath() {
-  if (!pathModule) {
-    pathModule = await import('@tauri-apps/api/path')
-  }
-  return pathModule
-}
+import { getFs, getPath } from '@/adapters/tauri-helpers'
 
 /** 拼接路径片段（兼容 Windows 和 POSIX） */
 function joinPath(...segments: string[]): string {

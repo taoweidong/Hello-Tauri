@@ -4,7 +4,7 @@ import { memoryStore } from '@/core/memory-store'
 
 /**
  * Web 平台适配器实现
- * 使用 fetch API 和内存存储实现文件读取，不支持写入和原生解压
+ * 使用 fetch API 和内存存储实现文件读取，不支持写入和目录操作
  */
 export class WebAdapter implements IPlatformAdapter {
   /** 读取文件，优先从内存存储获取，否则通过 HTTP 请求 */

@@ -1,25 +1,6 @@
 import type { IPlatformAdapter } from './types'
 import type { FileEntry } from '@/types'
-
-/** 懒加载 Tauri 插件函数（避免非 Tauri 环境报错） */
-let fsModule: typeof import('@tauri-apps/plugin-fs') | null = null
-let pathModule: typeof import('@tauri-apps/api/path') | null = null
-
-/** 获取 fs 插件模块单例 */
-async function getFs() {
-  if (!fsModule) {
-    fsModule = await import('@tauri-apps/plugin-fs')
-  }
-  return fsModule
-}
-
-/** 获取 path 模块单例 */
-async function getPath() {
-  if (!pathModule) {
-    pathModule = await import('@tauri-apps/api/path')
-  }
-  return pathModule
-}
+import { getFs, getPath } from './tauri-helpers'
 
 /** 缓存应用数据目录（避免重复 IPC） */
 let appDataDirCache: string | null = null
@@ -43,9 +24,9 @@ async function validatePath(inputPath: string): Promise<string> {
     throw new Error(`路径包含 '..' 组件，不允许路径穿越: ${inputPath}`)
   }
   const base = await getAppDataDir()
-  // 统一分隔符后检查前缀
-  const normalized = inputPath.replace(/\\/g, '/')
-  const normalizedBase = base.replace(/\\/g, '/')
+  // 统一分隔符 + 转小写后检查前缀（Windows 路径不区分大小写）
+  const normalized = inputPath.replace(/\\/g, '/').toLowerCase()
+  const normalizedBase = base.replace(/\\/g, '/').toLowerCase()
   if (!normalized.startsWith(normalizedBase)) {
     throw new Error(`路径 '${inputPath}' 不在允许目录 '${base}' 内`)
   }
@@ -129,6 +110,7 @@ export class TauriAdapter implements IPlatformAdapter {
     return new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
+          await validatePath(path)
           const fs = await getFs()
           const data = await fs.readFile(path)
           controller.enqueue(data)

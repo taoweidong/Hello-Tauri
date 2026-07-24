@@ -10,6 +10,7 @@
     "fs:allow-remove",
     "fs:allow-read-dir",
     "fs:allow-exists",
+    "fs:allow-stat",
     {
       "identifier": "fs:scope",
       "allow": [
