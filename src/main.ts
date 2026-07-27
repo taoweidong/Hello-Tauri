@@ -9,6 +9,10 @@ import 'splitpanes/dist/splitpanes.css'
 import './styles/main.css'
 import { initCache } from './composables/use-cache'
 import { useArchiveManager } from './composables/use-archives'
+import { PAGE_TITLE } from './config/site'
+
+// 运行时同步页面标题，确保与 site.ts 配置一致
+document.title = PAGE_TITLE
 
 const app = createApp(App)
 app.use(createPinia())

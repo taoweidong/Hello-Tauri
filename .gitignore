@@ -14,3 +14,5 @@ src-tauri/gen/
 .opencode/
 .qoder/
 test-*.png
+test-results/
+playwright-report/
