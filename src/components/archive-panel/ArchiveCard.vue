@@ -57,6 +57,14 @@ function toggleCollapse() {
         <NButton size="tiny" @click="emit('retry', archive.id)">重新加载</NButton>
       </div>
 
+      <!-- B1：业务清单外的未知文件提示 -->
+      <div
+        v-if="archive.unsupportedFiles && archive.unsupportedFiles.length > 0"
+        class="text-warning mb-2 text-xs"
+      >
+        ⚠️ {{ archive.unsupportedFiles.length }} 个文件不支持解压展示
+      </div>
+
       <FileTree
         v-if="archive.files.length > 0"
         :data="archive.files"

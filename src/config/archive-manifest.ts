@@ -55,3 +55,27 @@ export const ARCHIVE_MANIFEST = {
 
 /** 不支持类型的标识 */
 export const UNSUPPORTED_TYPE = 'unsupported'
+
+/**
+ * 根据清单规则解析文件名对应的业务类型（纯函数，无外部依赖）
+ * 优先级：nameRules → suffixRules → prefixRules → unsupported
+ * 供 PluginRegistry、ManifestValidator 等消费方共用，避免重复实现
+ * @param fileName - 文件名
+ * @returns 业务类型标识（未命中任何规则时返回 UNSUPPORTED_TYPE）
+ */
+export function resolveTypeByManifest(fileName: string): string {
+  // 第一层：特殊名称规则（最高优先，如 _table_tree.csv）
+  for (const rule of ARCHIVE_MANIFEST.nameRules) {
+    if (rule.pattern.test(fileName)) return rule.type
+  }
+  // 第二层：后缀规则（主策略：后缀明确的按后缀解析）
+  for (const rule of ARCHIVE_MANIFEST.suffixRules) {
+    if (rule.pattern.test(fileName)) return rule.type
+  }
+  // 第三层：前缀规则（补充策略：无后缀文件，同类前缀相同）
+  for (const rule of ARCHIVE_MANIFEST.prefixRules) {
+    if (rule.pattern.test(fileName)) return rule.type
+  }
+  // 未命中任何规则 → 不支持
+  return UNSUPPORTED_TYPE
+}

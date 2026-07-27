@@ -9,10 +9,15 @@ import 'splitpanes/dist/splitpanes.css'
 import './styles/main.css'
 import { initCache } from './composables/use-cache'
 import { useArchiveManager } from './composables/use-archives'
+import { usePluginEngine } from './composables/use-plugins'
+import { setUploadExtensionsProvider } from './core/file-validator'
 import { PAGE_TITLE } from './config/site'
 
 // 运行时同步页面标题，确保与 site.ts 配置一致
 document.title = PAGE_TITLE
+
+// 上传白名单由压缩插件注册表动态生成（T4：新增格式零改动即生效）
+setUploadExtensionsProvider(() => usePluginEngine().registry.getUploadExtensions())
 
 const app = createApp(App)
 app.use(createPinia())

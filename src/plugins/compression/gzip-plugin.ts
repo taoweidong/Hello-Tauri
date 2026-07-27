@@ -1,5 +1,5 @@
 import type { ICompressionPlugin } from '../types'
-import { createExtensionMatcher } from '../helpers'
+import { createExtensionMatcher, MAX_DECOMPRESS_TOTAL_SIZE } from '../helpers'
 
 const EXTENSIONS = ['.gz', '.gzip', '.tgz']
 
@@ -7,6 +7,8 @@ const EXTENSIONS = ['.gz', '.gzip', '.tgz']
 export const gzipPlugin: ICompressionPlugin = {
   name: 'gzip',
   supportedExtensions: EXTENSIONS,
+  // 业务当前仅要求 .zip 上传，gzip 能力保留但不进入上传白名单（T4）
+  experimental: true,
   canHandle: createExtensionMatcher(EXTENSIONS),
   async decompress(data: Uint8Array, _outputDir: string, file?: { name: string }) {
     // 从原始文件名推断输出名，去掉 .gz/.gzip/.tgz 后缀
@@ -21,9 +23,20 @@ export const gzipPlugin: ICompressionPlugin = {
       writer.write(data as BufferSource)
       writer.close()
       const chunks: Uint8Array[] = []
+      // gzip bomb 防护：边读边累计解压大小，超限立即中止（与 zip 防护对称）
+      let totalSize = 0
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
+        totalSize += value.length
+        if (totalSize > MAX_DECOMPRESS_TOTAL_SIZE) {
+          await reader.cancel()
+          return {
+            success: false,
+            files: [],
+            error: `累计解压大小超过上限 (${(MAX_DECOMPRESS_TOTAL_SIZE / 1_048_576).toFixed(0)} MB)`,
+          }
+        }
         chunks.push(value)
       }
       const total = chunks.reduce((acc, c) => acc + c.length, 0)

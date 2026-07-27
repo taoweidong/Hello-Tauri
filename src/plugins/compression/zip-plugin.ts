@@ -1,11 +1,8 @@
 import type { ICompressionPlugin } from '../types'
-import { createExtensionMatcher } from '../helpers'
+import { createExtensionMatcher, MAX_DECOMPRESS_TOTAL_SIZE } from '../helpers'
 import type { FileEntry } from '@/types'
 
 const EXTENSIONS = ['.zip']
-
-/** zip bomb 防护：累计解压大小上限（1GB） */
-const MAX_TOTAL_SIZE = 1_073_741_824
 
 /**
  * 净化 zip 条目名称，拒绝路径穿越和非法字符
@@ -48,11 +45,11 @@ export const zipPlugin: ICompressionPlugin = {
         const isDir = name.endsWith('/')
         if (!isDir) {
           totalSize += content.length
-          if (totalSize > MAX_TOTAL_SIZE) {
+          if (totalSize > MAX_DECOMPRESS_TOTAL_SIZE) {
             return {
               success: false,
               files: [],
-              error: `累计解压大小超过上限 (${(totalSize / 1_048_576).toFixed(0)} MB > ${(MAX_TOTAL_SIZE / 1_048_576).toFixed(0)} MB)`,
+              error: `累计解压大小超过上限 (${(totalSize / 1_048_576).toFixed(0)} MB > ${(MAX_DECOMPRESS_TOTAL_SIZE / 1_048_576).toFixed(0)} MB)`,
             }
           }
         }

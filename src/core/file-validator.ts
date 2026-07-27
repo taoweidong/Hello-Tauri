@@ -21,14 +21,34 @@ export interface FileValidator {
 
 // ─── 内置验证器 ────────────────────────────────────────────
 
-/** 检查文件扩展名是否为 .zip */
+/**
+ * 上传白名单提供器（由应用启动时注入，从插件注册表动态生成）
+ * 未注入时回退到默认白名单 ['.zip']，保持 core 层与插件层解耦
+ */
+let uploadExtensionsProvider: (() => string[]) | null = null
+
+/**
+ * 注入上传白名单提供器（在应用入口调用，传入 registry.getUploadExtensions）
+ * @param provider - 返回允许上传扩展名列表的函数
+ */
+export function setUploadExtensionsProvider(provider: () => string[]): void {
+  uploadExtensionsProvider = provider
+}
+
+/** 检查文件扩展名是否在上传白名单内（白名单由插件注册表动态生成，默认仅 .zip） */
 export class ZipExtensionValidator implements FileValidator {
   name = 'ZipExtension'
 
+  /**
+   * @param allowedExtensions - 显式指定的白名单（含前导点，小写）；缺省时使用注入的提供器或 ['.zip']
+   */
+  constructor(private readonly allowedExtensions?: string[]) {}
+
   async validate(file: File): Promise<ValidationResult> {
+    const allowed = this.allowedExtensions ?? uploadExtensionsProvider?.() ?? ['.zip']
     const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
-    if (ext !== '.zip') {
-      return { ok: false, message: `不支持的文件格式「${ext}」，当前仅支持 .zip` }
+    if (!allowed.includes(ext)) {
+      return { ok: false, message: `不支持的文件格式「${ext}」，当前仅支持 ${allowed.join(' / ')}` }
     }
     return { ok: true }
   }
@@ -39,8 +59,8 @@ const LARGE_FILE_THRESHOLD = 200 * 1024 * 1024
 
 /**
  * 检查 ZIP 内是否包含 VERSION.txt 文件。
- * 使用 fflate 的 unzipSync 解压并获取文件名列表。
- * 注意：unzipSync 会解压所有内容到内存，对于大型 ZIP 文件可能占用较多内存。
+ * 使用 fflate 的 unzip + filter 仅读取条目名称列表（不解压内容），
+ * 避免 unzipSync 全量解压到内存（P1 性能优化）。
  * 超过 LARGE_FILE_THRESHOLD 的文件仅验证扩展名，跳过内容解析。
  */
 export class ZipContentValidator implements FileValidator {
@@ -67,11 +87,24 @@ export class ZipContentValidator implements FileValidator {
 
       const data = new Uint8Array(await file.arrayBuffer())
 
-      // 优先使用 fflate 的 unzipSync 获取文件名列表
+      // 使用 fflate 异步 unzip + filter 仅收集条目名，不解压任何内容
       if (__PLATFORM__ === 'web' || __PLATFORM__ === 'tauri') {
-        const { unzipSync } = await import('fflate')
-        const unzipped = unzipSync(data)
-        const entryNames = Object.keys(unzipped).map(n => n.replace(/\/$/, ''))
+        const { unzip } = await import('fflate')
+        const rawNames: string[] = []
+        await new Promise<void>((resolve, reject) => {
+          unzip(
+            data,
+            {
+              // filter 在解压前被调用：记录条目名后返回 false 跳过解压
+              filter: (entry) => {
+                rawNames.push(entry.name)
+                return false
+              },
+            },
+            (err) => (err ? reject(err) : resolve()),
+          )
+        })
+        const entryNames = rawNames.map(n => n.replace(/\/$/, ''))
 
         const missing = this.requiredFiles.filter(
           required => !entryNames.some(entry => entry === required || entry.endsWith('/' + required)),

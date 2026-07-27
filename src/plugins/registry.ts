@@ -1,6 +1,6 @@
 import type { ICompressionPlugin, IFileParserPlugin, ParsedResult } from './types'
 import type { DecompressResult, FileEntry } from '@/types'
-import { ARCHIVE_MANIFEST, UNSUPPORTED_TYPE } from '@/config/archive-manifest'
+import { resolveTypeByManifest, UNSUPPORTED_TYPE } from '@/config/archive-manifest'
 
 /** 插件执行超时时间（毫秒） */
 const PLUGIN_TIMEOUT_MS = 30000
@@ -104,24 +104,12 @@ export class PluginRegistry {
   /**
    * 根据文件名解析业务类型（两层识别策略）
    * 优先级：nameRules → suffixRules → prefixRules → unsupported
+   * 实现已提取为 archive-manifest.ts 的 resolveTypeByManifest 纯函数，便于共用
    * @param fileName - 文件名
    * @returns 业务类型标识
    */
   resolveFileType(fileName: string): string {
-    // 第一层：特殊名称规则（最高优先，如 _table_tree.csv）
-    for (const rule of ARCHIVE_MANIFEST.nameRules) {
-      if (rule.pattern.test(fileName)) return rule.type
-    }
-    // 第二层：后缀规则（主策略：后缀明确的按后缀解析）
-    for (const rule of ARCHIVE_MANIFEST.suffixRules) {
-      if (rule.pattern.test(fileName)) return rule.type
-    }
-    // 第三层：前缀规则（补充策略：无后缀文件，同类前缀相同）
-    for (const rule of ARCHIVE_MANIFEST.prefixRules) {
-      if (rule.pattern.test(fileName)) return rule.type
-    }
-    // 未命中任何规则 → 不支持
-    return UNSUPPORTED_TYPE
+    return resolveTypeByManifest(fileName)
   }
 
   /**
@@ -189,6 +177,20 @@ export class PluginRegistry {
   /** 获取所有已注册的压缩插件名称列表 */
   getCompressionNames(): string[] {
     return Array.from(this.compressionPlugins.keys())
+  }
+
+  /**
+   * 获取上传白名单扩展名列表（由压缩插件注册表动态生成）
+   * 跳过已禁用与实验性（experimental）插件，新增格式零改动即生效
+   * @returns 允许上传的扩展名列表（含前导点，小写）
+   */
+  getUploadExtensions(): string[] {
+    const exts: string[] = []
+    for (const plugin of this.compressionPlugins.values()) {
+      if (this.disabled.has(plugin.name) || plugin.experimental) continue
+      exts.push(...plugin.supportedExtensions)
+    }
+    return exts
   }
 
   /**

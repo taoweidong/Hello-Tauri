@@ -102,6 +102,8 @@ export interface ArchiveItem {
   originalSize: number
   /** 压缩包大小（字节） */
   compressedSize: number
+  /** 业务清单外的未知文件路径列表（预览时显示「不支持解压展示」） */
+  unsupportedFiles?: string[]
 }
 
 /** 标签页项，表示一个已打开的文件预览标签 */

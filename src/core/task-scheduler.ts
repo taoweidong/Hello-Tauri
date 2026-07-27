@@ -20,6 +20,8 @@ export class TaskScheduler {
   private running = 0
   /** 等待队列 */
   private queue: QueuedTask[] = []
+  /** 正在执行中的任务映射（id → 任务项，供 retry 定位 running 任务） */
+  private runningTasks = new Map<string, QueuedTask>()
   private promises = new Map<string, Promise<unknown>>()
   private taskFns = new Map<string, TaskFn>()
 
@@ -67,21 +69,20 @@ export class TaskScheduler {
 
   /**
    * 重试指定任务（重新入队）
-   * 主动拒绝原任务的 Promise，防止外部悬挂等待
+   * 主动拒绝原任务的 Promise，防止外部悬挂等待；
+   * 若原任务正在执行，其后续结果会被忽略（Promise 已 settle），避免重复生效
    * @param id - 原任务 id
    * @returns 新任务 id，找不到原任务时返回 null
    */
   retry(id: string): string | null {
     const fn = this.taskFns.get(id)
     if (!fn) return null
-    // 拒绝原任务的 Promise，防止外部等待悬挂
-    const oldPromise = this.promises.get(id)
-    if (oldPromise) {
-      // 通过内部 reject 函数拒绝原任务
-      const task = this.queue.find(t => t.id === id)
-      if (task) {
-        task.reject(new Error('任务已重试，原任务已废弃'))
-      }
+    // 定位原任务：优先查排队中队列，其次查执行中映射（P5 running 边界修复）
+    const task = this.queue.find(t => t.id === id) ?? this.runningTasks.get(id)
+    if (task) {
+      // 拒绝原任务的 Promise，防止外部等待悬挂；
+      // running 任务无法真正中断，但 Promise 已 settle，其后续 resolve/reject 会被忽略
+      task.reject(new Error('任务已重试，原任务已废弃'))
     }
     // 清理原任务引用
     this.promises.delete(id)
@@ -106,6 +107,7 @@ export class TaskScheduler {
     while (this.running < this.maxConcurrency && this.queue.length > 0) {
       const task = this.queue.shift()!
       this.running++
+      this.runningTasks.set(task.id, task)
       task.fn()
         .then(result => {
           task.resolve(result)
@@ -115,6 +117,7 @@ export class TaskScheduler {
         })
         .finally(() => {
           // promises 完成后清理，taskFns 保留以供 retry 使用
+          this.runningTasks.delete(task.id)
           this.promises.delete(task.id)
           this.running--
           this.processNext()

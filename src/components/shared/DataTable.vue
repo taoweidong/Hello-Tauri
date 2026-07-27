@@ -24,7 +24,6 @@ import {
   type DataTableColumn,
   type SelectOption,
 } from 'naive-ui'
-
 /** 内部辅助类型：具有 key 的普通数据列（排除 selection / expand / group 列） */
 interface DataColumn {
   key: string
@@ -32,7 +31,7 @@ interface DataColumn {
   sorter?: boolean | ((a: any, b: any) => number)
   [k: string]: unknown
 }
-import { useDebounceFn } from '@vueuse/core'
+import { useDebounceFn, useElementSize } from '@vueuse/core'
 
 /* ========== Props ========== */
 
@@ -87,6 +86,12 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 /* ========== 常量 ========== */
+
+/** 虚拟滚动启用阈值（行数）：超过此值关闭分页、启用虚拟滚动 */
+const VIRTUAL_SCROLL_THRESHOLD = 500
+
+/** 分页隐藏阈值（行数）：不超过此值时隐藏分页器 */
+const PAGINATION_HIDE_THRESHOLD = 100
 
 /** 筛选操作符选项列表 */
 const opOptions: Array<{ label: string; value: FilterOp }> = [
@@ -265,15 +270,35 @@ const processedData = computed(() => {
 /**
  * 自适应分页：
  * - 数据 ≤ 100 条时隐藏分页器
- * - 数据 > 100 条且 pagination prop 为 true 时显示
+ * - 大表（进入虚拟滚动）时关闭分页，仅用虚拟滚动保证 DOM 节点数恒定
+ * - 其余情况且 pagination prop 为 true 时显示
  */
 const tablePagination = computed(() => {
-  if (!props.pagination || processedData.value.length <= 100) return false as const
+  if (!props.pagination || useVirtualScroll.value || processedData.value.length <= PAGINATION_HIDE_THRESHOLD) {
+    return false as const
+  }
   return { pageSize: props.pageSize }
 })
 
 /** 数据 > 500 条时自动启用虚拟滚动 */
-const useVirtualScroll = computed(() => processedData.value.length > 500)
+const useVirtualScroll = computed(() => processedData.value.length > VIRTUAL_SCROLL_THRESHOLD)
+
+/* ========== 虚拟滚动高度计算 ========== */
+
+/** 表格主区域容器引用（用于测量可用像素高度） */
+const tableMainRef = ref<HTMLElement | null>(null)
+const { height: tableMainHeight } = useElementSize(tableMainRef)
+
+/**
+ * 虚拟滚动生效所需的像素数字 max-height：
+ * - maxHeight prop 为数字时直接使用
+ * - 否则由容器实测高度推导（NDataTable 的 virtual-scroll 要求像素数字，'100%' 字符串会使其失效）
+ */
+const virtualMaxHeight = computed<number | undefined>(() => {
+  if (typeof props.maxHeight === 'number') return props.maxHeight
+  const measured = Math.floor(tableMainHeight.value)
+  return measured > 0 ? measured : undefined
+})
 
 /** 统计信息文本 */
 const statsText = computed(() => {
@@ -461,13 +486,13 @@ defineExpose({
     </Transition>
 
     <!-- 数据表格区域 -->
-    <div class="data-table-main">
+    <div ref="tableMainRef" class="data-table-main">
       <NDataTable
         :columns="columns"
         :data="processedData"
         :pagination="tablePagination"
         :virtual-scroll="useVirtualScroll"
-        :max-height="useVirtualScroll ? maxHeight : undefined"
+        :max-height="useVirtualScroll ? virtualMaxHeight : undefined"
         :row-props="rowProps"
         :row-class-name="props.rowClassName"
         :bordered="false"

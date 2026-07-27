@@ -41,6 +41,11 @@ export interface ICompressionPlugin {
   /** 支持的扩展名列表（含前导点） */
   supportedExtensions: string[]
   /**
+   * 是否为实验性插件（不进入上传白名单，仅保留能力代码）
+   * 业务明确需要时去掉此标记即可启用
+   */
+  experimental?: boolean
+  /**
    * 判断是否能处理指定文件
    * @param file - 文件条目
    * @returns 是否支持

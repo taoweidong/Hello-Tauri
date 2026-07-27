@@ -4,6 +4,7 @@ import { usePluginEngine } from './use-plugins'
 import { useCacheManager } from './use-cache'
 import { TaskScheduler } from '@/core/task-scheduler'
 import { FileTreeBuilder } from '@/core/file-tree'
+import { manifestValidator } from '@/core/manifest-validator'
 import type { ArchiveItem } from '@/types'
 
 /** 任务调度器（最大并发 3） */
@@ -67,6 +68,10 @@ export function useDecompress() {
         }
 
         updateStatus(archive.id, 'running', 80)
+
+        // B1：对照业务清单标记清单外的未知文件（预览时显示「不支持解压展示」）
+        const { unsupported } = manifestValidator.check(result.files)
+        archive.unsupportedFiles = unsupported.map(u => u.entry.path)
 
         const tree = treeBuilder.build(result.files, '')
         // markRaw 避免大体积文件树被 Vue 深度响应式代理（P4 性能优化）

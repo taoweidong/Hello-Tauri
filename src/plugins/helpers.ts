@@ -10,6 +10,12 @@ import type { ParsedResult } from './types'
 import { parseCsv } from './parsers/csv-parser'
 
 /**
+ * 解压炸弹防护：累计解压大小上限（1GB）
+ * zip 与 gzip 插件共用，保证各压缩格式防护对称
+ */
+export const MAX_DECOMPRESS_TOTAL_SIZE = 1_073_741_824
+
+/**
  * 将字节数据解码为文本字符串
  * @param data - 文件字节数据
  * @param encoding - 字符编码，默认 'utf-8'
