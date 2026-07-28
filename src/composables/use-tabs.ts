@@ -16,7 +16,10 @@ const globalFontSize = ref(14)
 const recentFiles = ref<string[]>([])
 
 /** 标签页数量上限，超出后按先进先出淘汰最早的非固定标签页 */
+/** 最大标签页数量 */
 const MAX_TABS = 10
+/** 最近文件记录上限（C3：命名常量替代魔数字） */
+const MAX_RECENT_FILES = 10
 
 /** 下一个标签页 id 计数器 */
 let nextTabId = 0
@@ -58,7 +61,7 @@ export function useTabManager() {
 
     // 记录最近文件
     const filePath = node.path || node.label
-    recentFiles.value = [filePath, ...recentFiles.value.filter(p => p !== filePath)].slice(0, 10)
+    recentFiles.value = [filePath, ...recentFiles.value.filter(p => p !== filePath)].slice(0, MAX_RECENT_FILES)
   }
 
   /**

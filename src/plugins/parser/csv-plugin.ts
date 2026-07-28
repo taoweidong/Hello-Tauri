@@ -1,4 +1,4 @@
-import type { IFileParserPlugin, ConfigSchema } from '../types'
+import type { IFileParserPlugin, ConfigSchema, ParseOptions } from '../types'
 import { createExtensionMatcher, decodeAndParseCsv } from '../helpers'
 import CsvRenderer from '@/views/renderers/CsvRenderer.vue'
 
@@ -9,7 +9,7 @@ export const csvPlugin: IFileParserPlugin = {
   name: 'csv',
   supportedExtensions: EXTENSIONS,
   canParse: createExtensionMatcher(EXTENSIONS),
-  async parse(data: Uint8Array, options?: Record<string, any>) {
+  async parse(data: Uint8Array, options?: ParseOptions) {
     return decodeAndParseCsv(data, options)
   },
   getComponent() {

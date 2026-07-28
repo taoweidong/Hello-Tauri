@@ -13,9 +13,12 @@ import AppLogo from '@/components/shared/AppLogo.vue'
 const { leftCollapsed, expandLeft } = usePanelLayout()
 const { recentFiles } = useTabManager()
 
-/** 截取前 5 条最近文件，只显示文件名 */
+/** 欢迎页最近文件显示条数（C3：命名常量替代魔数字） */
+const MAX_DISPLAY_RECENT = 5
+
+/** 截取前 N 条最近文件，只显示文件名 */
 const displayRecentFiles = computed(() => {
-  return recentFiles.value.slice(0, 5).map(path => {
+  return recentFiles.value.slice(0, MAX_DISPLAY_RECENT).map(path => {
     const parts = path.split(/[\\/]/)
     return parts[parts.length - 1] || path
   })

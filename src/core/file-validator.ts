@@ -2,6 +2,10 @@
  * 文件验证模块
  * 采用策略链模式，每个检查器实现 FileValidator 接口，可灵活扩展。
  */
+import { createLogger } from './logger'
+
+/** 文件验证模块日志器 */
+const logger = createLogger('Validator')
 
 /** 单个验证结果 */
 export interface ValidationResult {
@@ -81,7 +85,7 @@ export class ZipContentValidator implements FileValidator {
     try {
       // 大文件保护：超过阈值时跳过内容验证，避免内存溢出
       if (file.size > LARGE_FILE_THRESHOLD) {
-        console.warn(`文件过大 (${(file.size / 1048576).toFixed(0)} MB)，跳过内容验证: ${file.name}`)
+        logger.warn(`文件过大 (${(file.size / 1048576).toFixed(0)} MB)，跳过内容验证: ${file.name}`)
         return { ok: true }
       }
 
@@ -122,7 +126,7 @@ export class ZipContentValidator implements FileValidator {
       // 兜底：无法解析时视为通过（交给后续解压流程处理）
       return { ok: true }
     } catch (e) {
-      console.warn('[Validator] ZIP 内容解析失败', e)
+      logger.warn('ZIP 内容解析失败', e)
       return { ok: false, message: '无法读取压缩包内容，文件可能已损坏' }
     }
   }

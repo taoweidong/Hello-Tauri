@@ -1,6 +1,10 @@
-import type { ICompressionPlugin, IFileParserPlugin, ParsedResult } from './types'
+import type { ICompressionPlugin, IFileParserPlugin, ParsedResult, ParseOptions } from './types'
 import type { DecompressResult, FileEntry } from '@/types'
 import { resolveTypeByManifest, UNSUPPORTED_TYPE } from '@/config/archive-manifest'
+import { createLogger } from '@/core/logger'
+
+/** 插件注册表日志器 */
+const logger = createLogger('Registry')
 
 /** 插件执行超时时间（毫秒） */
 const PLUGIN_TIMEOUT_MS = 30000
@@ -212,11 +216,11 @@ export class PluginRegistry {
    * @param options - 解析选项
    * @returns 解析结果，失败时返回 null
    */
-  async safeParse(plugin: IFileParserPlugin, data: Uint8Array, options?: Record<string, any>): Promise<ParsedResult | null> {
+  async safeParse(plugin: IFileParserPlugin, data: Uint8Array, options?: ParseOptions): Promise<ParsedResult | null> {
     try {
       return await withTimeout(plugin.parse(data, options), PLUGIN_TIMEOUT_MS)
     } catch (e) {
-      console.warn(`[Registry] 插件 ${plugin.name} 解析失败`, e)
+      logger.warn(`插件 ${plugin.name} 解析失败`, e)
       return null
     }
   }

@@ -6,7 +6,11 @@ import { usePluginEngine } from '@/composables/use-plugins'
 import { usePlatform } from '@/composables/use-platform'
 import { ParserEngine } from '@/core/parser-engine'
 import { FileDispatcher } from '@/core/file-dispatcher'
+import { createLogger } from '@/core/logger'
 import ErrorBoundary from '@/components/shared/ErrorBoundary.vue'
+
+/** 预览面板日志器 */
+const logger = createLogger('PreviewPane')
 
 const props = defineProps<{
   encoding?: string
@@ -47,7 +51,7 @@ async function resolveCurrentFile(encoding: string) {
       tab.content = markRaw(content)
     }
   } catch (e) {
-    console.warn('[PreviewPane] 文件解析失败', e)
+    logger.warn('文件解析失败', e)
   }
 }
 

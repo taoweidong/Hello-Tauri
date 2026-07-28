@@ -1,4 +1,4 @@
-import type { IFileParserPlugin } from '../types'
+import type { IFileParserPlugin, ParseOptions } from '../types'
 import { createExtensionMatcher } from '../helpers'
 import { parseText } from '@/plugins/parsers/text-parser'
 import TextRenderer from '@/views/renderers/TextRenderer.vue'
@@ -10,7 +10,7 @@ export const textPlugin: IFileParserPlugin = {
   name: 'text',
   supportedExtensions: EXTENSIONS,
   canParse: createExtensionMatcher(EXTENSIONS),
-  async parse(data: Uint8Array, options?: Record<string, any>) {
+  async parse(data: Uint8Array, options?: ParseOptions) {
     return parseText(data, options?.encoding)
   },
   getComponent() {

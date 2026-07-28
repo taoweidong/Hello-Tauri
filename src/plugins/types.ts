@@ -19,10 +19,10 @@ export interface ConfigField {
   label: string
   /** 表单控件类型 */
   type: 'input' | 'select' | 'switch' | 'number'
-  /** 默认值 */
-  default: any
-  /** 下拉选项（仅 type='select' 时有效） */
-  options?: { label: string; value: any }[]
+  /** 默认值（C1：收紧为 unknown） */
+  default: unknown
+  /** 下拉选项（仅 type='select' 时有效，value 限制为 string | number 以兼容 Naive UI SelectOption） */
+  options?: { label: string; value: string | number }[]
 }
 
 /** 插件配置模式描述 */
@@ -61,6 +61,18 @@ export interface ICompressionPlugin {
   decompress(data: Uint8Array, outputDir: string, file?: { name: string }): Promise<DecompressResult>
 }
 
+/** 解析选项接口（C1：替代 Record<string, any>，提供类型安全的选项访问） */
+export interface ParseOptions {
+  /** 字符编码 */
+  encoding?: string
+  /** CSV 分隔符 */
+  delimiter?: string
+  /** 是否固定表头 */
+  fixedHeader?: boolean
+  /** 其他扩展选项 */
+  [key: string]: unknown
+}
+
 /**
  * 文件解析插件接口
  * 实现此接口以支持新的文件类型解析与渲染
@@ -82,7 +94,7 @@ export interface IFileParserPlugin {
    * @param options - 解析选项（如编码、分隔符等）
    * @returns 解析结果
    */
-  parse(data: Uint8Array, options?: Record<string, any>): Promise<ParsedContent>
+  parse(data: Uint8Array, options?: ParseOptions): Promise<ParsedContent>
   /**
    * 获取对应的 Vue 渲染组件
    * @returns Vue 组件

@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { ArchiveItem } from '@/types'
 
-// mock use-archives
+// mock archive-store
 const mockUpdateStatus = vi.fn()
 const mockArchives = { value: [] as ArchiveItem[] }
-vi.mock('@/composables/use-archives', () => ({
-  useArchiveManager: () => ({
+vi.mock('@/composables/archive-store', () => ({
+  useArchiveStore: () => ({
     archives: mockArchives,
     updateStatus: mockUpdateStatus,
   }),

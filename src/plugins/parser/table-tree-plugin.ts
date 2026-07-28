@@ -1,4 +1,4 @@
-import type { IFileParserPlugin } from '../types'
+import type { IFileParserPlugin, ParseOptions } from '../types'
 import { decodeAndParseCsv } from '../helpers'
 import TableTreeRenderer from '@/views/renderers/TableTreeRenderer.vue'
 
@@ -10,7 +10,7 @@ export const tableTreePlugin: IFileParserPlugin = {
     // 通过文件名中的 _table_tree.csv 后缀修饰符识别
     return /_table_tree\.csv$/i.test(file.name)
   },
-  async parse(data: Uint8Array, options?: Record<string, any>) {
+  async parse(data: Uint8Array, options?: ParseOptions) {
     return decodeAndParseCsv(data, options)
   },
   getComponent() {

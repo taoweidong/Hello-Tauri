@@ -6,7 +6,7 @@
  * - 扩展名匹配 canParse 工厂
  */
 import type { FileEntry } from '@/types'
-import type { ParsedResult } from './types'
+import type { ParsedResult, ParseOptions } from './types'
 import { parseCsv } from './parsers/csv-parser'
 
 /**
@@ -31,7 +31,7 @@ export function decodeText(data: Uint8Array, encoding = 'utf-8'): string {
  * @param options - 解析选项（encoding、delimiter）
  * @returns CSV 解析结果
  */
-export function decodeAndParseCsv(data: Uint8Array, options?: Record<string, any>): ParsedResult {
+export function decodeAndParseCsv(data: Uint8Array, options?: ParseOptions): ParsedResult {
   const text = decodeText(data, options?.encoding ?? 'utf-8')
   const delimiter = options?.delimiter ?? ','
   return parseCsv(text, delimiter)

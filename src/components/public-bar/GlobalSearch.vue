@@ -38,6 +38,9 @@ interface FileSearchResult {
 /** 搜索耗时（毫秒） */
 const searchTimeMs = ref(0)
 
+/** 搜索结果最大显示条数（C3：命名常量替代魔法数字） */
+const MAX_SEARCH_RESULTS = 50
+
 /** 搜索结果（改为 watch + 防抖，避免每次按键触发全量计算） */
 const searchResults = ref<FileSearchResult[]>([])
 
@@ -225,7 +228,7 @@ onBeforeUnmount(() => {
 
         <!-- 文件列表 -->
         <div
-          v-for="(result, idx) in searchResults.slice(0, 50)"
+          v-for="(result, idx) in searchResults.slice(0, MAX_SEARCH_RESULTS)"
           :key="idx"
           class="px-3 py-2 cursor-pointer hover:bg-primary/8 transition-colors border-b border-border/20 last:border-b-0 flex items-center gap-2.5"
           @click="navigateToResult(result)"

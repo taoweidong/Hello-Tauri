@@ -11,7 +11,11 @@ import { initCache } from './composables/use-cache'
 import { useArchiveManager } from './composables/use-archives'
 import { usePluginEngine } from './composables/use-plugins'
 import { setUploadExtensionsProvider } from './core/file-validator'
+import { createLogger } from './core/logger'
 import { PAGE_TITLE } from './config/site'
+
+/** 应用入口日志器 */
+const logger = createLogger('App')
 
 // 运行时同步页面标题，确保与 site.ts 配置一致
 document.title = PAGE_TITLE
@@ -30,7 +34,7 @@ initCache()
     return restoreFromCache()
   })
   .catch((err) => {
-    console.warn('[Cache] 缓存恢复失败：', err)
+    logger.warn('缓存恢复失败：', err)
   })
 
 app.mount('#app')

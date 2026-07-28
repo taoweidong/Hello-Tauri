@@ -3,6 +3,10 @@ import type { ParsedContent, FileTreeNode } from '@/types'
 import type { PluginRegistry } from '@/plugins/registry'
 import { FileDispatcher } from '@/core/file-dispatcher'
 import { UNSUPPORTED_TYPE } from '@/config/archive-manifest'
+import { createLogger } from './logger'
+
+/** 解析引擎日志器 */
+const logger = createLogger('ParserEngine')
 
 /** 文件解析引擎，通过核心调度器按文件名识别类型并解析内容 */
 export class ParserEngine {
@@ -39,7 +43,7 @@ export class ParserEngine {
       const result = await this.dispatcher.dispatch(node.label, data, { encoding })
       return result.content
     } catch (e) {
-      console.warn(`[ParserEngine] 解析文件失败: ${node.path}`, e)
+      logger.warn(`解析文件失败: ${node.path}`, e)
       return null
     }
   }

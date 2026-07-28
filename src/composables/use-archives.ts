@@ -1,9 +1,12 @@
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import type { ArchiveItem } from '@/types'
 import { useCacheManager } from './use-cache'
+import { useArchiveStore } from './archive-store'
+import { useDecompress } from './use-decompress'
+import { createLogger } from '@/core/logger'
 
-/** 所有归档项的响应式列表（模块级单例） */
-const archives = ref<ArchiveItem[]>([])
+/** 归档管理模块日志器 */
+const logger = createLogger('Archives')
 
 /** 下一个归档 id 计数器 */
 let nextArchiveId = 0
@@ -22,6 +25,7 @@ function fileKey(file: File): string {
 /** 归档管理器 composable，提供归档的增删改查与缓存恢复能力 */
 export function useArchiveManager() {
   const cacheManager = useCacheManager()
+  const { archives, updateStatus } = useArchiveStore()
 
   /**
    * 添加文件到归档列表（自动去重）
@@ -57,15 +61,14 @@ export function useArchiveManager() {
         await cacheManager.cacheArchive(archive, file)
       } catch (e) {
         // 缓存写入失败不影响主流程，记录警告
-        console.warn(`[Archives] 缓存写入失败: ${archive.name}`, e)
+        logger.warn(`缓存写入失败: ${archive.name}`, e)
       }
     }
     triggerDecompress()
   }
 
-  /** 触发解压所有待处理归档（动态导入避免循环依赖） */
-  async function triggerDecompress() {
-    const { useDecompress } = await import('./use-decompress')
+  /** 触发解压所有待处理归档（A3：已改为静态导入，无循环依赖） */
+  function triggerDecompress() {
     const { decompressAll } = useDecompress()
     decompressAll()
   }
@@ -86,34 +89,13 @@ export function useArchiveManager() {
       }
       // 异步清理缓存
       cacheManager.remove(archive.cacheId).catch((e: unknown) => {
-        console.warn(`[Archives] 缓存清理失败: ${archive.cacheId}`, e)
+        logger.warn(`缓存清理失败: ${archive.cacheId}`, e)
       })
     }
     archives.value = archives.value.filter(a => a.id !== id)
   }
 
-  /**
-   * 更新归档状态与进度
-   * @param id - 归档 id
-   * @param status - 新状态
-   * @param progress - 进度百分比（可选）
-   */
-  function updateStatus(id: string, status: ArchiveItem['status'], progress?: number) {
-    const archive = archives.value.find(a => a.id === id)
-    if (archive) {
-      archive.status = status
-      if (progress !== undefined) archive.progress = progress
-      if (status === 'running' && !archive.startTime) archive.startTime = Date.now()
-      if (status === 'completed') archive.endTime = Date.now()
 
-      // 解压完成或失败时更新缓存元数据
-      if (status === 'completed' || status === 'failed') {
-        cacheManager.updateMeta(archive).catch((e: unknown) => {
-          console.warn(`[Archives] 缓存元数据更新失败: ${archive.id}`, e)
-        })
-      }
-    }
-  }
 
   /** 归档统计信息（计算属性） */
   const stats = computed(() => {

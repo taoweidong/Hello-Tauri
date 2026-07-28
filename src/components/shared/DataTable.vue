@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="T = Record<string, unknown>">
 /**
  * DataTable — 通用公共表格组件
  *
@@ -24,14 +24,15 @@ import {
   type DataTableColumn,
   type SelectOption,
 } from 'naive-ui'
+import { useDebounceFn, useElementSize } from '@vueuse/core'
+
 /** 内部辅助类型：具有 key 的普通数据列（排除 selection / expand / group 列） */
 interface DataColumn {
   key: string
   title?: string
-  sorter?: boolean | ((a: any, b: any) => number)
+  sorter?: boolean | ((a: T, b: T) => number)
   [k: string]: unknown
 }
-import { useDebounceFn, useElementSize } from '@vueuse/core'
 
 /* ========== Props ========== */
 
@@ -49,9 +50,9 @@ interface FilterCondition {
 
 interface Props {
   /** 列定义数组 */
-  columns: DataTableColumns<any>
+  columns: DataTableColumns<T>
   /** 表格数据行数组 */
-  data: any[]
+  data: T[]
   /** 是否启用分页，默认 true */
   pagination?: boolean
   /** 每页行数，默认 100 */
@@ -63,9 +64,9 @@ interface Props {
   /** 表格最大高度，默认 '100%' */
   maxHeight?: number | string
   /** 行点击回调 */
-  onRowClick?: (row: any, index: number) => void
+  onRowClick?: (row: T, index: number) => void
   /** 行类名生成器（透传给 NDataTable，用于行级样式如选中高亮） */
-  rowClassName?: (row: any, index: number) => string
+  rowClassName?: (row: T, index: number) => string
   /** 字体大小（px），默认 13 */
   fontSize?: number
   /** 是否显示全局搜索框，默认 true */
@@ -128,8 +129,8 @@ const onSearchInput = useDebounceFn((val: string) => {
 
 const columnOptions = computed<Array<{ label: string; value: string }>>(() =>
   props.columns
-    .filter((c: DataTableColumn<any>) => 'key' in c && (c as DataColumn).key)
-    .map((c: DataTableColumn<any>) => {
+    .filter((c: DataTableColumn<T>) => 'key' in c && (c as DataColumn).key)
+    .map((c: DataTableColumn<T>) => {
       const dc = c as DataColumn
       return { label: String(dc.title ?? dc.key), value: String(dc.key) }
     }),
@@ -163,9 +164,10 @@ function clearConditions(): void {
 /* ========== 工具函数 ========== */
 
 /** 安全访问嵌套属性（支持点号路径，如 'a.b.c'） */
-function getVal(row: any, key: string): any {
-  if (!key.includes('.')) return row?.[key]
-  return key.split('.').reduce((o, k) => o?.[k], row)
+function getVal(row: T, key: string): unknown {
+  const record = row as Record<string, unknown>
+  if (!key.includes('.')) return record?.[key]
+  return key.split('.').reduce((o: unknown, k: string) => (o as Record<string, unknown>)?.[k], record)
 }
 
 /** CSV 单元格转义：包含逗号 / 引号 / 换行时用双引号包裹 */
@@ -184,7 +186,7 @@ const searchedData = computed(() => {
   const q = debouncedSearch.value.trim().toLowerCase()
   if (!q) return props.data
   return props.data.filter(row =>
-    props.columns.some((col: DataTableColumn<any>) => {
+    props.columns.some((col: DataTableColumn<T>) => {
       if (!('key' in col)) return false
       const v = getVal(row, String((col as DataColumn).key))
       return String(v ?? '').toLowerCase().includes(q)
@@ -237,7 +239,7 @@ const columnFilteredData = computed(() => {
   let result = advancedFilteredData.value
   for (const [key, values] of Object.entries(activeFilters.value)) {
     if (!values || values.length === 0) continue
-    result = result.filter(row => values.includes(getVal(row, key)))
+    result = result.filter(row => values.includes(getVal(row, key) as string | number))
   }
   return result
 })
@@ -251,7 +253,7 @@ const processedData = computed(() => {
   if (!s) return result
 
   const col = props.columns.find(
-    (c: DataTableColumn<any>) => 'key' in c && (c as DataColumn).key === s.columnKey,
+    (c: DataTableColumn<T>) => 'key' in c && (c as DataColumn).key === s.columnKey,
   ) as DataColumn | undefined
   const sorterFn = col?.sorter
   if (!sorterFn || typeof sorterFn !== 'function') return result
@@ -311,7 +313,7 @@ const statsText = computed(() => {
 
 /** 导出当前筛选结果为 CSV 文件（Blob + BOM 前缀确保 Excel UTF-8 兼容） */
 function exportCsv(): void {
-  const cols = props.columns.filter((c: DataTableColumn<any>) => 'key' in c && (c as DataColumn).key) as DataColumn[]
+  const cols = props.columns.filter((c: DataTableColumn<T>) => 'key' in c && (c as DataColumn).key) as DataColumn[]
   const header = cols.map(c => csvEscape(c.title ?? c.key))
   const rows = processedData.value.map(row =>
     cols.map(c => csvEscape(getVal(row, c.key))),
@@ -343,7 +345,7 @@ function handleSorterChange(
 }
 
 /** 行属性生成器（注入点击事件和光标样式） */
-function rowProps(row: any, index: number): Record<string, unknown> {
+function rowProps(row: T, index: number): Record<string, unknown> {
   if (!props.onRowClick) return {}
   return {
     style: 'cursor: pointer',
@@ -488,8 +490,8 @@ defineExpose({
     <!-- 数据表格区域 -->
     <div ref="tableMainRef" class="data-table-main">
       <NDataTable
-        :columns="columns"
-        :data="processedData"
+        :columns="(columns as DataTableColumns<Record<string, unknown>>)"
+        :data="(processedData as Record<string, unknown>[])"
         :pagination="tablePagination"
         :virtual-scroll="useVirtualScroll"
         :max-height="useVirtualScroll ? virtualMaxHeight : undefined"

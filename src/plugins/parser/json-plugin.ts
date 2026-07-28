@@ -1,4 +1,4 @@
-import type { IFileParserPlugin } from '../types'
+import type { IFileParserPlugin, ParseOptions } from '../types'
 import { createExtensionMatcher, decodeText } from '../helpers'
 import { parseJson } from '@/plugins/parsers/json-parser'
 import JsonRenderer from '@/views/renderers/JsonRenderer.vue'
@@ -10,7 +10,7 @@ export const jsonPlugin: IFileParserPlugin = {
   name: 'json',
   supportedExtensions: EXTENSIONS,
   canParse: createExtensionMatcher(EXTENSIONS),
-  async parse(data: Uint8Array, options?: Record<string, any>) {
+  async parse(data: Uint8Array, options?: ParseOptions) {
     const text = decodeText(data, options?.encoding ?? 'utf-8')
     return parseJson(text)
   },

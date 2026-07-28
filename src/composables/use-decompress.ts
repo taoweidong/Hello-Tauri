@@ -1,5 +1,5 @@
 import { markRaw } from 'vue'
-import { useArchiveManager } from './use-archives'
+import { useArchiveStore } from './archive-store'
 import { usePluginEngine } from './use-plugins'
 import { useCacheManager } from './use-cache'
 import { TaskScheduler } from '@/core/task-scheduler'
@@ -7,14 +7,16 @@ import { FileTreeBuilder } from '@/core/file-tree'
 import { manifestValidator } from '@/core/manifest-validator'
 import type { ArchiveItem } from '@/types'
 
-/** 任务调度器（最大并发 3） */
-const scheduler = new TaskScheduler(3)
+/** 解压任务并发数（C3：命名常量替代魔数字） */
+const DECOMPRESS_CONCURRENCY = 3
+/** 任务调度器 */
+const scheduler = new TaskScheduler(DECOMPRESS_CONCURRENCY)
 /** 文件树构建器实例 */
 const treeBuilder = new FileTreeBuilder()
 
 /** 解压管理 composable，提供单个/批量解压能力 */
 export function useDecompress() {
-  const { archives, updateStatus } = useArchiveManager()
+  const { archives, updateStatus } = useArchiveStore()
   const { registry } = usePluginEngine()
   const cacheManager = useCacheManager()
 

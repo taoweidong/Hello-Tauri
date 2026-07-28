@@ -7,6 +7,10 @@
  */
 import type { ICacheStorage, CacheMeta } from './cache-storage'
 import { getFs, getPath } from '@/adapters/tauri-helpers'
+import { createLogger } from './logger'
+
+/** 文件系统缓存日志器 */
+const logger = createLogger('CacheFS')
 
 /** 拼接路径片段（兼容 Windows 和 POSIX） */
 function joinPath(...segments: string[]): string {
@@ -53,7 +57,7 @@ export class FsCacheStorage implements ICacheStorage {
     try {
       return await fs.readFile(path)
     } catch (e) {
-      console.warn(`[CacheFS] 读取文件失败: ${path}`, e)
+      logger.warn(`读取文件失败: ${path}`, e)
       return null
     }
   }
@@ -82,7 +86,7 @@ export class FsCacheStorage implements ICacheStorage {
       const json = new TextDecoder().decode(bytes)
       return JSON.parse(json) as CacheMeta
     } catch (e) {
-      console.warn(`[CacheFS] 元数据解析失败: ${id}`, e)
+      logger.warn(`元数据解析失败: ${id}`, e)
       return null
     }
   }
@@ -114,7 +118,7 @@ export class FsCacheStorage implements ICacheStorage {
     try {
       await fs.remove(path)
     } catch (e) {
-      console.warn(`[CacheFS] 删除${label}失败: ${path}`, e)
+      logger.warn(`删除${label}失败: ${path}`, e)
     }
   }
 
@@ -129,7 +133,7 @@ export class FsCacheStorage implements ICacheStorage {
       const entries = await fs.readDir(metaDir)
       return entries.map(e => ({ name: e.name, isDirectory: e.isDirectory }))
     } catch (e) {
-      console.warn('[CacheFS] 读取元数据目录失败', e)
+      logger.warn('读取元数据目录失败', e)
       return []
     }
   }

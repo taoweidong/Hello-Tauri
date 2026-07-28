@@ -1,4 +1,4 @@
-import type { IFileParserPlugin } from '../types'
+import type { IFileParserPlugin, ParseOptions } from '../types'
 import { createExtensionMatcher } from '../helpers'
 import { parseLog } from '@/plugins/parsers/log-parser'
 import LogRenderer from '@/views/renderers/LogRenderer.vue'
@@ -20,7 +20,7 @@ export const logPlugin: IFileParserPlugin = {
     // 前缀匹配：无扩展名的 APPLOG*/MSGLOG* 文件
     return LOG_PREFIX_RE.test(file.name)
   },
-  async parse(data: Uint8Array, options?: Record<string, any>) {
+  async parse(data: Uint8Array, options?: ParseOptions) {
     return parseLog(data, options?.encoding)
   },
   getComponent() {
