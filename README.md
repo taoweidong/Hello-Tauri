@@ -48,7 +48,9 @@ Tauri 2 + Vue 3 + Element Plus 的 Windows 桌面应用模板，一次打包产�
 │   ├── src/main.rs           #   入口（release 隐藏控制台）
 │   ├── capabilities/         #   权限：仅 core:default
 │   └── tauri.conf.json       #   bundle.active=false → 只产出裸 exe
-├── scripts/build.mjs         # 一键打包脚本
+├── scripts/
+│   ├── build.mjs             #   打包主流程（npm run pack 调用）
+│   └── pack.bat              #   双击即打包（自动补 PATH、自动还原依赖）
 └── release/                  # 打包产物（生成的单文件 exe）
 ```
 
@@ -73,7 +75,29 @@ npm run pack
 
 脚本依次执行：类型检查 → 前端构建 → `tauri build` → 拷贝为 `release/Hello-Tauri-0.1.0-x64.exe`。
 
+也可以直接**双击 `scripts\pack.bat`**（或把它发给同事）：脚本会自动把 `%USERPROFILE%\.cargo\bin` 补进 PATH、检测 Node.js 安装位置、在 `node_modules` 缺失时自动还原依赖，再执行与 `npm run pack` 完全相同的流程；不需要预先配好环境变量，也不下载任何额外组件（依赖还原优先在线，失败自动回退本地缓存离线安装）。双击运行时窗口会在结束后保留以便查看结果，从命令行调用则不阻塞。
+
 采用 `bundle.active = false`，**只产出裸 exe，不生成 NSIS/WiX 安装包**，因此打包过程不下载任何额外组件。产物为绿色单文件，复制到任意 Windows 机器双击即可运行（系统需自带 WebView2 运行时，Win10 1803+ 与 Win11 已内置）。
+
+## 内网打包说明
+
+打包机（而非运行机）需要以下环境，**全部可离线预置，打包过程不访问公网**：
+
+| 依赖 | 位置 | 体积 |
+| --- | --- | --- |
+| Node.js ≥ 20 | 系统安装 | — |
+| 前端依赖 | 项目内 `node_modules/`，或内网 npm 缓存（`npm install --offline` 还原） | 178 MB |
+| Rust 工具链 | `%USERPROFILE%\.rustup\toolchains\stable-x86_64-pc-windows-msvc` | 577 MB |
+| Crate 缓存 | `%USERPROFILE%\.cargo\registry`（258 个 crate） | 367 MB |
+| MSVC + Windows SDK | Visual Studio 2022「使用 C++ 的桌面开发」+ SDK 10.0.22000 / 10.0.22621 | 数 GB |
+
+不产生网络请求的三处关键点：
+
+- 不下载 NSIS/WiX（`bundle.active = false`，只产出裸 exe）。
+- 不下载 Tauri CLI 二进制（`@tauri-apps/cli-win32-x64-msvc` 预编译产物已随 `node_modules` 提供）。
+- 前端构建零 CDN/在线字体依赖，`vite build` 全部本地完成。
+
+内网迁移时携带：源码 + 上述四个目录（合计约 1.1 GB，不含 VS）。缓存齐全时 `cargo build` 与 `npm run pack` 均不触发网络请求；如需强制校验，可加 `--offline`（`cargo build --offline` / `npm install --offline`）。
 
 ## 内网运行说明
 
