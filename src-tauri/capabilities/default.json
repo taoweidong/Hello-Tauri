@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "默认权限集合：仅开放核心能力，不引入任何需要联网的插件",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
