@@ -86,13 +86,15 @@ async function submit() {
       owner: draft.owner.trim(),
     }
     if (editingId.value === null) {
-      tableStore.create(payload)
+      await tableStore.create(payload)
       ElMessage({ message: '已新增记录', type: 'success' })
     } else {
-      tableStore.update(editingId.value, payload)
+      await tableStore.update(editingId.value, payload)
       ElMessage({ message: '已保存修改', type: 'success' })
     }
     dialogVisible.value = false
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? `操作失败：${error.message}` : '操作失败')
   } finally {
     submitting.value = false
   }
@@ -105,8 +107,12 @@ async function removeOne(row: TableRow) {
     { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' },
   ).catch(() => false)
   if (confirmed === false) return
-  tableStore.remove([row.id])
-  ElMessage({ message: '已删除', type: 'success' })
+  try {
+    await tableStore.remove([row.id])
+    ElMessage({ message: '已删除', type: 'success' })
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? `删除失败：${error.message}` : '删除失败')
+  }
 }
 
 async function removeSelected() {
@@ -120,9 +126,13 @@ async function removeSelected() {
     { type: 'warning', confirmButtonText: `删除 ${selectedRows.value.length} 条`, cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' },
   ).catch(() => false)
   if (confirmed === false) return
-  tableStore.remove(selectedRows.value.map((row) => row.id))
-  selectedRows.value = []
-  ElMessage({ message: '已删除', type: 'success' })
+  try {
+    await tableStore.remove(selectedRows.value.map((row) => row.id))
+    selectedRows.value = []
+    ElMessage({ message: '已删除', type: 'success' })
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? `删除失败：${error.message}` : '删除失败')
+  }
 }
 
 async function resetData() {
@@ -132,9 +142,13 @@ async function resetData() {
     { type: 'warning', confirmButtonText: '恢复', cancelButtonText: '取消' },
   ).catch(() => false)
   if (confirmed === false) return
-  tableStore.resetSeed()
-  selectedRows.value = []
-  ElMessage({ message: '已恢复示例数据', type: 'success' })
+  try {
+    await tableStore.resetSeed()
+    selectedRows.value = []
+    ElMessage({ message: '已恢复示例数据', type: 'success' })
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? `恢复失败：${error.message}` : '恢复失败')
+  }
 }
 
 function onSelectionChange(rows: TableRow[]) {

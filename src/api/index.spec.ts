@@ -34,6 +34,7 @@ describe('bridge 运行时选择', () => {
       'writeTable',
       'appendLog',
       'storageInfo',
+      'storageMigrate',
       'openStorageDir',
       'appInfo',
       'dbExecute',

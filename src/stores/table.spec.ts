@@ -1,237 +1,220 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { nextTick } from 'vue'
 
-// mock bridge —— table store 通过 @/api 引用宿主，测试时全部打桩。
-// 显式标注可 resolve string 的 fn，否则 vi.fn(async () => null) 会把返回类型
-// 窄化成 Promise<null>，后面 mockResolvedValueOnce(str) 触发 TS2345。
-const bridge = vi.hoisted(() => ({
-  platform: 'web',
-  loadConfig: vi.fn<() => Promise<string | null>>(async () => null),
-  saveConfig: vi.fn<(c: string) => Promise<void>>(async () => undefined),
-  readTable: vi.fn<() => Promise<string | null>>(async () => null),
-  writeTable: vi.fn<(c: string) => Promise<void>>(async () => undefined),
-  appendLog: vi.fn<(l: string, m: string) => Promise<string>>(async () => 'memory://log'),
-  storageInfo: vi.fn(async () => ({
-    root: 'memory://',
-    preferredRoot: 'D:\\TangYuan',
-    configFile: '',
-    tableFile: '',
-    dbFile: '',
-    logsDir: '',
-    fallback: true,
-    note: 'test',
-  })),
-  openStorageDir: vi.fn(async () => undefined),
-  appInfo: vi.fn(async () => ({
-    name: 'test',
-    version: '0.0.0',
-    tauriVersion: '-',
-    platform: 'web',
-    arch: '-',
-    configPath: '',
-    storage: {},
-  })),
+import type { TableRow, TableRowDraft } from '@/types'
+
+/**
+ * store 测试：注入内存假后端（模拟 SQL 仓储语义），验证 store 的状态机：
+ * load/CRUD/筛选/分页/统计。后端自身的 SQL 拼接在 records.spec.ts 单测。
+ */
+
+function seedRows(): TableRow[] {
+  return [
+    { id: 3, name: '离线报表任务', category: '数据服务', status: 'inactive', amount: 7400, owner: '王强', createdAt: '2026-02-03' },
+    { id: 2, name: '订单查询服务', category: '业务应用', status: 'active', amount: 35600, owner: '李娜', createdAt: '2026-01-22' },
+    { id: 1, name: '日志采集网关', category: '基础设施', status: 'active', amount: 12800, owner: '张伟', createdAt: '2026-01-08' },
+  ]
+}
+
+// vi.mock 工厂会被提升到文件顶部，其闭包引用的变量必须一起 hoisted，
+// 否则 "Cannot access 'fakeBackend' before initialization"。
+const { fakeBackend, resetRows } = vi.hoisted(() => {
+  let backendRows: import('@/types').TableRow[] = []
+  const init = () => {
+    backendRows = [
+      { id: 3, name: '离线报表任务', category: '数据服务', status: 'inactive', amount: 7400, owner: '王强', createdAt: '2026-02-03' },
+      { id: 2, name: '订单查询服务', category: '业务应用', status: 'active', amount: 35600, owner: '李娜', createdAt: '2026-01-22' },
+      { id: 1, name: '日志采集网关', category: '基础设施', status: 'active', amount: 12800, owner: '张伟', createdAt: '2026-01-08' },
+    ]
+  }
+  init()
+  const fake = {
+    prepare: vi.fn(async () => undefined),
+    loadAll: vi.fn(async () => backendRows.map((row) => ({ ...row }))),
+    insert: vi.fn(async (draft: import('@/types').TableRowDraft) => {
+      const row = { ...draft, id: 100, createdAt: '2026-09-24' }
+      backendRows.unshift(row)
+      return { ...row }
+    }),
+    update: vi.fn(async (id: number, draft: import('@/types').TableRowDraft) => {
+      const target = backendRows.find((row) => row.id === id)
+      if (target) Object.assign(target, draft)
+    }),
+    remove: vi.fn(async (ids: number[]) => {
+      backendRows = backendRows.filter((row) => !ids.includes(row.id))
+    }),
+    resetSeed: vi.fn(async () => {
+      init()
+      return backendRows.map((row) => ({ ...row }))
+    }),
+  }
+  return { fakeBackend: fake, resetRows: init }
+})
+
+vi.mock('@/repositories/records', async () => {
+  const actual = await vi.importActual<typeof import('@/repositories/records')>('@/repositories/records')
+  return {
+    ...actual,
+    recordsBackend: fakeBackend,
+    cloneSeed: () => seedRows(),
+  }
+})
+
+vi.mock('@/utils/logger', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
-
-vi.mock('@/api', () => ({ bridge, platform: 'web' }))
 
 import { useTableStore } from '@/stores/table'
 
-function seedIds(store: ReturnType<typeof useTableStore>) {
-  return store.rows.map((row) => row.id)
-}
-
-describe('table store', () => {
+describe('table store（后端注入假件）', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    resetRows()
   })
 
-  it('初始为 12 条示例数据，loaded 未就绪', () => {
+  it('初始 rows 为空，load 后填充且 loaded 置位', async () => {
     const store = useTableStore()
-    expect(store.rows).toHaveLength(12)
+    expect(store.rows).toHaveLength(0)
     expect(store.loaded).toBe(false)
+
+    await store.load()
+    expect(fakeBackend.prepare).toHaveBeenCalledTimes(1)
+    expect(fakeBackend.loadAll).toHaveBeenCalledTimes(1)
+    expect(store.rows).toHaveLength(3)
+    expect(store.loaded).toBe(true)
   })
 
-  it('filtered 关键字命中名称或负责人（大小写不敏感）', () => {
+  it('load 失败时使用种子兜底且不抛', async () => {
+    fakeBackend.loadAll.mockRejectedValueOnce(new Error('db down'))
     const store = useTableStore()
-    store.keyword = '日志'
-    expect(store.filtered.every((r) => r.name.includes('日志') || r.owner.includes('日志'))).toBe(true)
-    expect(store.filtered.length).toBeGreaterThan(0)
-
-    store.keyword = 'zhang'
-    expect(store.filtered).toHaveLength(0)
-
-    store.keyword = ' 张伟 '
-    expect(store.filtered.map((r) => r.name)).toEqual(['日志采集网关'])
+    await store.load()
+    expect(store.rows).toHaveLength(3)
+    expect(store.loaded).toBe(true)
   })
 
-  it('关键字与分类是 AND 关系', () => {
-    const store = useTableStore()
-    store.keyword = '网关'
-    store.category = '数据服务'
-    expect(store.filtered).toHaveLength(0)
-    store.category = '基础设施'
-    expect(store.filtered).toHaveLength(1)
-  })
-
-  it('空筛选返回全量', () => {
-    const store = useTableStore()
-    expect(store.filtered).toHaveLength(12)
-  })
-
-  describe('分页', () => {
-    it('pageCount 向上取整，且 total=0 时至少为 1（除零护栏）', () => {
+  describe('筛选与分页（纯本地状态）', () => {
+    it('关键字命中名称或负责人；与分类是 AND；空条件全量', async () => {
       const store = useTableStore()
-      store.pageSize = 5
-      expect(store.pageCount).toBe(3)
+      await store.load()
+
+      store.keyword = '网关'
+      expect(store.filtered.map((r) => r.id)).toEqual([1])
+
+      store.keyword = '王强'
+      store.category = '数据服务'
+      expect(store.filtered).toHaveLength(1)
+      store.category = '业务应用'
+      expect(store.filtered).toHaveLength(0)
+
+      store.keyword = ''
+      store.category = ''
+      expect(store.filtered).toHaveLength(3)
+    })
+
+    it('筛选变化自动回到第 1 页', async () => {
+      const { nextTick } = await import('vue')
+      const store = useTableStore()
+      await store.load()
+      store.pageSize = 2
+      store.page = 2
+      store.keyword = '服务'
+      await nextTick()
+      expect(store.page).toBe(1)
+    })
+
+    it('total=0 时 pageCount 至少为 1（除零护栏）', async () => {
+      const store = useTableStore()
+      await store.load()
       store.keyword = '绝不存在的关键词zzz'
       expect(store.total).toBe(0)
       expect(store.pageCount).toBe(1)
     })
 
-    it('paged 按页切片', () => {
+    it('paged 按页切片', async () => {
       const store = useTableStore()
-      store.pageSize = 5
+      await store.load()
+      store.pageSize = 2
       store.page = 2
-      expect(store.paged.map((r) => r.id)).toEqual([6, 7, 8, 9, 10])
-      store.page = 3
-      expect(store.paged.map((r) => r.id)).toEqual([11, 12])
+      expect(store.paged.map((r) => r.id)).toEqual([1])
     })
+  })
 
-    it('keyword/pageSize 变更后页码语义正确：筛选变化重置到第 1 页', async () => {
+  describe('CRUD 走后端且更新本地状态', () => {
+    const draft: TableRowDraft = { name: '新项目', category: '数据服务', status: 'active', amount: 100, owner: '测试员' }
+
+    it('create 调后端 insert、行插到队首、重置页码', async () => {
       const store = useTableStore()
+      await store.load()
       store.page = 2
-      store.keyword = '网关'
-      await nextTick()
-      await nextTick()
+
+      await store.create(draft)
+      expect(fakeBackend.insert).toHaveBeenCalledWith(draft)
+      expect(store.rows[0]).toMatchObject({ id: 100, name: '新项目', createdAt: '2026-09-24' })
       expect(store.page).toBe(1)
     })
-  })
 
-  describe('CRUD', () => {
-    const draft = { name: '新项目', category: '数据服务', status: 'active' as const, amount: 100, owner: '测试员' }
-
-    it('create 插入队首、重置页码、ID 单调递增', () => {
+    it('create 后端失败时抛错且不改本地状态', async () => {
       const store = useTableStore()
-      store.create(draft)
-      expect(store.rows[0].name).toBe('新项目')
-      expect(store.rows[0].id).toBe(13)
-      expect(store.rows[0].createdAt).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+      await store.load()
+      fakeBackend.insert.mockRejectedValueOnce(new Error('constraint failed'))
+      await expect(store.create(draft)).rejects.toThrow('constraint failed')
+      expect(store.rows).toHaveLength(3)
     })
 
-    it('删除最大 ID 后新增不复用该 ID（回归测试）', () => {
+    it('update 成功后就地合并，未知 id 后端 no-op 本地也不炸', async () => {
       const store = useTableStore()
-      const maxId = Math.max(...seedIds(store))
-      store.remove([maxId])
-      store.create(draft)
-      expect(store.rows[0].id).toBe(maxId + 1)
-    })
-
-    it('update 就地修改目标行，找不到 id 时静默不炸', () => {
-      const store = useTableStore()
-      store.update(1, { ...draft, name: '改名了' })
+      await store.load()
+      await store.update(1, { ...draft, name: '改名了' })
       expect(store.rows.find((r) => r.id === 1)?.name).toBe('改名了')
-      expect(() => store.update(99999, draft)).not.toThrow()
+      await store.update(99999, draft)
+      expect(store.rows).toHaveLength(3)
     })
 
-    it('remove 批量删除并把越界页码收回最后一页', () => {
-      const store = useTableStore()
-      store.pageSize = 5
-      store.page = 3
-      store.remove(seedIds(store).filter((id) => id > 2))
-      expect(store.rows).toHaveLength(2)
-      expect(store.page).toBeLessThanOrEqual(store.pageCount)
-    })
-
-    it('remove 空数组为 no-op', () => {
-      const store = useTableStore()
-      const before = store.rows.length
-      store.remove([])
-      expect(store.rows).toHaveLength(before)
-    })
-  })
-
-  describe('stats / recent', () => {
-    it('stats 与种子数据一致', () => {
-      const store = useTableStore()
-      expect(store.stats.total).toBe(12)
-      expect(store.stats.active).toBe(9)
-      expect(store.stats.inactive).toBe(3)
-      expect(store.stats.amount).toBe(309100)
-    })
-
-    it('recent 按 id 降序取 5 条，不改动原数组', () => {
-      const store = useTableStore()
-      const first = store.rows[0].id
-      expect(store.recent.map((r) => r.id)).toEqual([12, 11, 10, 9, 8])
-      expect(store.rows[0].id).toBe(first)
-    })
-  })
-
-  describe('持久化守卫（loaded 前不回写）', () => {
-    it('load 之前 rows 变更不触发 writeTable', async () => {
-      const store = useTableStore()
-      store.create(draftish())
-      await nextTick()
-      await nextTick()
-      expect(bridge.writeTable).not.toHaveBeenCalled()
-    })
-
-    it('load 之后 rows 变更触发 writeTable（深度 watch）', async () => {
-      bridge.readTable.mockResolvedValueOnce(JSON.stringify([{ id: 1, name: 'a', category: 'x', status: 'active', amount: 1, owner: 'o', createdAt: '2026-01-01' }]))
+    it('remove 成功后过滤并把越界页码收回；空数组 no-op 不打后端', async () => {
       const store = useTableStore()
       await store.load()
-      expect(store.rows).toHaveLength(1)
-      expect(store.loaded).toBe(true)
-
-      store.create(draftish())
-      await nextTick()
-      await nextTick()
-      expect(bridge.writeTable).toHaveBeenCalledTimes(1)
-      const written = JSON.parse(bridge.writeTable.mock.calls[0][0] as string)
-      expect(written).toHaveLength(2)
-    })
-
-    it('load 读到坏 JSON 时保持示例数据且不抛异常', async () => {
-      bridge.readTable.mockResolvedValueOnce('{ not json')
-      const store = useTableStore()
-      await expect(store.load()).resolves.toBeUndefined()
-      expect(store.rows).toHaveLength(12)
-    })
-
-    it('load 恢复 nextIdSeed，删尾增新不撞已用 ID', async () => {
-      bridge.readTable.mockResolvedValueOnce(
-        JSON.stringify([
-          { id: 100, name: 'a', category: 'x', status: 'active', amount: 1, owner: 'o', createdAt: '2026-01-01' },
-        ]),
-      )
-      const store = useTableStore()
-      await store.load()
-      store.remove([100])
-      store.create(draftish())
-      expect(store.rows[0].id).toBe(101)
-    })
-  })
-
-  describe('resetSeed', () => {
-    it('恢复示例数据并清空筛选与页码', () => {
-      const store = useTableStore()
-      store.remove([1, 2, 3])
-      store.keyword = 'xx'
-      store.category = '基础设施'
+      store.pageSize = 2
       store.page = 2
-      store.resetSeed()
-      expect(store.rows).toHaveLength(12)
+
+      await store.remove([3, 2])
+      expect(store.rows.map((r) => r.id)).toEqual([1])
+      expect(store.page).toBe(1)
+
+      const calls = fakeBackend.remove.mock.calls.length
+      await store.remove([])
+      expect(fakeBackend.remove.mock.calls.length).toBe(calls)
+    })
+
+    it('resetSeed 调后端并清筛选/页码', async () => {
+      const store = useTableStore()
+      await store.load()
+      store.keyword = 'x'
+      store.category = '数据服务'
+      store.page = 2
+
+      await store.resetSeed()
+      expect(fakeBackend.resetSeed).toHaveBeenCalledTimes(1)
+      expect(store.rows).toHaveLength(3)
       expect(store.keyword).toBe('')
       expect(store.category).toBe('')
       expect(store.page).toBe(1)
-      expect(Math.max(...seedIds(store))).toBe(12)
+    })
+  })
+
+  describe('派生统计', () => {
+    it('stats 汇总全量行（不受筛选影响）', async () => {
+      const store = useTableStore()
+      await store.load()
+      store.keyword = '网关'
+      expect(store.stats).toEqual({ total: 3, active: 2, inactive: 1, amount: 55800 })
+    })
+
+    it('recent 按 id 降序取 5，不改动 rows', async () => {
+      const store = useTableStore()
+      await store.load()
+      expect(store.recent.map((r) => r.id)).toEqual([3, 2, 1])
+      expect(store.rows.map((r) => r.id)).toEqual([3, 2, 1])
     })
   })
 })
-
-function draftish() {
-  return { name: '新项目', category: '数据服务', status: 'active' as const, amount: 100, owner: '测试员' }
-}
