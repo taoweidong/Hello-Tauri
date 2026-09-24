@@ -6,6 +6,8 @@ export interface StorageLayout {
   preferredRoot: string
   configFile: string
   tableFile: string
+  /** SQLite 数据库文件 {root}/data/app.db */
+  dbFile: string
   logsDir: string
   /** 是否发生降级回退（如 D 盘不可用时落到用户目录） */
   fallback: boolean

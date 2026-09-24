@@ -17,6 +17,7 @@ const bridge = vi.hoisted(() => ({
     preferredRoot: 'D:\\TangYuan',
     configFile: '',
     tableFile: '',
+    dbFile: '',
     logsDir: '',
     fallback: true,
     note: 'test',

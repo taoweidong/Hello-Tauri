@@ -27,7 +27,20 @@ describe('bridge 运行时选择', () => {
   })
 
   it('两侧契约方法名完全一致（Bridge 接口对齐）', async () => {
-    const methods = ['loadConfig', 'saveConfig', 'readTable', 'writeTable', 'appendLog', 'storageInfo', 'openStorageDir', 'appInfo'] as const
+    const methods = [
+      'loadConfig',
+      'saveConfig',
+      'readTable',
+      'writeTable',
+      'appendLog',
+      'storageInfo',
+      'openStorageDir',
+      'appInfo',
+      'dbExecute',
+      'dbSelect',
+      'dbTransaction',
+      'dbMigrate',
+    ] as const
     const { webBridge } = await import('@/api/web')
     const { tauriBridge } = await import('@/api/tauri')
     for (const m of methods) {

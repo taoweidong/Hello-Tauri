@@ -1,4 +1,4 @@
-import type { AppInfo, LogLevel, StorageLayout } from '@/types'
+import type { AppInfo, DbParam, DbRow, ExecResult, LogLevel, Migration, StorageLayout } from '@/types'
 import type { Bridge } from './types'
 
 const STORAGE_KEY = 'hello-tauri:config'
@@ -9,6 +9,7 @@ const WEB_LAYOUT: StorageLayout = {
   preferredRoot: 'D:\\TangYuan',
   configFile: 'memory://hello-tauri/config/config.json',
   tableFile: 'memory://hello-tauri/data/table.json',
+  dbFile: 'memory://hello-tauri/data/app.db',
   logsDir: 'memory://hello-tauri/logs',
   fallback: true,
   note: '浏览器调试模式：数据保存在内存中，刷新即重置；桌面模式下写入 D:\\TangYuan',
@@ -61,5 +62,19 @@ export const webBridge: Bridge = {
       configPath: WEB_LAYOUT.configFile,
       storage: { ...WEB_LAYOUT },
     } satisfies AppInfo
+  },
+  // —— SQLite 通道：浏览器模式不做真 SQL（设计 Q3）。业务仓储在 web 模式走内存实现，
+  //    不会调用这些方法；保留它们是为了让 Bridge 契约两侧方法集一致、调用即明确报错。 ——
+  async dbExecute(_sql: string, _params: DbParam[] = []): Promise<ExecResult> {
+    throw new Error('浏览器调试模式不支持通用 SQL，请在桌面模式使用')
+  },
+  async dbSelect(_sql: string, _params: DbParam[] = []): Promise<DbRow[]> {
+    throw new Error('浏览器调试模式不支持通用 SQL，请在桌面模式使用')
+  },
+  async dbTransaction(_statements: { sql: string; params?: DbParam[] }[]): Promise<number[]> {
+    throw new Error('浏览器调试模式不支持通用 SQL，请在桌面模式使用')
+  },
+  async dbMigrate(_migrations: Migration[]): Promise<number[]> {
+    return []
   },
 }
