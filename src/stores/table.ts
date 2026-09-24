@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 import { bridge } from '@/api'
 import type { TableRow, TableRowDraft } from '@/types'
@@ -46,8 +46,12 @@ export const useTableStore = defineStore('table', () => {
   const pageSize = ref(10)
 
   const loaded = ref(false)
-  /** 自增 ID 计数器：避免删除最大 ID 后 nextId 复用已删除的 ID */
-  const nextIdSeed = ref(0)
+  // 自增 ID 计数器：从初始数据的最大 ID 起步，避免 nextId 撞上已用 ID。
+  // 曾初始化为 0，种子数据 ID 是 1–12，首次 create() 会生成 ID=1 与种子冲突。
+  const nextIdSeed = ref(rows.value.reduce((max, row) => Math.max(max, row.id), 0))
+  // load() 自身给 rows 赋值会触发下面的深度 watch；用该标志吞掉这一次回写，
+  // 否则会把刚读到的数据又原样写回宿主（多余 I/O）。
+  let restoring = false
 
   const filtered = computed(() => {
     const kw = keyword.value.trim().toLowerCase()
@@ -88,6 +92,7 @@ export const useTableStore = defineStore('table', () => {
 
   /** 从宿主读取已落盘的表格数据；文件不存在时沿用示例数据 */
   async function load() {
+    restoring = true
     try {
       const raw = await bridge.readTable()
       if (raw) {
@@ -102,10 +107,14 @@ export const useTableStore = defineStore('table', () => {
       logger.error('加载表格数据失败，沿用示例数据', error)
     }
     loaded.value = true
+    // rows 的赋值会在当前 tick 之后触发深度 watch；等它触发完（被 restoring 吞掉）
+    // 再解除标志，之后的真实变更才会回写。
+    await nextTick()
+    restoring = false
   }
 
   async function persist(reason: string) {
-    if (!loaded.value) return
+    if (!loaded.value || restoring) return
     try {
       await bridge.writeTable(JSON.stringify(rows.value, null, 2))
       logger.info(`表格数据已保存（${reason}），共 ${rows.value.length} 条`)

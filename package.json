@@ -12,6 +12,8 @@
     "build": "npm run typecheck && vite build",
     "build:web": "vite build",
     "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
@@ -29,8 +31,11 @@
     "@tauri-apps/cli": "^2.11.5",
     "@types/node": "^26.0.0",
     "@vitejs/plugin-vue": "^6.0.9",
+    "@vue/test-utils": "^2.5.1",
+    "happy-dom": "^17.6.3",
     "typescript": "^5.9.3",
     "vite": "^8.3.0",
+    "vitest": "^3.2.7",
     "vue-tsc": "^3.3.11"
   }
 }
