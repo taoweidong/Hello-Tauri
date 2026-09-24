@@ -18,6 +18,12 @@ tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# SQLite（bundled：内置 C 源码随项目静态编译，不依赖系统 sqlite3 DLL）。
+# 选 rusqlite 而非 tauri-plugin-sql：后者底层 sqlx+tokio 异步栈，对 crt-static
+# 未验证，且 DB 路径锁死 AppConfig、与可配置存储目录冲突。rusqlite 同步、薄，
+# 与 +crt-static 兼容性已 PoC 实测通过（产物零可分发 DLL）。
+rusqlite = { version = "0.37", features = ["bundled"] }
+
 # 仅用于 GetLocalTime（本地时区日志时间戳）。
 # 选它而非 chrono：chrono 会拉入 iana-time-zone，该 crate 不在内网缓存中，
 # 会破坏「打包过程不访问公网」的约束；windows-sys 已在依赖树内且源码已缓存。
