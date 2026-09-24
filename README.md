@@ -33,7 +33,8 @@ Tauri 2 + Vue 3 + Element Plus 的 Windows 桌面应用模板，一次打包产�
 │   │   ├── tauri.ts          #   Tauri 实现（invoke 调用 Rust）
 │   │   ├── web.ts            #   Web 实现（localStorage）
 │   │   └── index.ts          #   运行时自动选择实现
-│   ├── layouts/MainLayout.vue# 左右布局：左侧菜单 + 右侧内容
+│   ├── components/icons.ts   # 内联 SVG 图标系统（零图标依赖）
+│   ├── layouts/MainLayout.vue# 左右布局：深轨侧栏 + 亮画布
 │   ├── utils/logger.ts       #   统一日志出口（控制台 + 落盘）
 │   ├── views/                # 4 个页面
 │   │   ├── DashboardView.vue #   概览

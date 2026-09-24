@@ -1,16 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  DataBoard,
-  Expand,
-  Fold,
-  HomeFilled,
-  InfoFilled,
-  Moon,
-  Setting,
-  Sunny,
-} from '@element-plus/icons-vue'
+import { IconGrid, IconTable, IconSliders, IconInfo, IconSun, IconMoon, IconPanelLeft } from '@/components/icons'
 
 import { platform } from '@/api'
 import { useAppStore } from '@/stores/app'
@@ -20,17 +11,17 @@ const router = useRouter()
 const appStore = useAppStore()
 
 const navItems = [
-  { path: '/', title: '概览', icon: HomeFilled },
-  { path: '/table', title: '数据管理', icon: DataBoard },
-  { path: '/settings', title: '配置', icon: Setting },
-  { path: '/about', title: '关于', icon: InfoFilled },
+  { path: '/', title: '概览', icon: IconGrid },
+  { path: '/table', title: '数据管理', icon: IconTable },
+  { path: '/settings', title: '配置', icon: IconSliders },
+  { path: '/about', title: '关于', icon: IconInfo },
 ]
 
 const collapsed = computed(() => appStore.settings.sidebarCollapsed)
-const activePath = computed(() => route.path)
 const currentTitle = computed(() => String(route.meta.title ?? ''))
-const platformLabel = computed(() => (platform === 'tauri' ? '桌面模式' : '浏览器模式'))
-const themeIcon = computed(() => (appStore.settings.theme === 'dark' ? Sunny : Moon))
+const platformLabel = computed(() => (platform === 'tauri' ? '桌面' : 'Web'))
+const themeIcon = computed(() => (appStore.settings.theme === 'dark' ? IconSun : IconMoon))
+const themeTip = computed(() => (appStore.settings.theme === 'dark' ? '切换到浅色' : '切换到深色'))
 
 function toggleCollapse() {
   appStore.settings.sidebarCollapsed = !collapsed.value
@@ -40,151 +31,327 @@ function toggleTheme() {
   appStore.settings.theme = appStore.settings.theme === 'dark' ? 'light' : 'dark'
 }
 
-function onSelect(path: string) {
-  if (path !== route.path) {
-    void router.push(path)
-  }
+function go(path: string) {
+  if (path !== route.path) void router.push(path)
 }
 </script>
 
 <template>
-  <el-container class="layout">
-    <el-aside class="layout__aside" :width="collapsed ? '64px' : '212px'">
-      <div class="layout__brand">
-        <span class="layout__logo">HT</span>
-        <span v-show="!collapsed" class="layout__brand-text">Hello-Tauri</span>
+  <div class="shell" :class="{ 'shell--collapsed': collapsed }">
+    <aside class="rail" aria-label="主导航">
+      <div class="rail__brand" :title="collapsed ? 'Hello-Tauri' : undefined">
+        <span class="rail__logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 17V7l8 6 8-6v10" />
+          </svg>
+        </span>
+        <span v-show="!collapsed" class="rail__brand-text">Hello-Tauri</span>
       </div>
-      <el-menu
-        class="layout__menu"
-        :default-active="activePath"
-        :collapse="collapsed"
-        :collapse-transition="false"
-        @select="onSelect"
-      >
-        <el-menu-item v-for="item in navItems" :key="item.path" :index="item.path">
-          <el-icon><component :is="item.icon" /></el-icon>
-          <template #title>{{ item.title }}</template>
-        </el-menu-item>
-      </el-menu>
-    </el-aside>
 
-    <el-container class="layout__body">
-      <el-header class="layout__header">
-        <el-icon class="layout__collapse" @click="toggleCollapse">
-          <component :is="collapsed ? Expand : Fold" />
-        </el-icon>
-        <el-breadcrumb separator="/">
-          <el-breadcrumb-item :to="{ path: '/' }">首页</el-breadcrumb-item>
-          <el-breadcrumb-item v-if="route.path !== '/'" :to="{ path: route.path }">
-            {{ currentTitle }}
-          </el-breadcrumb-item>
-        </el-breadcrumb>
-        <div class="layout__spacer" />
-        <el-tag size="small" type="info" effect="plain">{{ platformLabel }}</el-tag>
-        <el-tooltip :content="themeIcon === Sunny ? '切换到浅色' : '切换到深色'" placement="bottom">
-          <el-button text :icon="themeIcon" @click="toggleTheme" />
-        </el-tooltip>
-      </el-header>
+      <nav class="rail__nav">
+        <button
+          v-for="item in navItems"
+          :key="item.path"
+          class="rail__item pressable"
+          :class="{ 'is-active': route.path === item.path }"
+          :title="collapsed ? item.title : undefined"
+          :aria-current="route.path === item.path ? 'page' : undefined"
+          @click="go(item.path)"
+        >
+          <component :is="item.icon" class="rail__icon" />
+          <span v-show="!collapsed" class="rail__label">{{ item.title }}</span>
+          <span v-if="route.path === item.path" class="rail__marker" aria-hidden="true" />
+        </button>
+      </nav>
 
-      <el-main class="layout__main">
+      <div class="rail__foot">
+        <span v-show="!collapsed" class="rail__env">{{ platformLabel }}模式 · v{{ appStore.info?.version ?? '0.1.0' }}</span>
+        <button class="rail__toggle pressable" :title="collapsed ? '展开侧栏' : '收起侧栏'" :aria-label="collapsed ? '展开侧栏' : '收起侧栏'" @click="toggleCollapse">
+          <IconPanelLeft class="rail__toggle-icon" :class="{ 'is-flipped': collapsed }" />
+        </button>
+      </div>
+    </aside>
+
+    <div class="stage">
+      <header class="topbar">
+        <div class="topbar__crumb">
+          <span>工作台</span>
+          <svg class="topbar__sep" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+          <span class="topbar__page">{{ currentTitle }}</span>
+        </div>
+        <div class="topbar__spacer" />
+        <button class="topbar__theme pressable" :title="themeTip" :aria-label="themeTip" @click="toggleTheme">
+          <component :is="themeIcon" class="topbar__theme-icon" />
+        </button>
+      </header>
+
+      <main class="canvas">
         <router-view v-slot="{ Component }">
-          <keep-alive>
-            <component :is="Component" />
-          </keep-alive>
+          <transition name="route" mode="out-in">
+            <keep-alive>
+              <component :is="Component" />
+            </keep-alive>
+          </transition>
         </router-view>
-      </el-main>
-    </el-container>
-  </el-container>
+      </main>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.layout {
+.shell {
+  display: grid;
+  grid-template-columns: 216px 1fr;
   height: 100%;
+  transition: grid-template-columns 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
-.layout__aside {
+.shell--collapsed {
+  grid-template-columns: 60px 1fr;
+}
+
+.shell--collapsed .rail__brand,
+.shell--collapsed .rail__item {
+  justify-content: center;
+  padding: 0;
+}
+
+.shell--collapsed .rail__foot {
+  justify-content: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell {
+    transition: none;
+  }
+}
+
+/* —— 深轨侧栏 —— */
+.rail {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--el-border-color-light);
-  background-color: var(--el-bg-color);
-  transition: width 0.2s ease;
+  background: var(--ht-rail-bg);
+  border-right: 1px solid var(--ht-rail-line);
   overflow: hidden;
 }
 
-.layout__brand {
+.rail__brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 56px;
-  padding: 0 18px;
+  height: 52px;
+  padding: 0 14px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--ht-rail-line);
+  background: var(--ht-rail-bg-deep);
+}
+
+.rail__logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--ht-primary);
+  color: #fff;
   flex-shrink: 0;
 }
 
-.layout__logo {
+.rail__brand-text {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ht-rail-text-hi);
+  white-space: nowrap;
+}
+
+.rail__nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  overflow-y: auto;
+}
+
+.rail__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ht-rail-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.rail__item:hover {
+  color: var(--ht-rail-text-hi);
+  background: rgb(255 255 255 / 0.05);
+}
+
+.rail__item.is-active {
+  color: var(--ht-rail-text-hi);
+  background: var(--ht-rail-active);
+}
+
+.rail__item:focus-visible {
+  outline: 2px solid var(--ht-primary);
+  outline-offset: -2px;
+}
+
+.rail__icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.rail__marker {
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: 0 3px 3px 0;
+  background: var(--ht-primary);
+}
+
+.rail__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--ht-rail-line);
+  flex-shrink: 0;
+  min-height: 44px;
+}
+
+.rail__env {
+  flex: 1;
+  font-size: 11px;
+  color: var(--ht-rail-text);
+  white-space: nowrap;
+  overflow: hidden;
+  opacity: 0.85;
+}
+
+.rail__toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
-  border-radius: 6px;
-  background: linear-gradient(135deg, var(--el-color-primary), var(--el-color-primary-light-3));
-  color: #fff;
-  font-size: 13px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.layout__brand-text {
-  font-size: 15px;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--el-text-color-primary);
-}
-
-.layout__menu {
-  flex: 1;
-  border-right: none;
-  overflow-x: hidden;
-  overflow-y: auto;
-}
-
-.layout__body {
-  min-width: 0;
-}
-
-.layout__header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  height: 56px;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--el-border-color-light);
-  background-color: var(--el-bg-color);
-}
-
-.layout__header :deep(.el-breadcrumb) {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.layout__collapse {
-  font-size: 18px;
-  color: var(--el-text-color-regular);
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ht-rail-text);
   cursor: pointer;
   flex-shrink: 0;
 }
 
-.layout__collapse:hover {
-  color: var(--el-color-primary);
+.rail__toggle:hover {
+  color: var(--ht-rail-text-hi);
+  background: rgb(255 255 255 / 0.07);
 }
 
-.layout__spacer {
+.rail__toggle-icon {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.rail__toggle-icon.is-flipped {
+  transform: rotate(180deg);
+}
+
+/* —— 顶栏与画布 —— */
+.stage {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 20px;
+  flex-shrink: 0;
+  background: var(--ht-surface);
+  border-bottom: 1px solid var(--ht-line);
+}
+
+.topbar__crumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ht-text-3);
+}
+
+.topbar__sep {
+  color: var(--ht-line-strong);
+}
+
+.topbar__page {
+  color: var(--ht-text-1);
+  font-weight: 600;
+}
+
+.topbar__spacer {
   flex: 1;
 }
 
-.layout__main {
-  padding: 16px;
-  background-color: var(--el-bg-color-page);
+.topbar__theme {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ht-text-2);
+  cursor: pointer;
+}
+
+.topbar__theme:hover {
+  border-color: var(--ht-line);
+  background: var(--ht-surface-2);
+  color: var(--ht-text-1);
+}
+
+.topbar__theme:focus-visible {
+  outline: 2px solid var(--ht-primary);
+  outline-offset: 1px;
+}
+
+.topbar__theme-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.canvas {
+  flex: 1;
+  position: relative;
+  padding: 18px 20px 22px;
   overflow: auto;
+  background: var(--ht-canvas);
 }
 </style>
