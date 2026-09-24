@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
-import { Check, Download, RefreshLeft } from '@element-plus/icons-vue'
+import { Check, Download, FolderOpened, RefreshLeft } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-import { platform } from '@/api'
+import { bridge, platform } from '@/api'
 import { useAppStore } from '@/stores/app'
 import type { AppSettings } from '@/types'
 
 const appStore = useAppStore()
+
+const storage = computed(() => appStore.storage)
 
 const form = reactive<AppSettings>({ ...appStore.settings })
 
@@ -53,6 +55,14 @@ async function restore() {
   Object.assign(form, appStore.settings)
   ElMessage.success('已恢复默认配置')
 }
+
+async function openDir() {
+  try {
+    await bridge.openStorageDir()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '打开目录失败')
+  }
+}
 </script>
 
 <template>
@@ -91,7 +101,7 @@ async function restore() {
 
             <el-form-item label="自动保存">
               <el-switch v-model="form.autoSave" />
-              <span class="settings__hint">修改后立即写入本地</span>
+              <span class="settings__hint">点「仅应用」或「保存配置」后自动写入本地</span>
             </el-form-item>
 
             <el-form-item label="折叠侧边栏">
@@ -112,22 +122,49 @@ async function restore() {
 
       <el-col :xs="24" :md="10">
         <el-card shadow="never" class="settings__side">
-          <template #header>配置存储</template>
-          <el-descriptions :column="1" border size="small">
-            <el-descriptions-item label="存储位置">
-              <span class="settings__path">{{ appStore.info?.configPath ?? '-' }}</span>
-            </el-descriptions-item>
-            <el-descriptions-item label="最近保存">{{ savedText }}</el-descriptions-item>
-            <el-descriptions-item label="当前主题">{{ appStore.settings.theme === 'dark' ? '深色' : '浅色' }}</el-descriptions-item>
-            <el-descriptions-item label="自动保存">{{ appStore.settings.autoSave ? '已开启' : '已关闭' }}</el-descriptions-item>
-          </el-descriptions>
+          <template #header>数据存储</template>
           <el-alert
-            class="settings__alert"
+            v-if="appStore.storageWarning"
+            class="settings__alert--top"
             type="warning"
             :closable="false"
             show-icon
-            title="内网说明"
-            description="配置保存在本机，不依赖任何外部网络服务；断网环境下功能完全可用。"
+            title="存储位置已回退"
+            :description="appStore.storageWarning"
+          />
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="数据目录">
+              <span class="settings__path">{{ storage?.root ?? '-' }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="配置文件">
+              <span class="settings__path">{{ storage?.configFile ?? '-' }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="数据文件">
+              <span class="settings__path">{{ storage?.tableFile ?? '-' }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="日志目录">
+              <span class="settings__path">{{ storage?.logsDir ?? '-' }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="最近保存">{{ savedText }}</el-descriptions-item>
+          </el-descriptions>
+          <div class="settings__actions">
+            <el-button
+              size="small"
+              :icon="FolderOpened"
+              :disabled="platform !== 'tauri'"
+              @click="openDir"
+            >
+              打开数据目录
+            </el-button>
+            <span class="settings__hint">{{ platform === 'tauri' ? '' : '浏览器模式不可用' }}</span>
+          </div>
+          <el-alert
+            class="settings__alert"
+            type="info"
+            :closable="false"
+            show-icon
+            title="单文件绿色版"
+            description="程序为单个 exe，无需安装任何依赖；配置、日志与数据全部保存在上面这个目录，可直接复制备份。"
           />
         </el-card>
       </el-col>
@@ -157,6 +194,17 @@ async function restore() {
 }
 
 .settings__alert {
+  margin-top: 12px;
+}
+
+.settings__alert--top {
+  margin-bottom: 12px;
+}
+
+.settings__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-top: 12px;
 }
 

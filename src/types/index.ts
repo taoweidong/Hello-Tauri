@@ -1,3 +1,18 @@
+export type LogLevel = 'info' | 'warn' | 'error'
+
+/** 存储布局：由宿主解析后回传，前端不自行拼接路径 */
+export interface StorageLayout {
+  root: string
+  preferredRoot: string
+  configFile: string
+  tableFile: string
+  logsDir: string
+  /** 是否发生降级回退（如 D 盘不可用时落到用户目录） */
+  fallback: boolean
+  /** 降级原因，正常时为空串 */
+  note: string
+}
+
 export interface AppInfo {
   name: string
   version: string
@@ -5,6 +20,7 @@ export interface AppInfo {
   platform: string
   arch: string
   configPath: string
+  storage: StorageLayout
 }
 
 export interface AppSettings {

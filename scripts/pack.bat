@@ -10,6 +10,7 @@ rem ============================================================
 setlocal
 set "SYS=%SystemRoot%\System32"
 set "ROOT=%~dp0.."
+set "PUSHED="
 
 rem rustup 只写注册表 PATH，旧终端里可能找不到 cargo，这里兜底
 set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
@@ -17,6 +18,7 @@ if defined CARGO_HOME set "PATH=%CARGO_HOME%\bin;%PATH%"
 
 pushd "%ROOT%" 2>nul
 if errorlevel 1 goto :err_root
+set "PUSHED=1"
 
 echo.
 echo ============================================================
@@ -55,7 +57,6 @@ call npm run pack
 if errorlevel 1 goto :err_build
 
 echo [3/3] 打包完成，产物位于 release 目录
-popd 2>nul
 set "RC=0"
 goto :end
 
@@ -95,7 +96,8 @@ set "RC=1"
 goto :end
 
 :end
-popd 2>nul
+rem 只在确实成功 pushd 过时才 popd，避免弹掉调用者的工作目录
+if defined PUSHED popd 2>nul
 if defined NOPAUSE goto :quit
 rem 双击运行时保留窗口，命令行调用时不阻塞
 echo %cmdcmdline% | "%SYS%\find.exe" /i "%~f0" >nul 2>nul

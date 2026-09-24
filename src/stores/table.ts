@@ -1,7 +1,9 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 
+import { bridge } from '@/api'
 import type { TableRow, TableRowDraft } from '@/types'
+import { logger } from '@/utils/logger'
 
 export const CATEGORIES = ['基础设施', '数据服务', '业务应用', '安全合规']
 
@@ -20,7 +22,7 @@ const SEED_ROWS: TableRow[] = [
   { id: 12, name: '消息推送平台', category: '业务应用', status: 'active', amount: 21400, owner: '许阳', createdAt: '2026-06-30' },
 ]
 
-// 用本地时区拼日期：toISOString() 是 UTC，东八区凌晨会记成前一天
+/** 用本地时区拼日期：toISOString() 是 UTC，东八区凌晨会记成前一天 */
 function today() {
   const now = new Date()
   const month = String(now.getMonth() + 1).padStart(2, '0')
@@ -28,12 +30,24 @@ function today() {
   return `${now.getFullYear()}-${month}-${day}`
 }
 
+function cloneSeed(): TableRow[] {
+  return SEED_ROWS.map((row) => ({ ...row }))
+}
+
 export const useTableStore = defineStore('table', () => {
-  const rows = ref<TableRow[]>(SEED_ROWS.map((row) => ({ ...row })))
+  const rows = ref<TableRow[]>(cloneSeed())
   const keyword = ref('')
   const category = ref('')
   const page = ref(1)
+
+  // 注意：每页条数是「配置」而非表格状态，唯一真值在 appStore.settings.pageSize。
+  // 这里不再持有副本 —— 曾有 pageSize 副本，靠 onMounted 一次性同步，
+  // 组件被 keep-alive 缓存后 onMounted 不再重跑，导致配置改动永不生效。
   const pageSize = ref(10)
+
+  const loaded = ref(false)
+  /** 自增 ID 计数器：避免删除最大 ID 后 nextId 复用已删除的 ID */
+  const nextIdSeed = ref(0)
 
   const filtered = computed(() => {
     const kw = keyword.value.trim().toLowerCase()
@@ -45,7 +59,7 @@ export const useTableStore = defineStore('table', () => {
   })
 
   const total = computed(() => filtered.value.length)
-  const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+  const pageCount = computed(() => Math.max(1, Math.ceil(total.value / Math.max(1, pageSize.value))))
   const paged = computed(() => {
     const start = (page.value - 1) * pageSize.value
     return filtered.value.slice(start, start + pageSize.value)
@@ -65,7 +79,39 @@ export const useTableStore = defineStore('table', () => {
   const recent = computed(() => [...rows.value].sort((a, b) => b.id - a.id).slice(0, 5))
 
   function nextId() {
-    return rows.value.reduce((max, row) => Math.max(max, row.id), 0) + 1
+    return ++nextIdSeed.value
+  }
+
+  function syncSeedFrom(rows: TableRow[]) {
+    nextIdSeed.value = rows.reduce((max, row) => Math.max(max, row.id), 0)
+  }
+
+  /** 从宿主读取已落盘的表格数据；文件不存在时沿用示例数据 */
+  async function load() {
+    try {
+      const raw = await bridge.readTable()
+      if (raw) {
+        const parsed = JSON.parse(raw) as TableRow[]
+        if (Array.isArray(parsed) && parsed.length) {
+          rows.value = parsed
+          syncSeedFrom(parsed)
+          logger.info(`已加载表格数据 ${parsed.length} 条`)
+        }
+      }
+    } catch (error) {
+      logger.error('加载表格数据失败，沿用示例数据', error)
+    }
+    loaded.value = true
+  }
+
+  async function persist(reason: string) {
+    if (!loaded.value) return
+    try {
+      await bridge.writeTable(JSON.stringify(rows.value, null, 2))
+      logger.info(`表格数据已保存（${reason}），共 ${rows.value.length} 条`)
+    } catch (error) {
+      logger.error('保存表格数据失败', error)
+    }
   }
 
   function create(draft: TableRowDraft) {
@@ -87,7 +133,8 @@ export const useTableStore = defineStore('table', () => {
   }
 
   function resetSeed() {
-    rows.value = SEED_ROWS.map((row) => ({ ...row }))
+    rows.value = cloneSeed()
+    syncSeedFrom(rows.value)
     keyword.value = ''
     category.value = ''
     page.value = 1
@@ -97,18 +144,30 @@ export const useTableStore = defineStore('table', () => {
     page.value = 1
   })
 
+  // 任何影响落盘数据的变更都触发持久化。同样加 loaded 守卫，
+  // 避免初始加载阶段把空数据回写覆盖磁盘内容。
+  watch(
+    rows,
+    () => {
+      void persist('数据变更')
+    },
+    { deep: true },
+  )
+
   return {
     rows,
     keyword,
     category,
     page,
     pageSize,
+    loaded,
     filtered,
     total,
     pageCount,
     paged,
     stats,
     recent,
+    load,
     create,
     update,
     remove,

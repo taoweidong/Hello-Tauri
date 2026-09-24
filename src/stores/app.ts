@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { bridge } from '@/api'
-import type { AppInfo, AppSettings } from '@/types'
+import type { AppInfo, AppSettings, StorageLayout } from '@/types'
+import { logger } from '@/utils/logger'
 
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'light',
@@ -15,9 +16,13 @@ const DEFAULT_SETTINGS: AppSettings = {
 export const useAppStore = defineStore('app', () => {
   const settings = ref<AppSettings>({ ...DEFAULT_SETTINGS })
   const info = ref<AppInfo | null>(null)
+  const storage = ref<StorageLayout | null>(null)
   const ready = ref(false)
   const saving = ref(false)
   const lastSavedAt = ref<number | null>(null)
+
+  /** 存储位置降级提示：非空时界面需要显式告知用户 */
+  const storageWarning = computed(() => (storage.value?.fallback ? storage.value.note : ''))
 
   function applyTheme() {
     document.documentElement.classList.toggle('dark', settings.value.theme === 'dark')
@@ -30,9 +35,16 @@ export const useAppStore = defineStore('app', () => {
         const parsed = JSON.parse(raw) as Partial<AppSettings>
         settings.value = { ...DEFAULT_SETTINGS, ...parsed }
       }
-      info.value = await bridge.appInfo()
+      const [appInfo, layout] = await Promise.all([bridge.appInfo(), bridge.storageInfo()])
+      info.value = appInfo
+      storage.value = layout
+      logger.info(
+        layout.fallback
+          ? `应用启动（存储降级）：${layout.note}`
+          : `应用启动，数据目录 ${layout.root}`,
+      )
     } catch (error) {
-      console.error('[app] 初始化失败，使用默认配置', error)
+      logger.error('初始化失败，使用默认配置', error)
     }
     applyTheme()
     ready.value = true
@@ -45,7 +57,7 @@ export const useAppStore = defineStore('app', () => {
       lastSavedAt.value = Date.now()
       return true
     } catch (error) {
-      console.error('[app] 保存配置失败', error)
+      logger.error('保存配置失败', error)
       return false
     } finally {
       saving.value = false
@@ -67,5 +79,16 @@ export const useAppStore = defineStore('app', () => {
     { deep: true },
   )
 
-  return { settings, info, ready, saving, lastSavedAt, load, save, reset }
+  return {
+    settings,
+    info,
+    storage,
+    storageWarning,
+    ready,
+    saving,
+    lastSavedAt,
+    load,
+    save,
+    reset,
+  }
 })

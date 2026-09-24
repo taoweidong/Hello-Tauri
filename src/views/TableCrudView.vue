@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { Delete, Plus, RefreshLeft, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
-import { useAppStore } from '@/stores/app'
 import { CATEGORIES, useTableStore } from '@/stores/table'
+import { useAppStore } from '@/stores/app'
 import type { TableRow, TableRowDraft } from '@/types'
 
 const appStore = useAppStore()
@@ -37,10 +37,6 @@ const rules: FormRules<TableRowDraft> = {
 
 const dialogTitle = computed(() => (editingId.value === null ? '新增记录' : '编辑记录'))
 const statusText: Record<string, string> = { active: '启用', inactive: '停用' }
-
-onMounted(() => {
-  tableStore.pageSize = appStore.settings.pageSize
-})
 
 function resetDraft() {
   draft.name = ''
@@ -142,6 +138,15 @@ function onSelectionChange(rows: TableRow[]) {
 function onSearch() {
   tableStore.page = 1
 }
+
+/**
+ * 分页器改变每页条数时，写回配置源而不是表格副本 —— 这样它会被自动保存持久化，
+ * 且与「配置」页共用同一个真值，不会出现两处取值不一致。
+ */
+function onPageSizeChange(size: number) {
+  appStore.settings.pageSize = size
+  tableStore.page = 1
+}
 </script>
 
 <template>
@@ -209,11 +214,12 @@ function onSearch() {
         </span>
         <el-pagination
           v-model:current-page="tableStore.page"
-          v-model:page-size="tableStore.pageSize"
+          :page-size="tableStore.pageSize"
           :page-sizes="[5, 10, 20, 50]"
           :total="tableStore.total"
           layout="sizes, prev, pager, next, jumper"
           background
+          @size-change="onPageSizeChange"
         />
       </div>
     </el-card>

@@ -7,12 +7,16 @@ dist/
 # 打包输出（独立 exe）
 release/
 
-# Tauri / Rust 构建产物
+# Tauri / Rust 构建产物（统一输出到项目根 target/，见 .cargo/config.toml）
+target/
 src-tauri/target/
 src-tauri/gen/
 **/*.rs.bk
 *.pdb
 **/mutants.out*/
+
+# 工作区本地数据（AI 会话记忆等）
+.workbuddy/
 
 # 图标生成的中间产物
 vibe_images/
