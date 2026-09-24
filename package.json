@@ -18,7 +18,11 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "pack": "node scripts/build.mjs"
+    "pack": "node scripts/build.mjs",
+    "uitest": "node scripts/uitest.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "verify": "node scripts/verify.mjs",
+    "verify:fast": "node scripts/verify.mjs --fast"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

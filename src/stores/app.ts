@@ -36,6 +36,11 @@ export const useAppStore = defineStore('app', () => {
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<AppSettings>
         settings.value = { ...DEFAULT_SETTINGS, ...parsed }
+      } else {
+        // 首次启动（配置文件尚不存在）：把默认值立即落盘。
+        // 否则用户装完程序在配置目录里看不到任何配置文件，无法手工调整系统配置。
+        await save()
+        logger.info('首次启动，已写入默认配置')
       }
       const [appInfo, layout] = await Promise.all([bridge.appInfo(), bridge.storageInfo()])
       info.value = appInfo

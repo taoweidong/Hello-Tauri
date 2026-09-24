@@ -10,15 +10,23 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const isWindows = process.platform === 'win32'
-const npmCmd = isWindows ? 'npm.cmd' : 'npm'
+
+/**
+ * npm 在 Windows 上是 .cmd 批处理：Node 20+ 禁止直接 spawn（status 会是 null），
+ * 但也不能开 shell:true —— 走 cmd.exe /c 会把带空格的参数按空格重新分词
+ * （仓库路径含空格时 --manifest-path 之类会被拆坏）。cmd /d /s /c 是唯一两全的调法。
+ */
+function npmSpawn(args) {
+  return isWindows ? ['cmd.exe', ['/d', '/s', '/c', 'npm', ...args]] : ['npm', args]
+}
 
 function run(command, args, label, env) {
   process.stdout.write(`\n▶ ${label}\n`)
   const result = spawnSync(command, args, {
     cwd: root,
     stdio: 'inherit',
-    shell: isWindows,
     env: env ? { ...process.env, ...env } : process.env,
+    windowsHide: true,
   })
   if (result.status !== 0) {
     process.stderr.write(`\n✖ ${label} 失败（退出码 ${result.status ?? 'unknown'}）\n`)
@@ -26,7 +34,12 @@ function run(command, args, label, env) {
   }
 }
 
-const cargo = spawnSync('cargo', ['--version'], { shell: isWindows, encoding: 'utf8' })
+function runNpm(args, label) {
+  const [command, commandArgs] = npmSpawn(args)
+  run(command, commandArgs, label)
+}
+
+const cargo = spawnSync('cargo', ['--version'], { encoding: 'utf8', windowsHide: true })
 if (cargo.status !== 0) {
   process.stderr.write(
     '\n✖ 未检测到 Rust 工具链。\n' +
@@ -38,7 +51,7 @@ if (cargo.status !== 0) {
 
 // 单文件 exe 的前提是 MSVC：webview2-com-sys 对 target_env=msvc 静态链接
 // WebView2LoaderStatic.lib；GNU 工具链会链接 WebView2Loader.dll。
-const verbose = spawnSync('rustc', ['-vV'], { shell: isWindows, encoding: 'utf8' })
+const verbose = spawnSync('rustc', ['-vV'], { encoding: 'utf8', windowsHide: true })
 const host = /^host:\s*(.+)$/m.exec(verbose.stdout ?? '')?.[1]?.trim() ?? ''
 if (host && !host.includes('msvc')) {
   process.stderr.write(
@@ -52,8 +65,8 @@ process.stdout.write(`\n▶ Rust 工具链：${host}（MSVC，WebView2Loader 静
 
 const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
-run(npmCmd, ['run', 'typecheck'], '类型检查 (vue-tsc)')
-run(npmCmd, ['run', 'build:web'], '前端构建 (vite)')
+runNpm(['run', 'typecheck'], '类型检查 (vue-tsc)')
+runNpm(['run', 'build:web'], '前端构建 (vite)')
 
 // 桌面编译不用 `tauri build`，直接 `cargo build --features tauri/custom-protocol`。原因：
 //   1. tauri build 的 Rust 子进程会自行注入 CARGO_TARGET_<TRIPLE>_RUSTFLAGS（实测把
