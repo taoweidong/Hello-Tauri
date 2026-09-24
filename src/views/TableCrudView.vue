@@ -2,10 +2,13 @@
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { IconSearch, IconPlus, IconTrash, IconRestore, IconX } from '@/components/icons'
+import { IconSearch, IconPlus, IconTrash, IconRestore, IconX, IconDownload } from '@/components/icons'
 
 import { CATEGORIES, useTableStore } from '@/stores/table'
 import { useAppStore } from '@/stores/app'
+import { csvFileName, downloadCsv, exportRecordsCsv } from '@/repositories/csv'
+import { platform } from '@/api'
+import { logger } from '@/utils/logger'
 import type { TableRow, TableRowDraft } from '@/types'
 
 const appStore = useAppStore()
@@ -160,6 +163,26 @@ function clearFilters() {
   tableStore.category = ''
 }
 
+/** 导出当前筛选结果为 CSV：桌面写 exports/，浏览器降级为下载 */
+async function exportCsv() {
+  if (!tableStore.filtered.length) {
+    ElMessage.warning('没有可导出的记录')
+    return
+  }
+  if (platform === 'web') {
+    downloadCsv(tableStore.filtered, csvFileName().split('/').pop())
+    ElMessage({ message: '已下载 CSV', type: 'success' })
+    return
+  }
+  try {
+    const path = await exportRecordsCsv(tableStore.filtered)
+    logger.info(`已导出 ${tableStore.filtered.length} 条记录到 ${path}`)
+    ElMessage({ message: `已导出到 ${path}`, type: 'success' })
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? `导出失败：${error.message}` : '导出失败')
+  }
+}
+
 /** 分页器改变每页条数时写回配置源（单一真值），自动保存负责落盘 */
 function onPageSizeChange(size: number) {
   appStore.settings.pageSize = size
@@ -193,6 +216,7 @@ function onPageSizeChange(size: number) {
           <IconX class="toolbar__clear-icon" /> 清除筛选
         </button>
         <div class="toolbar__spacer" />
+        <el-button :icon="IconDownload" @click="exportCsv">导出 CSV</el-button>
         <el-button :icon="IconRestore" @click="resetData">恢复示例</el-button>
         <el-button :disabled="!selectedRows.length" :icon="IconTrash" @click="removeSelected">
           批量删除<template v-if="selectedRows.length">（{{ selectedRows.length }}）</template>

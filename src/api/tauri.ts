@@ -15,6 +15,9 @@ export const tauriBridge: Bridge = {
   storageMigrate: (path: string) => invoke<MigrateReport>('storage_migrate', { path }),
   openStorageDir: () => invoke<void>('open_storage_dir'),
   appInfo: () => invoke<AppInfo>('app_info'),
+  fsRead: (relative: string) => invoke<string | null>('fs_read', { relative }),
+  fsWrite: (relative: string, content: string) =>
+    invoke<string>('fs_write', { relative, content }),
   dbExecute: (sql: string, params: DbParam[] = []) =>
     invoke<ExecResult>('db_execute', { sql, params }),
   dbSelect: (sql: string, params: DbParam[] = []) =>

@@ -36,6 +36,8 @@ describe('bridge 运行时选择', () => {
       'storageInfo',
       'storageMigrate',
       'openStorageDir',
+      'fsRead',
+      'fsWrite',
       'appInfo',
       'dbExecute',
       'dbSelect',

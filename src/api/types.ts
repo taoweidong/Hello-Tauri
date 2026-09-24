@@ -23,6 +23,12 @@ export interface Bridge {
   openStorageDir(): Promise<void>
   appInfo(): Promise<AppInfo>
 
+  // —— 文件读写通道（相对存储根，Rust 侧防路径穿越） ——
+  /** 读存储根下的文本文件，不存在返回 null */
+  fsRead(relative: string): Promise<string | null>
+  /** 写存储根下的文本文件（自动建父目录），返回落盘绝对路径 */
+  fsWrite(relative: string, content: string): Promise<string>
+
   // —— SQLite 通用通道（Q1：SQL 留在 TS 仓储层，Rust 只做通用执行） ——
 
   /** 执行 INSERT/UPDATE/DELETE/DDL；参数按 ?1 ?2 … 占位符绑定 */

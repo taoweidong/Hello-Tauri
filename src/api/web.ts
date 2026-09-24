@@ -55,6 +55,13 @@ export const webBridge: Bridge = {
   async openStorageDir() {
     throw new Error('浏览器调试模式不支持打开本地目录')
   },
+  // 文件通道与 db 通道同理：浏览器无磁盘写入语义，诚实抛错，视图层自行降级为下载。
+  async fsRead(_relative: string): Promise<string | null> {
+    throw new Error('浏览器调试模式不支持读取本地文件')
+  },
+  async fsWrite(_relative: string, _content: string): Promise<string> {
+    throw new Error('浏览器调试模式不支持写入本地文件，将改用浏览器下载')
+  },
   async appInfo() {
     return {
       name: 'Hello-Tauri',

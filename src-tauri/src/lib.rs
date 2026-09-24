@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+mod fs;
 mod logging;
 mod storage;
 
@@ -25,6 +26,8 @@ pub fn run() {
             commands::append_log,
             commands::open_storage_dir,
             commands::app_info,
+            fs::fs_read,
+            fs::fs_write,
             db::db_execute,
             db::db_select,
             db::db_transaction,
