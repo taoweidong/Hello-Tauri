@@ -17,6 +17,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::storage_info,
+            commands::storage_migrate,
             commands::load_config,
             commands::save_config,
             commands::read_table,

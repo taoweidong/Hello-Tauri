@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 
-import type { AppInfo, DbParam, DbRow, ExecResult, LogLevel, Migration, StorageLayout } from '@/types'
+import type { AppInfo, DbParam, DbRow, ExecResult, LogLevel, Migration, MigrateReport, StorageLayout } from '@/types'
 import type { Bridge } from './types'
 
 export const tauriBridge: Bridge = {
@@ -12,6 +12,7 @@ export const tauriBridge: Bridge = {
   appendLog: (level: LogLevel, message: string) =>
     invoke<string>('append_log', { level, message }),
   storageInfo: () => invoke<StorageLayout>('storage_info'),
+  storageMigrate: (path: string) => invoke<MigrateReport>('storage_migrate', { path }),
   openStorageDir: () => invoke<void>('open_storage_dir'),
   appInfo: () => invoke<AppInfo>('app_info'),
   dbExecute: (sql: string, params: DbParam[] = []) =>

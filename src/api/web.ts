@@ -49,6 +49,9 @@ export const webBridge: Bridge = {
   async storageInfo() {
     return { ...WEB_LAYOUT }
   },
+  async storageMigrate(_path: string) {
+    throw new Error('浏览器调试模式不支持迁移存储目录')
+  },
   async openStorageDir() {
     throw new Error('浏览器调试模式不支持打开本地目录')
   },

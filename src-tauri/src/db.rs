@@ -29,6 +29,18 @@ pub fn open_db(app: &AppHandle) -> Result<Db, String> {
     Ok(Db(Mutex::new(conn)))
 }
 
+/// WAL 检查点：把 -wal 中未落盘的数据合并回主 .db 文件。
+/// 迁移存储目录前必须调用，否则复制走的主文件可能缺最近事务数据。
+/// 返回是否成功（非 WAL 模式下本就可能失败，仅报告、不致命）。
+pub fn checkpoint(app: &AppHandle) -> bool {
+    let Some(db) = app.try_state::<Db>() else {
+        return false;
+    };
+    let conn = db.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .is_ok()
+}
+
 fn with_db<R, F: FnOnce(&mut Connection) -> Result<R, String>>(
     app: &AppHandle,
     f: F,

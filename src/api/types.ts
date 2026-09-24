@@ -1,4 +1,4 @@
-import type { AppInfo, DbParam, DbRow, ExecResult, LogLevel, Migration, StorageLayout } from '@/types'
+import type { AppInfo, DbParam, DbRow, ExecResult, LogLevel, Migration, MigrateReport, StorageLayout } from '@/types'
 
 export type Platform = 'tauri' | 'web'
 
@@ -17,6 +17,8 @@ export interface Bridge {
   /** 追加一行日志，返回写入的日志文件绝对路径 */
   appendLog(level: LogLevel, message: string): Promise<string>
   storageInfo(): Promise<StorageLayout>
+  /** 迁移存储根到新的绝对路径（复制迁移、旧目录保留；需重启生效）。仅桌面模式可用 */
+  storageMigrate(path: string): Promise<MigrateReport>
   /** 在系统文件管理器中打开存储目录 */
   openStorageDir(): Promise<void>
   appInfo(): Promise<AppInfo>

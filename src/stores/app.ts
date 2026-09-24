@@ -6,6 +6,8 @@ import type { AppInfo, AppSettings, StorageLayout } from '@/types'
 import { logger } from '@/utils/logger'
 
 const DEFAULT_SETTINGS: AppSettings = {
+  title: 'Hello-Tauri',
+  description: 'Tauri 2 + Vue 3 单文件桌面应用模板',
   theme: 'light',
   pageSize: 10,
   autoSave: true,

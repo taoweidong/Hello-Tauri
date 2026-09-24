@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { IconCheck, IconDownload, IconRestore, IconFolder, IconAlert } from '@/components/icons'
+import { IconCheck, IconDownload, IconRestore, IconFolder, IconAlert, IconArrowRight } from '@/components/icons'
 
 import { bridge, platform } from '@/api'
 import { useAppStore } from '@/stores/app'
+import { logger } from '@/utils/logger'
 import type { AppSettings } from '@/types'
 
 const appStore = useAppStore()
@@ -63,6 +64,50 @@ async function openDir() {
     ElMessage.error(error instanceof Error ? error.message : '打开目录失败')
   }
 }
+
+const migrating = ref(false)
+
+/** 复制迁移到用户指定目录，旧目录保留（Q2）。成功后要求重启 —— 本会话的 DB
+ *  连接与文件句柄仍指向旧路径，新路径在下次启动的 bootstrap 解析时生效。 */
+async function migrateDir() {
+  let input: string | false | undefined
+  try {
+    input = await ElMessageBox.prompt('输入新的存储根目录（绝对路径，如 E:\\MyData）', '迁移存储目录', {
+      confirmButtonText: '迁移',
+      cancelButtonText: '取消',
+      inputPlaceholder: storage.value?.root ?? 'D:\\TangYuan',
+      inputValidator: (value: string) => (value.trim() ? true : '目录不能为空'),
+    }).then((r) => r.value).catch(() => false)
+  } catch {
+    return
+  }
+  if (input === false || !input) return
+
+  const confirmed = await ElMessageBox.confirm(
+    `将把配置、数据与日志复制到「${input}」，原目录保留不删除。迁移后需重启应用生效。`,
+    '确认迁移',
+    { type: 'warning', confirmButtonText: '确认迁移', cancelButtonText: '取消' },
+  ).catch(() => false)
+  if (confirmed === false) return
+
+  migrating.value = true
+  try {
+    const report = await bridge.storageMigrate(input)
+    logger.info(`存储目录已迁移：${report.from} → ${report.to}，复制 ${report.copiedFiles} 个文件`)
+    if (!report.dbCheckpointed) {
+      logger.warn('数据库 WAL 检查点未成功，迁移副本可能缺少最近未落盘事务')
+    }
+    await ElMessageBox.alert(
+      `已复制 ${report.copiedFiles} 个文件到 ${report.to}，原目录 ${report.from} 已保留。\n请重启应用以启用新目录。`,
+      '迁移完成',
+      { type: 'success', confirmButtonText: '知道了' },
+    )
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? `迁移失败：${error.message}` : '迁移失败')
+  } finally {
+    migrating.value = false
+  }
+}
 </script>
 
 <template>
@@ -86,6 +131,16 @@ async function openDir() {
       <section class="ht-card">
         <header class="ht-card__head">界面偏好</header>
         <el-form :model="form" label-width="92px" class="form" @submit.prevent>
+          <el-form-item label="应用标题">
+            <el-input v-model="form.title" maxlength="30" show-word-limit placeholder="顶栏与关于页展示的应用名" />
+          </el-form-item>
+
+          <el-form-item label="应用描述">
+            <el-input v-model="form.description" type="textarea" :rows="2" maxlength="80" show-word-limit placeholder="一句话说明这个应用是做什么的" />
+          </el-form-item>
+
+          <div class="hairline" />
+
           <el-form-item label="主题">
             <el-radio-group v-model="form.theme">
               <el-radio-button value="light">浅色</el-radio-button>
@@ -149,6 +204,9 @@ async function openDir() {
           <div class="side__actions">
             <button class="link pressable" :disabled="platform !== 'tauri'" @click="openDir">
               <IconFolder class="link__icon" /> 打开数据目录
+            </button>
+            <button class="link pressable" :disabled="platform !== 'tauri' || migrating" @click="migrateDir">
+              <IconArrowRight class="link__icon" /> {{ migrating ? '迁移中…' : '迁移到新目录' }}
             </button>
             <span v-if="platform !== 'tauri'" class="side__dim">浏览器模式不可用</span>
           </div>

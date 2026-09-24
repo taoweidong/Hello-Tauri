@@ -35,7 +35,9 @@ const structure = [
         <header class="ht-card__head">应用信息</header>
         <dl class="kv">
           <dt>应用名称</dt>
-          <dd>{{ appStore.info?.name ?? 'Hello-Tauri' }}</dd>
+          <dd>{{ appStore.settings.title || appStore.info?.name || 'Hello-Tauri' }}</dd>
+          <dt>描述</dt>
+          <dd>{{ appStore.settings.description || '-' }}</dd>
           <dt>版本</dt>
           <dd class="num">v{{ appStore.info?.version ?? '0.1.0' }}</dd>
           <dt>Tauri</dt>

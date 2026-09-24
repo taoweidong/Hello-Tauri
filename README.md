@@ -62,18 +62,30 @@ Tauri 2 + Vue 3 + Element Plus 的 Windows 桌面应用模板，一次打包产�
 
 ## 数据存储
 
-运行时**所有**持久化数据都在 `D:\TangYuan`：
+运行时**所有**持久化数据都在数据根目录（默认 `D:\TangYuan`，可改，见下）：
 
 | 用途 | 路径 | 说明 |
 | --- | --- | --- |
-| 数据根目录 | `D:\TangYuan\` | 可直接复制备份 |
-| 配置 | `D:\TangYuan\config\config.json` | 主题、每页条数、默认首页、自动保存、侧栏折叠 |
-| 数据 | `D:\TangYuan\data\table.json` | 表格增删改查结果，重启保留 |
+| 数据根目录 | `D:\TangYuan\`（默认） | 可直接复制备份 |
+| 系统配置 | `D:\TangYuan\config\config.json` | 标题/描述、主题、每页条数、默认页、自动保存、侧栏折叠 |
+| SQLite 库 | `D:\TangYuan\data\app.db` | 二维业务数据（WAL 模式），经通用 SQL 通道读写 |
+| 数据导出 | `D:\TangYuan\data\table.json` | 表格数据落盘副本（重启保留） |
 | 日志 | `D:\TangYuan\logs\app-YYYY-MM-DD.log` | 按天滚动，保留最近 30 份 |
 
 以上子目录与文件由程序**自动创建**，不需要手工建目录，也不需要预先授予权限（普通用户对非系统盘根目录可写）。
 
-**不可写时自动回退**：若 `D:\TangYuan` 无法创建或写入（例如目标机器只有 C 盘、或无 D 盘），程序不会崩溃，而是回退到 `%APPDATA%\com.taowd.hello-tauri`，并在「配置」页以醒目的警告条显示**实际生效的路径与回退原因**。判定方式是真写一个探针文件再删除，而不是仅检查目录是否存在 —— 目录存在但只读同样会失败。
+### 存储目录可配置与引导文件
+
+「配置」页可改应用标题/描述，也能把整个数据根**迁移**到任意目录（Q2：复制迁移、旧目录保留）。迁移靠一个固定在用户配置目录的**引导文件**指向真实数据根，解决"数据根路径写在配置里、配置又在数据根下"的自引用问题：
+
+```
+%APPDATA%\com.taowd.hello-tauri\bootstrap.json   ← 固定，仅存 { "dataDir": "D:\\TangYuan" }
+        │  启动读它 → 解析出数据根（缺失/损坏则用默认 D:\TangYuan）
+        ▼
+{dataDir}\config\config.json · data\app.db · logs\…
+```
+
+**优先级与回退**：bootstrap 指定目录 → 默认 `D:\TangYuan` → 均不可写回退 `%APPDATA%\com.taowd.hello-tauri`，配置页以警告条显示实际生效路径与原因。判定用探针文件真测，不用 `exists()`（目录存在但只读也会被抓出）。迁移存储目录后需**重启应用**生效。
 
 ## 快速开始
 

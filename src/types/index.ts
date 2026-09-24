@@ -26,6 +26,10 @@ export interface AppInfo {
 }
 
 export interface AppSettings {
+  /** 应用标题（关于页与窗口标题的数据源，需求 2） */
+  title: string
+  /** 应用描述 */
+  description: string
   theme: 'light' | 'dark'
   pageSize: number
   autoSave: boolean
@@ -52,6 +56,15 @@ export interface Migration {
   version: number
   description: string
   sql: string
+}
+
+/** 存储根迁移结果（需重启生效） */
+export interface MigrateReport {
+  from: string
+  to: string
+  copiedFiles: number
+  /** DB 是否成功做了 WAL 检查点 */
+  dbCheckpointed: boolean
 }
 
 export interface TableRow {

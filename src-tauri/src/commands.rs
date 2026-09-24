@@ -25,6 +25,12 @@ pub fn storage_info(app: AppHandle) -> StorageLayout {
     storage::resolve_storage(&app)
 }
 
+/// 迁移存储根到新目录（Q2：复制迁移、旧目录保留）。需重启生效。
+#[tauri::command]
+pub fn storage_migrate(app: AppHandle, path: String) -> Result<storage::MigrateReport, String> {
+    storage::migrate_data_dir(&app, &path)
+}
+
 #[tauri::command]
 pub fn load_config(app: AppHandle) -> Result<Option<String>, String> {
     storage::read_file(&PathBuf::from(storage::resolve_storage(&app).config_file))
