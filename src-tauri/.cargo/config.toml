@@ -1,6 +1,0 @@
-# 项目级 Cargo 配置
-# 目标：单文件 exe —— 静态链接 VC 运行时（VCRUNTIME140 / UCRT）
-# 注意：tauri build 会注入环境变量覆盖本文件的 rustflags，
-#      因此打包脚本绕开 tauri build、直接 cargo build（见 scripts/build-exe.mjs）
-[target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]

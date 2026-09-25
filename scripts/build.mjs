@@ -76,6 +76,9 @@ runNpm(['run', 'build:web'], '前端构建 (vite)')
 //      （build.rs: `let dev = !custom_protocol`）；不传 feature 的裸 cargo build 是
 //      dev 模式，资源不内嵌。这里显式传 feature 进入生产模式。
 //   3. 裸 cargo 没有 beforeBuildCommand，前端构建由上面的 build:web 显式负责，不重复。
+//   4. 不加 --offline：全局 ~/.cargo/config.toml 已把 crates.io 替换为 rsproxy-sparse
+//      镜像，rsproxy 的 sparse 索引在 offline 模式下解析不到（"no matching package
+//      found"）。缓存齐全时 cargo 本来就不会发网络请求，--offline 的收益为零。
 //
 // 强制桌面 crate 重新编译：generate_context! 只在 crate 重编译时重新读取并内嵌 dist/，
 // 而 tauri-build 的 build.rs 只 watch tauri.conf.json 与 capabilities，不含 dist/
@@ -88,7 +91,7 @@ const libRs = join(root, 'src-tauri', 'src', 'lib.rs')
   utimesSync(libRs, now, now)
 }
 
-run('cargo', ['build', '--release', '--features', 'tauri/custom-protocol', '--offline', '--manifest-path', join('src-tauri', 'Cargo.toml')], '桌面编译 (cargo build · 生产模式)')
+run('cargo', ['build', '--release', '--features', 'tauri/custom-protocol', '--manifest-path', join('src-tauri', 'Cargo.toml')], '桌面编译 (cargo build · 生产模式)')
 
 const releaseDir = join(root, 'target', 'release')
 const binary = ['Hello-Tauri.exe', 'hello-tauri.exe']

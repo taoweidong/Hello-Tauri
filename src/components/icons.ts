@@ -77,32 +77,16 @@ const SHAPES: Record<string, Shape[]> = {
     ['circle', { cx: 12, cy: 12, r: 9 }],
     ['path', { d: 'M12 7v5l3 2' }],
   ],
-  chevronRight: [['path', { d: 'M9 6l6 6-6 6' }]],
   arrowRight: [['path', { d: 'M5 12h14m0 0l-6-6m6 6l-6 6' }]],
   x: [['path', { d: 'M6 6l12 12M18 6L6 18' }]],
   activity: [['path', { d: 'M3 12h4l3 8 4-16 3 8h4' }]],
-  tag: [
-    ['path', { d: 'M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z' }],
-    ['circle', { cx: 8, cy: 8, r: 1.4 }],
-  ],
   box: [
     ['path', { d: 'M21 8l-9-5-9 5 9 5 9-5z' }],
     ['path', { d: 'M3 8v8l9 5 9-5V8M12 13v8' }],
   ],
-  coin: [
-    ['circle', { cx: 12, cy: 12, r: 9 }],
-    ['path', { d: 'M12 7v10M9.5 9.5A2 2 0 0 1 12 8.5c1.5 0 2.3.7 2.3 1.7 0 2.3-4.6 1.2-4.6 3.6 0 1 .8 1.7 2.3 1.7a2 2 0 0 0 2.2-1.1' }],
-  ],
-  filter: [['path', { d: 'M3 5h18l-7 8v6l-4-2v-4z' }]],
   alert: [
     ['path', { d: 'M12 3.5L1.8 20.5h20.4z' }],
     ['path', { d: 'M12 10v4M12 17.5h.01' }],
-  ],
-  palette: [
-    ['path', { d: 'M12 3a9 9 0 1 0 0 18c1 0 1.6-.8 1.6-1.6 0-.5-.2-.8-.5-1.1-.3-.3-.5-.7-.5-1.1 0-.9.7-1.6 1.6-1.6H16a5 5 0 0 0 5-5c0-4.4-4-7.6-9-7.6z' }],
-    ['circle', { cx: 7.5, cy: 10.5, r: 1 }],
-    ['circle', { cx: 12, cy: 7.5, r: 1 }],
-    ['circle', { cx: 16.5, cy: 10.5, r: 1 }],
   ],
 }
 
@@ -154,32 +138,8 @@ export const IconDatabase = makeIcon('database')
 export const IconLayers = makeIcon('layers')
 export const IconUser = makeIcon('user')
 export const IconClock = makeIcon('clock')
-export const IconChevronRight = makeIcon('chevronRight')
 export const IconArrowRight = makeIcon('arrowRight')
 export const IconX = makeIcon('x')
 export const IconActivity = makeIcon('activity')
-export const IconTag = makeIcon('tag')
 export const IconBox = makeIcon('box')
-export const IconCoin = makeIcon('coin')
-export const IconFilter = makeIcon('filter')
-export const IconPalette = makeIcon('palette')
 export const IconAlert = makeIcon('alert')
-
-/** 通用图标组件：<AppIcon name="grid" />，用于模板里动态选图 */
-const iconCache = new Map<IconName, Component>()
-function iconOf(name: IconName): Component {
-  let c = iconCache.get(name)
-  if (!c) {
-    c = makeIcon(name)
-    iconCache.set(name, c)
-  }
-  return c
-}
-
-export const AppIcon = defineComponent({
-  name: 'AppIcon',
-  props: { name: { type: String as () => IconName, required: true } },
-  setup(props) {
-    return () => h(iconOf(props.name))
-  },
-})
