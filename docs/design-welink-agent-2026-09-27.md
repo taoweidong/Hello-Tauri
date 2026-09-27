@@ -49,7 +49,7 @@ flowchart TD
 | 5 | 只考虑 Windows | CLI 路径、子进程调用、编码（UTF-8→GBK 兜底）均按 Windows 设计（§9） |
 | 6 | **v4：基础设施层用 TS 封装三项能力，支撑上层业务**（消息获取发送 / Agent 交互 / 数据查询） | `src/infra/` 三模块：welink / agent / db，端口接口 + mock 实现（§3、§4） |
 | 7 | **v4：后台轮询与 Agent 处理不得阻塞前端 UI** | Rust 侧 spawn_blocking、TS 侧全异步链 + single-flight + 增量通知 + 分页渲染（§5） |
-| 8 | **v4.2：自动回复开关精细化控制，防消息滥发** | 四级开关分级 + 令牌桶限流 + 全局配额 + 静默时段 + 内容防护 + 熔断 + 一键急停（§5A） |
+| 8 | **v4.2：自动回复开关精细化控制，防消息滥发** | 四级开关分级 + 会话/全局小时配额 + 最小间隔 + 静默时段 + 内容防护 + 熔断 + 一键急停（§5A） |
 
 ### 交付策略（v2 起明确）
 
@@ -163,7 +163,7 @@ export interface AgentCallRecord {
   status: 'ok' | 'error' | 'timeout'
   latencyMs: number; error: string
 }
-// infra/db：无跨进程端口，是 TS 类 API —— 方法签名见 §7 各流程中的 repo.xxx 调用
+// infra/db：无跨进程端口，是 TS 类 API —— 方法签名见 §6 各流程中的 repo.xxx 调用
 ```
 
 ### 3.3 切换与 Mock
@@ -196,7 +196,7 @@ export interface AgentCallRecord {
 
 ---
 
-## 4. 数据模型（SQLite migration v2，同 v3）
+## 4. 数据模型（SQLite migration v2）
 
 业务 SQL 全部在 `infra/db/repos/welink.ts`（v4 起归入基础设施层）。
 
@@ -250,7 +250,7 @@ CREATE TABLE welink_reply_jobs (
                     CHECK (status IN ('pending','discussing','ready','sending','sent','failed','skipped')),
   attempts        INTEGER NOT NULL DEFAULT 0,
   last_error      TEXT NOT NULL DEFAULT '',
-  skip_reason     TEXT NOT NULL DEFAULT '',  -- v4.2：SafetyGate 拦截原因（rate_conv/quota/quiet/empty/oversize/blacklist/fuse…），审计留痕
+  skip_reason     TEXT NOT NULL DEFAULT '',  -- v4.2：SafetyGate 拦截原因（panic/switch_off/conv_switch/fused/rate_conv/empty/oversize…），审计留痕
   hold_reason     TEXT NOT NULL DEFAULT '',  -- v4.4·O7：待审原因（manual_mode/blacklist），reviewCount 聚合依据
   rating          TEXT CHECK (rating IN ('up','down')),  -- v4.4·O10：人工评价，差评对=改进语料
   created_at      TEXT NOT NULL,
@@ -312,8 +312,8 @@ P7 拦截大列表是唯一硬约束）。
 |------|------|------|------|
 | L0 全局急停 | 控制条「一键全停」按钮 | 停 timer + 停 worker + **封死 SafetyGate**（manual 人工发送也需二次确认）；状态灯红「急停」；数据与未终态 job 保留 | 即时 |
 | L1 助手总开关 | `enabled` | 整个助手启停（v4.1 语义不变） | 即时 |
-| L2 场景开关 | `groupAtMe`（默认开，可关）、`privateAutoReply`（默认开，可关） | 按触发类型整域关闭；**关闭后消息照常存储，仅不回复**（R2 收件箱不受影响） | ≤1s（worker 取 job 时检查） |
-| L3 会话级开关 | `welink_conversations.auto_reply`（**默认 0=关**） | 每个群/联系人单独控制是否允许自动回复；监控配置 Tab 行内开关 | 即时（SafetyGate 查会话行） |
+| L2 场景开关 | `groupAtMe`（默认开，可关）、`privateAutoReply`（默认开，可关） | 按触发类型整域关闭；**关闭后消息照常存储，仅不回复**（R2 收件箱不受影响） | 即时（外发 worker 经 Gate 判定，O5 内存缓存） |
+| L3 会话级开关 | `welink_conversations.auto_reply`（**默认 0=关**） | 每个群/联系人单独控制是否允许自动回复；监控配置 Tab 行内开关 | 即时（Gate 查会话开关内存缓存，upsert 失效，O5） |
 
 > 精细化默认立场：**监控（存档）与回复（外发）彻底分离**——`watching` 管拉取存档，
 > `auto_reply` 管外发；新导入的会话永远只存档不回复，外发须显式开启。
@@ -323,18 +323,18 @@ P7 拦截大列表是唯一硬约束）。
 | # | 规则 | 默认值 | 拦截行为 |
 |---|------|--------|---------|
 | S1 | 每会话最小回复间隔 | 1 条/10s | 窗口内后续 job → skipped（reason=rate_conv） |
-| S2 | 每会话每小时上限 | 6 | 超限→该会话回复冷却至下小时（记 cooldown_until，逐条 skipped） |
+| S2 | 每会话每小时上限 | 6 | 超限→该会话回复冷却至下小时（Gate 内存计数维护，逐条 skipped 落库留痕） |
 | S3 | 全局每小时上限 | 30 | 超限→Gate 全局冷却；新 job 停留 ready 排队不发送，顶栏黄条提示 |
-| S4 | 静默时段 quietHours | 默认 22:00–08:00（可配可关） | 时段内不发送**也不丢弃**：job 挂起 ready，时段结束按 created_at 序补发；补发时草稿已超 4h → 转 manual 待审（隔夜内容不盲发） |
+| S4 | 静默时段 quietHours | **默认关**；开启后常用 22:00–08:00 | 时段内不发送**也不丢弃**：job 挂起 ready，时段结束按 created_at 序补发；补发时草稿已超 4h → 转 manual 待审（隔夜内容不盲发） |
 | S5 | 同人短窗合并 | 同会话 30s 内多条触发 | 合并为一个 job 一次回复（上下文含全部触发），防刷屏式连发 |
 | S6 | 草稿防护 | 空/纯符号/超 500 字拒发 | skipped（reason=empty/oversize） |
 | S7 | 内容黑名单 | 配置正则表（默认含转账/借款/改密等敏感句式） | 命中→不发送，job 转 manual 待审 + UI 红标——防模型幻觉生成承诺性/资金类回复 |
 | S8 | 熔断 | Gate 拦下一类 reason 10 分钟内 >3 次；或 myUserId 为空 | **自动 L2 降级**（暂停对应场景回复并通知 UI），人工在控制条点「解除熔断」恢复；熔断期间拉取与存档照常 |
 
-> S3/S8 的计数都在内存（重启清零可接受——重启本身已中断滥发）；skip/cooldown
-> 事件全部落 jobs 表，审计与改进（R3/R4）看得到每一次「本可以发但被拦」。
+> S2/S3/S8 的计数与冷却状态在内存（重启清零可接受——重启本身已中断滥发）；
+> skip 事件全部落 jobs 表，审计与改进（R3/R4）看得到每一次「本可以发但被拦」。
 
-### 5A.3 SafetyGate 判定顺序（pipeline 第 6 步前调用）
+### 5A.3 SafetyGate 判定顺序（外发 worker 在 send 前调用，见 §6.2）
 
 ```mermaid
 flowchart TD
@@ -380,7 +380,7 @@ flowchart TD
 |---|---------|------------------|----------|
 | O1 | **Agent 等待阻塞回复队列** | P3 定为「worker 并发=1」，本地推理单条 2–60s；晚间积压 10 条 @我 → 队尾用户等 10 分钟 | **生成/发送两段拆分**：生成段（LLM 调用，只读+写 agent_logs，无外发风险）并发 **N=2**；外发段（Gate→send）保持单 worker **严格串行**——限流/配额/防双发的语义完整保留，吞吐翻倍且不发散 |
 | O2 | **每会话每轮冷启动一个 CLI 进程** | 20 个监控群 = 20 次进程创建/销毁/管道握手，纯浪费 | 轮询**分级自适应**：热会话（30min 内有新消息）基准间隔；温会话 3×；冷会话（24h 无消息）6× 或仅手动拉。会话间隔 ≥2s 错峰，同会话 `hasMore` 续批合并连接 |
-| O3 | **会话列表「最后消息时间+未读数」无数据来源** | 每次刷新要对 messages 按会话 `MAX(sent_at)`/`COUNT(*)` 聚合，群多时列表查询随消息量线性变慢 | conversations 冗余两列 `last_msg_at`/`mention_count`（@我未处理数），applyPollResult 同事务增量维护——列表查询退化为**零聚合纯读**；未读数（O6）同样落列 |
+| O3 | **会话列表「最后消息时间+未读数」无数据来源** | 每次刷新要对 messages 按会话 `MAX(sent_at)`/`COUNT(*)` 聚合，群多时列表查询随消息量线性变慢 | conversations 冗余 `last_msg_at`/`unread_count`/`mention_count`/`last_active` 列，applyPollResult 同事务增量维护——列表查询退化为**零聚合纯读**（未读体系见 O6） |
 | O4 | 首屏全量加载多 Tab | 五 Tab 同时挂载各自首屏查询 | 懒加载：仅激活的 Tab 发查询（`v-if` 级），Tab 内 keep-alive 保状态；消息中心默认选中「最后有 @我 的会话」 |
 | O5 | Gate 检查的 DB 往返 | 每次外发查一次会话 auto_reply 行 | Gate 持**会话开关内存缓存**（upsert 时失效）；S1–S3 计数本就内存，整条 Gate 判定 0 次 SELECT |
 
@@ -389,7 +389,7 @@ flowchart TD
 | # | 审视发现 | v4.4 优化 |
 |---|---------|----------|
 | O6 | **未读/已读缺失**——badge 显示什么、何时消失没有定义 | conversations.`unread_count` + messages.`read_flag`；打开会话即按 cursor 式批量 markRead（单事务）；Tab 角标与任务栏提示（后续可选）都以此为唯一来源 |
-| O7 | **人工待审是黑洞**——manual 草稿、S7 黑名单转审、熔断复核散在各表，用户不知道「现在有几个等我」 | store 维护 **`reviewCount`（ready-manual + blacklist_hold + fuse_notice 之和）**，控制条常驻「待审 N」徽标+声音外仅视觉；点击直达回复历史「待我处理」预设筛选——自动化的第一体验指标从「它回了啥」变成「它等我干啥」 |
+| O7 | **人工待审是黑洞**——manual 草稿、S7 黑名单转审散在各表，用户不知道「现在有几个等我」 | store 维护 **`reviewCount` = `hold_reason≠''` 的 ready job 数（manual_mode / blacklist 两类）**，控制条常驻「待审 N」徽标；点击直达回复历史「待我处理」预设筛选——自动化的第一体验指标从「它回了啥」变成「它等我干啥」（熔断走独立横幅提示，不计入待审） |
 | O8 | **冷启动无从下手**——enabled=off 进页面是空壳；myUserId 必填易漏（漏了 S8 熔断静默不回复，用户困惑） | **首次引导向导**（三步，mock 默认值预填）：①确认 mock 来源 ②填工号 ③勾 1 个演示群。myUserId 空时顶栏红条「未填工号，助手不会回复」——把熔断的静默拒绝变成显式指引 |
 | O9 | **8 个防滥发参数太专业** | Settings 防滥发组顶部**预设三档**：保守（S1=30s/S2=3/S3=15/静默开）· 标准（当前默认）· 积极（放宽），选档后细参数仍可展开微调——开箱可用，专家不失自由度 |
 | O10 | 回复质量无反馈通道 | 回复历史/sent 气泡加 **👍/👎 标注**（jobs.`rating` 列，落库）；回溯 Tab 提供「只看差评」筛选 → 差评 prompt/response 对就是改进语料（R4 闭环，仍不做自动优化） |
@@ -525,7 +525,7 @@ flowchart TD
 
 ---
 
-## 7. 核心流程语义（沿用 v3）
+## 7. 核心流程语义
 
 ### 7.1 触发规则
 
@@ -632,7 +632,7 @@ stateDiagram-v2
 | 误发 | manual 模式 + 一键全停（L0）+ 解除熔断/急停后默认降 manual 缓冲（§6.4） |
 | R4 语料 | 含敏感对话：仅本地；提供「清理回溯记录」入口 |
 
-## 11. 页面设计（v4.1 细化）
+## 11. 页面设计（v4.1 细化，v4.2/v4.4 扩充）
 
 导航入口：侧栏新增「WeLink 助手」（图标 `IconActivity`），路由 `/welink`。
 页面骨架 = **顶部控制条（全局）** + **五 Tab 主区**；配置类操作集中在
@@ -649,7 +649,7 @@ stateDiagram-v2
 | **配额徽标** | 小字「本小时已回 n/30 · 静默中」 | hover 显示 S2 各会话冷却明细 |
 | 来源徽标 | 两个 tag：welink=mock/cli、agent=mock/http | mock 时黄底警示「模拟数据」；点击跳 Settings 对应区 |
 | 立即拉取 | 按钮 | `pullNow()`：转圈禁用直到本轮完成；toast 汇总「新增 N 条、命中 M 条待回复」 |
-| **待审徽标（v4.4·O7）** | 「待审 N」常驻按钮（N=manual 草稿+黑名单转审+熔断复核之和） | 点击直达回复历史「待我处理」筛选；N>0 时轻微呼吸提示 |
+| **待审徽标（v4.4·O7）** | 「待审 N」常驻按钮（N=manual 草稿+黑名单转审，即 hold_reason≠'' 的 ready job 数；熔断走独立横幅不计入） | 点击直达回复历史「待我处理」筛选；N>0 时轻微呼吸提示 |
 | **首次引导向导（v4.4·O8）** | enabled=off 且未配置过时，页面中央三步卡片 | ①确认 mock 来源（默认可直接下一步）②填 myUserId（留空即红条警示）③勾选 1 个演示群（点「同步会话」拉候选）→ 完成自动 enabled=on + 启动 |
 | **演示剧本（v4.4·O13）** | 右下角浮动按钮（仅 welinkSource=mock 显示） | `playDemoScript()`：回放「新人群@我→私聊追问→回应」预置脚本，评审/培训用 |
 | **myUserId 红条（O8）** | 顶栏下方红条「未填工号，助手不会回复」 | 「去填写」聚焦 Settings 对应输入框 |
@@ -740,7 +740,7 @@ stateDiagram-v2
 | 总览 | enabled、welinkSource、agentSource | 选 cli 但 cliPath 空→红边+保存拦截；选 http 但 baseUrl 空→「保存后自动回退 mock」提示 |
 | **防滥发（v4.2）** | **预设三档单选（v4.4·O9）：保守(S1=30s/S2=3/S3=15/静默开) · 标准(默认) · 积极(放宽)**，选档后细参数展开微调 | 数值全部滑块/数字框带范围；**「预览拦截效果」**：输入模拟场景显示将命中哪条规则；调高 S2/S3 超默认 2 倍→保存二次确认 |
 | 运行参数 | pollIntervalSec(3–60)、pullBatchLimit(20–200)、myUserId | myUserId 空→提示「无法过滤自发消息，可能自回复」（并说明 S8 会熔断兜底） |
-| 触发与发送 | **groupAtMe（L2，可关）、**privateAutoReply、sendMode | groupAtMe 关闭时红字警示「@你的消息将不再自动回复，仅存档」 |
+| 触发与发送 | groupAtMe（L2，可关）、privateAutoReply（L2，可关）、sendMode | groupAtMe 关闭时红字警示「@你的消息将不再自动回复，仅存档」 |
 | CLI（cli 时显示） | cliPath | 试跑 `--help` 按钮：显示首行输出或错误 |
 | Agent（http 时显示） | baseUrl、endpoint、timeoutMs、maxContextMsgs | 「连通性测试」：发固定探测 prompt，显示耗时与返回摘要 |
 | 提示词模板 | promptTemplate 大 textarea（占位符 {{context}}/{{question}} 高亮说明） | 「恢复内置模板」按钮；变量缺失占位符→保存警告 |
@@ -767,7 +767,7 @@ stateDiagram-v2
 - `infra/db/welink.spec.ts`：四表 SQL 文本与参数断言；分页参数强制；commitDraft 原子性。
 - `infra/welink/ports.spec.ts` + `infra/agent/ports.spec.ts`：夹具双实现（mock 先跑；真实实现到位后追加），含传输重试、超时分类、onCall 记录完整性（R4）。
 - `orchestrator/poller.spec.ts`：**假时钟**验证 setTimeout 链、in-flight 锁（并发 pullNow 只执行一次）、退避序列。
-- `orchestrator/pipeline.spec.ts`：并发=1 队列串行性、状态机全路径、崩溃恢复、双发防护。
+- `orchestrator/pipeline.spec.ts`：生成段并发 2 / 外发段串行 1 的不变量、状态机全路径、崩溃恢复、双发防护。
 - `orchestrator/safety-gate.spec.ts`（v4.2）：假时钟下 S1–S8 每条规则的放行/拦截/skip_reason、冷却恢复补发、超 4h 草稿转 manual、熔断触发与人工解除、L0 急停对 manual 发送的二次确认路径。
 - `api/index.spec.ts`：Bridge 方法集扩展至 `cliRun`。
 
@@ -798,4 +798,4 @@ stateDiagram-v2
 
 ---
 
-**v4 待评审。确认后按 M1→M4 实施（M5 等真实接口）。**
+**v4.5 待评审。确认后按 M1→M4 实施（M5 等真实接口）。**
