@@ -1,16 +1,16 @@
 # WeLink × Agent 自动回复助手 — 设计方案
 
 - 日期：2026-09-27
-- 版本：**v4.4（性能与体验专项审视优化，基础功能不变）**
+- 版本：**v4.5（图表改为 Mermaid，GitHub 原生渲染）**
 - 状态：**待确认 —— 本方案评审通过前不写实现代码**
 - 适用平台：仅 Windows（不考虑 Linux）
 
 > 版本轨迹：v1 初版对齐 → v2 Mock 优先（端口-适配器）→ v3 并入 R1–R4 功能细化 →
 > v4 基础设施层重组 + 性能与非阻塞设计 + 交互时序 → v4.1 页面设计细化（§11）→
 > v4.2 回复开关分级 + 防滥发安全控制（§5A）→ v4.3 全部图表 PlantUML 化 →
-> **v4.4 聚焦性能与易用性审视：管线生成/发送解耦、自适应轮询分级、会话汇总列、
-> 新手引导、待审聚合、已读/静音、防滥发预设、评分回写、全文搜索、mock 演示剧本
-> （§5B；表结构与 UI 同步小改，基本功能语义不变）。**
+> v4.4 性能与易用性专项优化（§5B）→
+> **v4.5 呈现修订：7 幅图全部由 PlantUML 重绘为 Mermaid（flowchart / sequenceDiagram /
+> stateDiagram-v2），GitHub 网页端原生渲染，零插件零服务端依赖。**
 
 ---
 
@@ -20,34 +20,22 @@ WeLink 是企业级通信软件（内部员工交流、拉群，类似微信）�
 Windows 客户端工具 **welink-cli**，为 exe 命令行方式，可获取群消息 / 私聊消息、发送消息。
 大模型 Agent 为**内网本地部署的 SDK 服务**，启动后通过 HTTP 接口发布提示词、接受结果。
 
-端到端链路（PlantUML，下同——文档内全部图形以 PlantUML 源码嵌入）：
+端到端链路（Mermaid，下同——文档内全部图形以 Mermaid 源码嵌入，GitHub 原生渲染）：
 
-```plantuml
-@startuml
-skinparam defaultFontName "Microsoft YaHei"
-skinparam conditionStyle diamond
-start
-:welink-cli 拉取消息\n(WelinkPort.pull，Mock 先行);
-:归一化 + 幂等入库\n(SQLite，msg_uid 去重);
-if (命中回复规则？\n群@我 / 私聊) then (是)
-  :创建 reply_job（同事务）;
-  :组装提示词\n(system模板+上下文+触发消息);
-  :发给 Agent\n(HTTP prompt-in / result-out);
-  note right : 完整输入输出落\nwelink_agent_logs (R4)
-  :草稿先落库置 ready\n(要点3：库无草稿不得外发);
-  if (SafetyGate 放行？\n(§5A 开关/频控/熔断)) then (放行)
-    :welink-cli 发回对应群 / 人;
-    :回执落库 status=sent;
-  else (拦截)
-    :skipped + skip_reason 留痕;
-    stop
-  endif
-else (否)
-  :仅存档;
-  stop
-endif
-stop
-@enduml
+```mermaid
+flowchart TD
+  A["welink-cli 拉取消息<br/>(WelinkPort.pull，Mock 先行)"] --> B["归一化 + 幂等入库<br/>(SQLite，msg_uid 去重)"]
+  B --> C{"命中回复规则？<br/>群@我 / 私聊"}
+  C -- 否 --> Z["仅存档（链路终止）"]
+  C -- 是 --> D["创建 reply_job（同事务）"]
+  D --> E["组装提示词<br/>(system模板+上下文+触发消息)"]
+  E --> F["发给 Agent<br/>(HTTP prompt-in / result-out)"]
+  F --> G["草稿先落库置 ready<br/>(要点3：库无草稿不得外发)"]
+  G --> H{"SafetyGate 放行？<br/>(§5A 开关/频控/熔断)"}
+  H -- 放行 --> I["welink-cli 发回对应群/人"] --> J["回执落库 status=sent"]
+  H -- 拦截 --> K["skipped + skip_reason 留痕"]
+  F -.-> N["完整输入输出落<br/>welink_agent_logs (R4)"]
+  style N stroke-dasharray: 4 4
 ```
 
 ### 硬性要点（原始需求）
@@ -92,59 +80,53 @@ welink-cli 与 Agent SDK 服务均**先模拟对接**：端口接口 + Mock 实�
 沿用「前端不直接依赖 Rust、Bridge 唯一边界」铁律；在其内部把 TS 侧明确分为三层，
 **依赖只能自上而下**，基础设施层彼此不依赖，由编排层组合：
 
-```plantuml
-@startuml
-skinparam defaultFontName "Microsoft YaHei"
-skinparam componentStyle rectangle
-skinparam packageStyle rectangle
+```mermaid
+flowchart TB
+  subgraph UI["UI 层"]
+    V1["WeLinkView.vue<br/>五Tab：消息中心/收件箱/历史/回溯/监控"]
+    V2["SettingsView.vue<br/>WeLink 配置区"]
+  end
+  subgraph ORCH["业务编排层"]
+    ST["stores/welink.ts<br/>Pinia 状态快照+增量事件"]
+    PO["orchestrator/poller.ts<br/>setTimeout链·single-flight·退避"]
+    PI["orchestrator/pipeline.ts<br/>生成worker×2+外发worker×1<br/>+SafetyGate §5A"]
+    BS["orchestrator/bootstrap.ts<br/>启动恢复·回执核对"]
+  end
+  subgraph INFRA["基础设施层（TS）· 端口差异全隔离，mock/cli 工厂切换"]
+    IW["infra/welink<br/>WelinkPort+exec+commands<br/>+adapter+mock+工厂"]
+    IA["infra/agent<br/>AgentPort+prompt渲染<br/>+http+mock+onCall"]
+    ID["infra/db<br/>migrations+tx<br/>+repos/welink(四表)"]
+  end
+  subgraph HOST["宿主边界（Bridge 唯一出口）"]
+    BR["api/Bridge<br/>cliRun·db*·config·log·fs*"]
+  end
+  subgraph RUST["Rust 薄管道"]
+    RC["cli_run<br/>async+spawn_blocking(P1)<br/>白名单子进程"]
+    RD["db_*<br/>rusqlite 通用SQL"]
+  end
+  DB[("app.db (WAL)")]
+  EXE["welink-cli.exe (Mock 先行)"]
+  AGT["Agent SDK HTTP (Mock 先行)"]
 
-package "UI 层" {
-  [WeLinkView.vue\n五Tab：消息中心/收件箱/历史/回溯/监控] as V1
-  [SettingsView.vue\nWeLink 配置区] as V2
-}
-package "业务编排层" {
-  [stores/welink.ts\nPinia 状态快照+增量事件] as ST
-  [orchestrator/poller.ts\nsetTimeout链·single-flight·退避] as PO
-  [orchestrator/pipeline.ts\njob worker(并发1)+SafetyGate §5A] as PI
-  [orchestrator/bootstrap.ts\n启动恢复·回执核对] as BS
-}
-package "基础设施层（TS）" {
-  [infra/welink\nWelinkPort+exec+commands\n+adapter+mock+工厂] as IW
-  [infra/agent\nAgentPort+prompt渲染\n+http+mock+onCall] as IA
-  [infra/db\nmigrations+tx\n+repos/welink(四表)] as ID
-}
-package "宿主边界（Bridge 唯一出口）" {
-  [api/Bridge\ncliRun·db*·config·log·fs*] as BR
-}
-package "Rust 薄管道" {
-  [cli_run\nasync+spawn_blocking(P1)\n白名单子进程] as RC
-  [db_*\nrusqlite 通用SQL] as RD
-}
-database "app.db\n(WAL)" as DB
-cloud "welink-cli.exe\n(Mock 先行)" as EXE
-cloud "Agent SDK HTTP\n(Mock 先行)" as AGT
-
-V1 --> ST : 只读状态+action
-V2 --> ST
-ST --> PO
-ST --> PI
-BS --> PO
-BS --> PI
-PO --> IW
-PI --> IW
-PI --> IA
-PI --> ID
-PO --> ID
-BS --> ID
-IW --> BR
-IA --> BR : fetch(内网)
-ID --> BR
-BR --> RC
-BR --> RD
-RC --> EXE
-RD --> DB
-note bottom of IW : 端口差异全隔离\nmock/cli 工厂切换
-@enduml
+  V1 -->|只读状态+action| ST
+  V2 --> ST
+  ST --> PO
+  ST --> PI
+  BS --> PO
+  BS --> PI
+  PO --> IW
+  PI --> IW
+  PI --> IA
+  PI --> ID
+  PO --> ID
+  BS --> ID
+  IW --> BR
+  ID --> BR
+  BR --> RC
+  BR --> RD
+  RC --> EXE
+  RD --> DB
+  IA -->|fetch 内网| AGT
 ```
 
 ### 3.1 基础设施层职责契约（v4 新增）
@@ -354,76 +336,37 @@ P7 拦截大列表是唯一硬约束）。
 
 ### 5A.3 SafetyGate 判定顺序（pipeline 第 6 步前调用）
 
-```plantuml
-@startuml
-skinparam defaultFontName "Microsoft YaHei"
-start
-:gate.check(job);
-if (L0 一键急停?) then (是)
-  :skip(reason=panic);
-  stop
-else (否)
-endif
-if (L2 场景开关按类型开启?) then (否)
-  :skip(reason=switch_off);
-  stop
-else (是)
-endif
-if (L3 该会话 auto_reply=1?) then (否)
-  :skip(reason=conv_switch);
-  stop
-else (是)
-endif
-if (S8 该场景熔断中?) then (是)
-  :skip(reason=fused);
-  stop
-else (否)
-endif
-if (S4 处于静默时段?) then (是)
-  :挂起 ready（不丢弃）;
-  if (补发时草稿超 4h?) then (是)
-    :转 manual 待审;
-    stop
-  else (否)
-    :时段结束按 created_at 序补发;
-    stop
-  endif
-else (否)
-endif
-if (S6 草稿空 / 超 500 字?) then (是)
-  :skip(reason=empty/oversize);
-  stop
-else (否)
-endif
-if (S7 黑名单正则命中?) then (是)
-  :转 manual 待审 + UI 红标;
-  stop
-else (否)
-endif
-if (S1 距该会话上次回复 < 10s?) then (是)
-  :skip(reason=rate_conv);
-  stop
-else (否)
-endif
-if (S5 合并窗 30s 内已有待发 job?) then (是)
-  :合并进该 job（上下文追加本触发）;
-  stop
-else (否)
-endif
-if (S2 该会话本小时 ≥ 6?) then (是)
-  :skip + 会话冷却至下小时;
-  stop
-else (否)
-endif
-if (S3 全局本小时 ≥ 30?) then (是)
-  :挂起 ready + 顶栏黄条;
-  stop
-else (否)
-endif
-:扣减配额 → 放行 send();
-stop
-@enduml
+```mermaid
+flowchart TD
+  A["gate.check(job)"] --> B{"L0 一键急停?"}
+  B -- 是 --> K1["skip(reason=panic)"]
+  B -- 否 --> C{"L2 场景开关按类型开启?"}
+  C -- 否 --> K2["skip(reason=switch_off)"]
+  C -- 是 --> D{"L3 该会话 auto_reply=1?"}
+  D -- 否 --> K3["skip(reason=conv_switch)"]
+  D -- 是 --> E{"S8 该场景熔断中?"}
+  E -- 是 --> K4["skip(reason=fused)"]
+  E -- 否 --> F{"S4 处于静默时段?"}
+  F -- 是 --> F1["挂起 ready（不丢弃）"]
+  F1 --> F2{"补发时草稿超 4h?"}
+  F2 -- 是 --> K5["转 manual 待审"]
+  F2 -- 否 --> K6["时段结束按 created_at 序补发"]
+  F -- 否 --> G{"S6 草稿空 / 超500字?"}
+  G -- 是 --> K7["skip(reason=empty/oversize)"]
+  G -- 否 --> H{"S7 黑名单正则命中?"}
+  H -- 是 --> K8["转 manual 待审 + UI 红标"]
+  H -- 否 --> I{"S1 距该会话上次回复 <10s?"}
+  I -- 是 --> K9["skip(reason=rate_conv)"]
+  I -- 否 --> J{"S5 合并窗30s内已有待发job?"}
+  J -- 是 --> K10["合并进该 job（上下文追加本触发）"]
+  J -- 否 --> L{"S2 该会话本小时 ≥6?"}
+  L -- 是 --> K11["skip + 会话冷却至下小时"]
+  L -- 否 --> M{"S3 全局本小时 ≥30?"}
+  M -- 是 --> K12["挂起 ready + 顶栏黄条"]
+  M -- 否 --> Z["扣减配额 → 放行 send()"]
 ```
+
+> 阅读方式：纵向主链 = 全部通过；任一判定命中即从右侧出口终止（skip/转审/挂起）。
 
 任一拦截均执行 `db.jobs.skip(id, reason)`（同事务写 skip_reason，见 §4）并更新 UI 计数徽标。
 
@@ -466,109 +409,98 @@ stop
 
 > v4.4：每轮按 `last_active` 分级决定该会话是否跳过（热=每轮、温=每3轮、冷=每6轮或仅手动），会话间 ≥2s 错峰，其余流程不变。
 
-```plantuml
-@startuml
-skinparam defaultFontName "Microsoft YaHei"
-participant "poller" as P
-participant "welinkClient\n(WelinkPort)" as W
-participant "welink-cli.exe\n(mock/cli)" as E
-participant "db.welink\n(applyPollResult)" as D
-participant "store" as S
-participant "pipeline\nworker" as PL
+```mermaid
+sequenceDiagram
+  autonumber
+  participant P as poller
+  participant W as welinkClient(WelinkPort)
+  participant E as welink-cli.exe(mock/cli)
+  participant D as db.welink(applyPollResult)
+  participant S as store
+  participant PL as pipeline worker
 
-P -> P : 取 watching 会话（in-flight 锁）
-P -> W : pull(conv, cursor, 100)
-alt cli 实现
-  W -> E : bridge.cliRun(...)
-  note right of E : Rust async + spawn_blocking\n不占 WebView 主线程 (P1)
-  E --> W : stdout(base64)
-  W -> W : 解码(UTF-8→GBK)\nadapter 归一化
-else mock 实现
-  W -> W : 脚本延迟后返回消息流
-end
-alt 失败(传输/解析)
-  W --> P : throw（infra 内部已重试1次）
-  P -> S : 会话状态灯=退避\nfailCount++ → 5/10/20/40/60s
-else 成功
-  W --> P : messages + cursor + hasMore
-  P -> P : 过滤 senderId==myUserId（标记 out）
-  P -> D : applyPollResult(convId, messages, cursor)
-  note right of D : 单事务：幂等批写\n+cursor 推进+建 reply_job
-  D --> P : ok
-  P -> S : emit messagesAppended / jobCreated
-  P -> PL : 新 job 入队
-end
-P -> P : scheduleNext(conv)（完成后再排程）
-@enduml
+  P->>P: 取 watching 会话（in-flight 锁·分级轮询 O2）
+  P->>W: pull(conv, cursor, 100)
+  alt cli 实现
+    W->>E: bridge.cliRun(...)
+    Note right of E: Rust async + spawn_blocking<br/>不占 WebView 主线程 (P1)
+    E-->>W: stdout(base64)
+    W->>W: 解码(UTF-8→GBK)·adapter 归一化
+  else mock 实现
+    W->>W: 脚本延迟后返回消息流
+  end
+  alt 失败(传输/解析)
+    W-->>P: throw（infra 内部已重试1次）
+    P->>S: 会话状态灯=退避 failCount++ → 5/10/20/40/60s
+  else 成功
+    W-->>P: messages + cursor + hasMore
+    P->>P: 过滤 senderId==myUserId（标记 out）
+    P->>D: applyPollResult(convId, messages, cursor)
+    Note right of D: 单事务：幂等批写<br/>+cursor 推进+建 reply_job<br/>+汇总列维护 (O3)
+    D-->>P: ok
+    P->>S: emit messagesAppended / jobCreated
+    P->>PL: 新 job 入队
+  end
+  P->>P: scheduleNext(conv)（完成后再排程）
 ```
 
 ### 6.2 回复管线（v4.4：生成段并发=2，外发段串行=1，见 §5B.1-O1）
 
-```plantuml
-@startuml
-skinparam defaultFontName "Microsoft YaHei"
-participant "生成 worker ×2\n(读+调Agent，无外发)" as GW
-participant "外发 worker ×1\n(串行·Gate+send)" as SW
-participant "db" as D
-participant "agentClient" as A
-participant "SafetyGate §5A" as G
-participant "welinkClient" as W
+```mermaid
+sequenceDiagram
+  autonumber
+  participant GW as 生成worker×2·读+调Agent无外发
+  participant SW as 外发worker×1·串行Gate+send
+  participant D as db
+  participant A as agentClient
+  participant G as SafetyGate §5A
+  participant W as welinkClient
 
-[-> GW : pending job 出队
-GW -> D : mark(id,'discussing')
-GW -> D : recentContext(convPk, maxN)
-D --> GW : 上下文
-GW -> A : complete(prompt)
-A -> D : agentLogs.insert(...) [R4]
-alt Agent 失败/超时
-  GW -> GW : attempts++ ≤3 重试
-  GW -> D : 耗尽 → mark 'failed'
-else 成功
-  GW -> D : commitDraft(id, reply)\n<font color=red>draft+ready 同条 UPDATE（要点3）</font>
-  GW -> SW : ready 入外发队列（FIFO）
-end
-[-> SW : 取 ready job
-SW -> G : check(job)
-alt sendMode=manual / Gate 转审
-  SW -> D : 停 ready + hold_reason（计入 reviewCount O7）
-else Gate 拦截
-  SW -> D : skip(id, reason)
-else 放行
-  SW -> D : mark(id,'sending')
-  SW -> W : send(target, draft)
-  alt 成功
-    W --> SW : msgUid
-    SW -> D : 单事务 [sent+finished_at ∥ out 回写]
-  else 失败
-    SW -> D : attempts 退避；重发前查 out 回执防双发
+  GW->>D: mark(id,'discussing')
+  GW->>D: recentContext(convPk, maxN)
+  D-->>GW: 上下文
+  GW->>A: complete(prompt)
+  A->>D: agentLogs.insert(...) [R4]
+  alt Agent 失败/超时
+    GW->>GW: attempts++ ≤3 重试
+    GW->>D: 耗尽 → mark 'failed'
+  else 成功
+    GW->>D: commitDraft(id, reply)<br/>draft+ready 同条 UPDATE（要点3）
+    GW->>SW: ready 入外发队列（FIFO）
   end
-end
-@enduml
+  SW->>G: check(job)
+  alt sendMode=manual / Gate 转审
+    SW->>D: 停 ready + hold_reason（计入 reviewCount O7）
+  else Gate 拦截
+    SW->>D: skip(id, reason)
+  else 放行
+    SW->>D: mark(id,'sending')
+    SW->>W: send(target, draft)
+    alt 发送成功
+      W-->>SW: msgUid
+      SW->>D: 单事务 [sent+finished_at ∥ out 回写]
+    else 发送失败
+      SW->>D: attempts 退避；重发前查 out 回执防双发
+    end
+  end
 ```
 
 > 外发单 worker 串行是**防双发/配额准确性的关键**：S1–S3 计数、sending 态唯一性都只在这一处发生；生成段可并行因为它不碰外发世界。人工「编辑并发送 / 重发」也是把 job 置 ready 投进外发队列。
 
 ### 6.3 启动恢复（orchestrator/bootstrap，对应「自动恢复」）
 
-```plantuml
-@startuml
-skinparam defaultFontName "Microsoft YaHei"
-start
-:app.isReady → 异步链（不阻塞首屏 P6）;
-:db.migrateAll()（幂等）;
-:jobs = db.jobs.listUnfinished();
-while (还有 status='sending' 的 job?) is (有)
-  if (welink_messages 已有对应 out 消息?) then (是)
-    :补记 'sent'（崩溃在回执前）;
-  else (否)
-    :回落 'ready'\n（凭 draft + msg_uid 幂等重发）;
-  endif
-endwhile (无)
-:pending / discussing → 入 worker 队列重跑;
-:watching 会话逐个 scheduleNext();
-note right : cursor 从库恢复 → 只拉增量
-stop
-@enduml
+```mermaid
+flowchart TD
+  A["app.isReady → 异步链（不阻塞首屏 P6）"] --> B["db.migrateAll()（幂等）"]
+  B --> C["jobs = db.jobs.listUnfinished()"]
+  C --> D{"还有 status='sending' 的 job?"}
+  D -- 有 --> E{"welink_messages 已有对应 out 消息?"}
+  E -- 是 --> F["补记 'sent'（崩溃在回执前）"] --> D
+  E -- 否 --> G["回落 'ready'<br/>（凭 draft + msg_uid 幂等重发）"] --> D
+  D -- 无 --> H["pending / discussing → 入 worker 队列重跑"]
+  H --> I["watching 会话逐个 scheduleNext()"]
+  I -.-> N["cursor 从库恢复 → 只拉增量"]
+  style N stroke-dasharray: 4 4
 ```
 
 ### 6.4 UI 动作 ⇄ 编排映射
@@ -615,28 +547,25 @@ stop
 
 ### 7.3 要点3 的原子保证（回复任务状态机）
 
-```plantuml
-@startuml
-skinparam defaultFontName "Microsoft YaHei"
-[*] --> pending : 命中规则\n(与消息入库同事务)
-pending --> discussing : worker 出队\nmark 先行落库
-discussing --> discussing : Agent 失败/超时\nattempts++ ≤3 重试
-discussing --> ready : <font color=red>commitDraft：draft 与\nstatus='ready' 同条 UPDATE</font>\n（库无草稿不得外发）
-discussing --> failed : 重试耗尽
-ready --> sending : sendMode=auto\n∧ SafetyGate 放行
-ready --> skipped : Gate 拦截\n(skip_reason 留痕)
-ready --> sending : manual：人工编辑后发送
-sending --> sent : 成功：单事务\n[sent+finished_at ∥ out 回写]
-sending --> failed : 发送重试耗尽
-sending --> ready : 崩溃恢复：无 out 回执\n(§6.3 回落重发)
-sent --> [*]
-failed --> ready : UI 手动重发
-skipped --> [*]
-note right of ready
-  发送前置检查恒 status='ready'
-  重发前查 out 回执防双发
-end note
-@enduml
+```mermaid
+stateDiagram-v2
+  [*] --> pending: 命中规则<br/>(与消息入库同事务)
+  pending --> discussing: worker 出队<br/>mark 先行落库
+  discussing --> discussing: Agent 失败/超时<br/>attempts++ ≤3 重试
+  discussing --> ready: commitDraft：draft 与<br/>ready 同条 UPDATE（要点3）
+  discussing --> failed: 重试耗尽
+  ready --> sending: auto 且 SafetyGate 放行<br/>/ manual 人工编辑后发送
+  ready --> skipped: Gate 拦截<br/>(skip_reason 留痕)
+  sending --> sent: 成功：单事务<br/>[sent+finished_at ∥ out 回写]
+  sending --> failed: 发送重试耗尽
+  sending --> ready: 崩溃恢复：无 out 回执<br/>(§6.3 回落重发)
+  sent --> [*]
+  failed --> ready: UI 手动重发
+  skipped --> [*]
+  note right of ready
+    发送前置检查恒 status='ready'
+    重发前查 out 回执防双发
+  end note
 ```
 
 `draft` 与 `status='ready'` 同一条 UPDATE（`db.jobs.commitDraft`）；发送动作前置检查
