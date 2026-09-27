@@ -35,6 +35,14 @@ export interface AppSettings {
   autoSave: boolean
   sidebarCollapsed: boolean
   defaultRoute: string
+  /**
+   * WeLink 助手配置（设计 §8：`config/config.json` → `AppSettings.weLink`）。
+   *
+   * 声明为 Partial：老配置文件里没有这个字段，读取时必须能缺省；
+   * 归一化（补齐默认值 + 范围收窄）由 `normalizeWelinkSettings` 负责，
+   * 调用方永远拿归一化后的完整对象。
+   */
+  weLink?: Partial<import('./welink').WelinkSettings>
 }
 
 export type RowStatus = 'active' | 'inactive'
@@ -56,6 +64,20 @@ export interface Migration {
   version: number
   description: string
   sql: string
+}
+
+/** 子进程执行结果（`cli_run` 回传）。输出为原始字节的 base64，编码判定在 TS 侧 */
+export interface CliResult {
+  /** 退出码；进程被超时强杀时为 null */
+  exitCode: number | null
+  /** stdout 原始字节的 base64 */
+  stdout: string
+  /** stderr 原始字节的 base64 */
+  stderr: string
+  stdoutTruncated: boolean
+  stderrTruncated: boolean
+  timedOut: boolean
+  durationMs: number
 }
 
 /** 存储根迁移结果（需重启生效） */

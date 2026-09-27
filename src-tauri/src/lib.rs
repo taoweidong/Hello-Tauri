@@ -1,3 +1,4 @@
+mod cli;
 mod commands;
 mod db;
 mod fs;
@@ -31,7 +32,8 @@ pub fn run() {
             db::db_execute,
             db::db_select,
             db::db_transaction,
-            db::db_migrate
+            db::db_migrate,
+            cli::cli_run
         ])
         .run(tauri::generate_context!())
         .expect("启动 Hello-Tauri 失败");

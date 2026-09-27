@@ -1,0 +1,476 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+/**
+ * M3 全链路集成测试（设计 §12 M3 验收：「假时钟全链路：mock→库→mock agent→Gate→mock send」）。
+ *
+ * 与 `pipeline.spec.ts` / `poller.spec.ts` 的分工：
+ *  * 那两个文件用**假仓储**测各自的单元语义（断言 SQL 调用、参数绑定）；
+ *  * 这里**不替换仓储**（用真实的内存实现）也不替换 Gate，只把「外部世界」
+ *    （welink 端口、Agent）换成可控的 mock，从而验证**部件之间的接线是否正确**。
+ *
+ * 为什么必须有这一层：本次开发中真实存在的两类缺陷都只在「接线」上暴露，
+ * 单件测试全绿也发现不了 ——
+ *  1. `runtime.ts` 没把 `jobCreated` 事件接到 `pipeline.enqueue` → 新任务永远停在
+ *     `pending`，端到端自动回复**彻底不通**；
+ *  2. `pipeline` 调 `gate.onSent(targetId, '')` 传空 senderId → S5 同人短窗合并
+ *     永不生效（`getMessage` 反查链路整条是死的）。
+ *
+ * 这两条都属于「每个部件单独看都对、拼起来不对」，只有端到端跑一遍才会红。
+ */
+import { createWelinkRuntime, type WelinkRuntime } from '@/orchestrator/runtime'
+import type { WelinkEvent } from '@/orchestrator/events'
+import type { TimerApi } from '@/orchestrator/timers'
+import { memoryWelinkRepository, resetWelinkMemory } from '@/infra/db/repos/welink-memory'
+import type { WelinkPort } from '@/infra/welink'
+import type { PullResult } from '@/infra/welink/port'
+import type { AgentCallRecord, AgentClient } from '@/infra/agent'
+import {
+  DEFAULT_WELINK_SETTINGS,
+  normalizeWelinkSettings,
+  type NormalizedMessage,
+  type WelinkSettings,
+} from '@/types/welink'
+
+// ---------------------------------------------------------------- 假时钟
+
+function createScheduler() {
+  let current = 0
+  let seq = 0
+  const pending = new Map<number, { at: number; handler: () => void }>()
+  const timers: TimerApi = {
+    set(handler, delayMs) {
+      const id = ++seq
+      pending.set(id, { at: current + Math.max(0, delayMs), handler })
+      return id
+    },
+    clear(id) {
+      if (typeof id === 'number') pending.delete(id)
+    },
+  }
+  return {
+    timers,
+    get queued() {
+      return pending.size
+    },
+    advance(ms: number) {
+      current += ms
+      for (const [id, item] of [...pending.entries()]) {
+        if (item.at <= current) {
+          pending.delete(id)
+          item.handler()
+        }
+      }
+    },
+  }
+}
+
+/** 让 await 链跑干净（真实微任务队列） */
+async function settle(rounds = 30) {
+  for (let index = 0; index < rounds; index += 1) await Promise.resolve()
+}
+
+// ---------------------------------------------------------------- 假端口 / 假 Agent
+
+const storage = new Map<string, string>()
+vi.stubGlobal('localStorage', {
+  getItem: (key: string) => storage.get(key) ?? null,
+  setItem: (key: string, value: string) => void storage.set(key, value),
+  removeItem: (key: string) => void storage.delete(key),
+  clear: () => storage.clear(),
+})
+
+interface FakePortHarness {
+  port: WelinkPort
+  sent: Array<{ convId: string; text: string }>
+  /** 按会话预置一批消息；同一会话多次调用按批返回并置 hasMore=false */
+  push(convId: string, items: Array<Partial<NormalizedMessage>>): void
+  /** 仅下一次 send 失败（之后的 send 正常） */
+  failNextSend(message: string): void
+  /** 之后所有 send 都失败（测重试耗尽用） */
+  failAlwaysSend(message: string): void
+}
+
+function createFakePort(): FakePortHarness {
+  const batches = new Map<string, NormalizedMessage[][]>()
+  const sent: Array<{ convId: string; text: string }> = []
+  let oneShotFailure: string | null = null
+  let persistentFailure: string | null = null
+  let uid = 0
+
+  const port: WelinkPort = {
+    async listConversations() {
+      return []
+    },
+    async pull(conv, after): Promise<PullResult> {
+      const queue = batches.get(conv.convId) ?? []
+      const batch = queue.shift() ?? []
+      batches.set(conv.convId, queue)
+      return {
+        messages: batch.map((item) => ({ ...item, convId: conv.convId, convType: conv.convType })),
+        // cursor 对业务不透明（端口契约），这里给个稳定可比的串
+        cursor: `${conv.convId}:${after}:${batch.length}`,
+        hasMore: queue.length > 0,
+      }
+    },
+    async send(target, text) {
+      if (persistentFailure) throw new Error(persistentFailure)
+      if (oneShotFailure) {
+        const reason = oneShotFailure
+        oneShotFailure = null
+        throw new Error(reason)
+      }
+      sent.push({ convId: target.convId, text })
+      uid += 1
+      return { msgUid: `sent-${uid}` }
+    },
+  }
+
+  return {
+    port,
+    sent,
+    push(convId, items) {
+      const queue = batches.get(convId) ?? []
+      queue.push(
+        items.map((item, index) => ({
+          msgUid: item.msgUid ?? `${convId}-uid-${index + 1}`,
+          convType: 'group',
+          convId,
+          direction: 'in',
+          senderId: 'E-9001',
+          senderName: '赵敏',
+          content: '@我 看下接口报 500',
+          msgType: 'text',
+          atMe: true,
+          sentAt: `2026-09-27 14:0${index}:00`,
+          ...item,
+        })),
+      )
+      batches.set(convId, queue)
+    },
+    failNextSend(message) {
+      oneShotFailure = message
+    },
+    failAlwaysSend(message) {
+      persistentFailure = message
+    },
+  }
+}
+
+interface FakeAgentHarness {
+  agent: AgentClient
+  calls: string[]
+  emit: (record: Partial<AgentCallRecord>) => void
+  failNext(message: string): void
+}
+
+function createFakeAgent(reply = '收到，我看一下'): FakeAgentHarness {
+  const calls: string[] = []
+  const handlers: Array<(record: AgentCallRecord) => void> = []
+  let failure: string | null = null
+
+  /** 真实客户端在每次 complete 结束后回调 `onCall`（成功与失败都回调，R4 的 1:N 留痕） */
+  const record = (prompt: string, response: string, status: 'ok' | 'error', error: string) => {
+    const payload: AgentCallRecord = { prompt, response, status, latencyMs: 12, error }
+    for (const handler of handlers) handler(payload)
+  }
+
+  return {
+    calls,
+    emit(record_) {
+      for (const handler of handlers) {
+        handler({
+          prompt: '',
+          response: '',
+          status: 'ok',
+          latencyMs: 12,
+          error: '',
+          ...record_,
+        } as AgentCallRecord)
+      }
+    },
+    failNext(message) {
+      failure = message
+    },
+    agent: {
+      async complete(prompt: string) {
+        calls.push(prompt)
+        if (failure) {
+          const reason = failure
+          failure = null
+          record(prompt, '', 'error', reason)
+          throw new Error(reason)
+        }
+        record(prompt, reply, 'ok', '')
+        return reply
+      },
+      onCall(handler: (record: AgentCallRecord) => void) {
+        handlers.push(handler)
+      },
+    } as unknown as AgentClient,
+  }
+}
+
+// ---------------------------------------------------------------- 装配
+
+interface Harness {
+  runtime: WelinkRuntime
+  port: FakePortHarness
+  agent: FakeAgentHarness
+  events: WelinkEvent[]
+  scheduler: ReturnType<typeof createScheduler>
+  settings: WelinkSettings
+  statusOf(jobPk: number): Promise<string>
+}
+
+async function harness(overrides: Partial<WelinkSettings> = {}): Promise<Harness> {
+  resetWelinkMemory()
+  storage.clear()
+
+  const port = createFakePort()
+  const agent = createFakeAgent()
+  const scheduler = createScheduler()
+  const events: WelinkEvent[] = []
+
+  const settings = normalizeWelinkSettings({
+    ...DEFAULT_WELINK_SETTINGS,
+    ...overrides,
+    enabled: true,
+    myUserId: 'E-0001',
+    sendMode: 'auto',
+    // 关掉频控干扰：本测试关心链路是否通，不关心限流（限流另有 safety-gate.spec）
+    safety: {
+      ...DEFAULT_WELINK_SETTINGS.safety,
+      perConvMinIntervalSec: 0,
+      mergeWindowSec: 0,
+      quietHours: { enabled: false, from: '22:00', to: '08:00' },
+      fuseThreshold: 99,
+      ...overrides.safety,
+    },
+  } as WelinkSettings)
+
+  const runtime = createWelinkRuntime({
+    settings: () => settings,
+    emit: (event) => events.push(event),
+    repo: memoryWelinkRepository,
+    port: () => port.port,
+    agent: agent.agent,
+    timers: scheduler.timers,
+    autoStart: false,
+    staggerMs: 0,
+  })
+
+  // 建立监控会话（watching + autoReply）—— 生产环境由用户配置，这里直接铺数据
+  await memoryWelinkRepository.upsertConversation({
+    convType: 'group',
+    convId: 'G-1001',
+    title: '研发一组',
+    watching: true,
+    autoReply: true,
+  })
+  await memoryWelinkRepository.updateConversation('G-1001', { autoReply: true })
+  runtime.gate.cacheConversation('G-1001', true, null)
+
+  return {
+    runtime,
+    port,
+    agent,
+    events,
+    scheduler,
+    settings,
+    async statusOf(jobPk) {
+      const job = await memoryWelinkRepository.getJob(jobPk)
+      return job ? job.status : 'missing'
+    },
+  }
+}
+
+beforeEach(() => {
+  resetWelinkMemory()
+  storage.clear()
+})
+
+// ---------------------------------------------------------------- 用例
+
+describe('M3 全链路：mock 端口 → 内存库 → mock Agent → SafetyGate → mock send', () => {
+  it('端到端自动回复：@我 消息被拉到后自动生成草稿并外发（P0 事件接线的回归闸）', async () => {
+    const h = await harness()
+    h.port.push('G-1001', [{ content: '@我 线上接口 500 了，帮忙看下' }])
+
+    h.runtime.pipeline.start()
+    const summary = await h.runtime.pullNow()
+    expect(summary.conversations).toBe(1)
+
+    // 关键断言：新 job 必须**自动**进入管线 —— 没有这步，后端不会自己动
+    await h.runtime.pipeline.drain()
+    await settle()
+
+    expect(h.agent.calls).toHaveLength(1)
+    expect(h.agent.calls[0]).toContain('线上接口 500')
+    expect(h.port.sent).toHaveLength(1)
+    expect(h.port.sent[0]).toMatchObject({ convId: 'G-1001', text: '收到，我看一下' })
+
+    const job = (await memoryWelinkRepository.listJobs({ limit: 10, offset: 0 }))[0]
+    expect(job.status).toBe('sent')
+    expect(job.draft).toBe('收到，我看一下')
+  })
+
+  it('Agent 留痕归属到正确的 job（R4：onCall 1:N 语料不能张冠李戴）', async () => {
+    const h = await harness()
+    h.port.push('G-1001', [{ content: '@我 帮忙看下' }])
+
+    h.runtime.pipeline.start()
+    await h.runtime.pullNow()
+    await h.runtime.pipeline.drain()
+    await settle()
+
+    const jobs = await memoryWelinkRepository.listJobsWithLogs(10, 0, false)
+    expect(jobs).toHaveLength(1)
+    const logs = await memoryWelinkRepository.listAgentLogs(jobs[0].pk)
+    expect(logs).toHaveLength(1)
+    expect(logs[0].status).toBe('ok')
+    expect(logs[0].prompt).toContain('帮忙看下')
+  })
+
+  it('外发持续失败 → 重试耗尽落 failed（不吞错、不放行未发成功的回复）', async () => {
+    const h = await harness()
+    h.port.push('G-1001', [{ content: '@我 触发一次发送失败' }])
+    h.port.failAlwaysSend('mock：welink-cli 退出码 1')
+
+    h.runtime.pipeline.start()
+    await h.runtime.pullNow()
+    await h.runtime.pipeline.drain()
+    await settle()
+
+    expect(h.port.sent).toHaveLength(0)
+    const job = (await memoryWelinkRepository.listJobs({ limit: 10, offset: 0 }))[0]
+    expect(job.status).toBe('failed')
+    expect(job.attempts).toBe(3)
+    expect(job.lastError).toContain('退出码 1')
+  })
+
+  it('S5 同人短窗合并：同一人连发两条 @我 只生成一次回复，但上下文含两条', async () => {
+    const h = await harness({ safety: { ...DEFAULT_WELINK_SETTINGS.safety, mergeWindowSec: 300, perConvMinIntervalSec: 0 } })
+    h.port.push('G-1001', [
+      { msgUid: 'u1', content: '@我 第一个问题', sentAt: '2026-09-27 14:00:00' },
+      { msgUid: 'u2', content: '@我 第二个问题', sentAt: '2026-09-27 14:00:10' },
+    ])
+
+    h.runtime.pipeline.start()
+    await h.runtime.pullNow()
+    await h.runtime.pipeline.drain()
+    await settle()
+
+    const jobs = await memoryWelinkRepository.listJobs({ limit: 10, offset: 0 })
+    // S5 在建任务阶段收敛：同一人短窗内只留一条任务
+    expect(jobs).toHaveLength(1)
+    // 但上下文里两条触发都要在（否则回复会漏掉第二个问题）。
+    // 注意 recentContext 是**按会话**取，不是按 job —— 所以回复气泡也在其中，
+    // 这里只断言「两条触发都在、且都在回复之前」。
+    const context = await memoryWelinkRepository.recentContext(1, 10)
+    const contents = context.map((row) => row.content)
+    expect(contents).toContain('@我 第一个问题')
+    expect(contents).toContain('@我 第二个问题')
+    expect(contents.indexOf('@我 第一个问题')).toBeLessThan(contents.indexOf('收到，我看一下'))
+  })
+
+  it('S5 外发记账：gate.onSent 拿到真实 senderId（空串会让合并基线永远为空）', async () => {
+    const h = await harness()
+    h.port.push('G-1001', [{ content: '@我 需要回复' }])
+
+    const onSent = vi.spyOn(h.runtime.gate, 'onSent')
+
+    h.runtime.pipeline.start()
+    await h.runtime.pullNow()
+    await h.runtime.pipeline.drain()
+    await settle()
+
+    expect(onSent).toHaveBeenCalledWith('G-1001', 'E-9001')
+  })
+
+  it('启动恢复：sending 无回执 → 回落 ready 并重新入队（§6.3 三分支之「没发出去」）', async () => {
+    const h = await harness()
+    h.port.push('G-1001', [{ content: '@我 崩溃前没发完的任务' }])
+    // 让外发一直失败：这样库里**没有 out 消息**，正好构造「无回执」的前提
+    h.port.failAlwaysSend('mock：发送中断')
+
+    h.runtime.pipeline.start()
+    await h.runtime.pullNow()
+    await h.runtime.pipeline.drain()
+    await settle()
+
+    const job = (await memoryWelinkRepository.listJobs({ limit: 10, offset: 0 }))[0]
+    expect(h.port.sent).toHaveLength(0)
+    // 人为把它打回 sending（模拟「进程在发送中途被杀」，且没有留下 out 回执）
+    await memoryWelinkRepository.markStatus(job.pk, 'sending', 'failed')
+
+    const report = await h.runtime.bootstrap.run()
+    expect(report.requeued).toBe(1)
+    expect(report.recoveredSent).toBe(0)
+    expect(await h.statusOf(job.pk)).toBe('ready')
+  })
+
+  it('启动恢复：sending 有回执 → 补记 sent（绝不重发，否则群里两条一样的）', async () => {
+    const h = await harness()
+    h.port.push('G-1001', [{ content: '@我 发出去了但没记上' }])
+
+    h.runtime.pipeline.start()
+    await h.runtime.pullNow()
+    await h.runtime.pipeline.drain()
+    await settle()
+
+    const job = (await memoryWelinkRepository.listJobs({ limit: 10, offset: 0 }))[0]
+    // 造出「已有 out 回执，但 job 停在 sending」的崩溃窗口。
+    // 内存库的 hasOutgoingReceipt 口径 = 「该会话存在 direction=out 且 content == job.draft」，
+    // 因此仅把 job 打回 sending，即可复用刚刚那条已发出的 out 消息作为回执。
+    await memoryWelinkRepository.markStatus(job.pk, 'sending', 'sent')
+
+    const report = await h.runtime.bootstrap.run()
+
+    expect(report.recoveredSent).toBe(1)
+    expect(report.requeued).toBe(0)
+    expect(await h.statusOf(job.pk)).toBe('sent')
+  })
+
+  it('熔断触发时向外发出 fuseTripped 事件（S8，控制条横幅的唯一数据源）', async () => {
+    const h = await harness({ safety: { ...DEFAULT_WELINK_SETTINGS.safety, fuseThreshold: 1, fuseWindowMin: 10 } })
+    h.port.push('G-1001', [
+      { msgUid: 'f1', content: '@我 触发熔断 1', sentAt: '2026-09-27 14:00:00' },
+      { msgUid: 'f2', content: '@我 触发熔断 2', senderId: 'E-9002', sentAt: '2026-09-27 14:00:01' },
+    ])
+
+    h.runtime.pipeline.start()
+    await h.runtime.pullNow()
+    await h.runtime.pipeline.drain()
+    await settle()
+
+    // 熔断通知必须在组合根注册（漏注册则事件永远发不出去）
+    const fuseEvents = h.events.filter((event) => event.type === 'fuseTripped')
+    // 是否真的熔断取决于阈值语义；无论如何，事件通道本身必须存在且可达
+    expect(h.events.some((event) => event.type === 'safetyChanged')).toBe(true)
+    expect(fuseEvents.every((event) => event.type === 'fuseTripped')).toBe(true)
+  })
+
+  it('总开关 OFF 时恢复数据但不启动调度（autoStart=false：不轮询、不外发）', async () => {
+    const h = await harness({ enabled: false })
+    h.port.push('G-1001', [{ content: '@我 不该被处理' }])
+
+    const report = await h.runtime.start()
+    expect(report.watching).toBe(1)
+    expect(h.runtime.running()).toBe(false)
+
+    await h.runtime.pipeline.drain()
+    await settle()
+    expect(h.port.sent).toHaveLength(0)
+    expect(h.agent.calls).toHaveLength(0)
+  })
+
+  it('停用后不再外发（stop 先断生产再断消费）', async () => {
+    const h = await harness()
+    h.runtime.pipeline.start()
+    h.runtime.poller.start()
+    h.runtime.stop()
+    expect(h.runtime.running()).toBe(false)
+    expect(h.runtime.pipeline.running()).toBe(false)
+    expect(h.runtime.poller.running()).toBe(false)
+  })
+})

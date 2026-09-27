@@ -1,21 +1,27 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { IconGrid, IconTable, IconSliders, IconInfo, IconSun, IconMoon, IconPanelLeft } from '@/components/icons'
+import { IconGrid, IconTable, IconActivity, IconSliders, IconInfo, IconSun, IconMoon, IconPanelLeft } from '@/components/icons'
 
 import { platform } from '@/api'
 import { useAppStore } from '@/stores/app'
+import { useWelinkStore } from '@/stores/welink'
 
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const welinkStore = useWelinkStore()
 
 const navItems = [
   { path: '/', title: '概览', icon: IconGrid },
   { path: '/table', title: '数据管理', icon: IconTable },
+  { path: '/welink', title: 'WeLink 助手', icon: IconActivity },
   { path: '/settings', title: '配置', icon: IconSliders },
   { path: '/about', title: '关于', icon: IconInfo },
 ]
+
+/** 侧栏角标：助手有未回复待办时给个提示（读 store 聚合值，不额外查询） */
+const welinkBadge = computed(() => welinkStore.unreadTotal + welinkStore.reviewCount)
 
 const collapsed = computed(() => appStore.settings.sidebarCollapsed)
 const currentTitle = computed(() => String(route.meta.title ?? ''))
@@ -60,6 +66,14 @@ function go(path: string) {
         >
           <component :is="item.icon" class="rail__icon" />
           <span v-show="!collapsed" class="rail__label">{{ item.title }}</span>
+          <span
+            v-if="item.path === '/welink' && welinkBadge"
+            class="rail__badge"
+            :class="{ 'rail__badge--dot': collapsed }"
+            :title="`${welinkStore.unreadTotal} 条未读 · ${welinkStore.reviewCount} 条待审`"
+          >
+            {{ collapsed ? '' : welinkBadge > 99 ? '99+' : welinkBadge }}
+          </span>
           <span v-if="route.path === item.path" class="rail__marker" aria-hidden="true" />
         </button>
       </nav>
@@ -223,6 +237,34 @@ function go(path: string) {
   height: 18px;
   border-radius: 0 3px 3px 0;
   background: var(--ht-primary);
+}
+
+.rail__badge {
+  margin-left: auto;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--ht-danger);
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 17px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* 收起时角标退化为一个小红点，避免图标被遮挡 */
+.rail__badge--dot {
+  position: absolute;
+  top: 5px;
+  right: 8px;
+  margin: 0;
+  min-width: 7px;
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  line-height: 0;
 }
 
 .rail__label {

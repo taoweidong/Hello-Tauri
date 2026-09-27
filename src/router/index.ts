@@ -16,6 +16,12 @@ const router = createRouter({
       meta: { title: '数据管理' },
     },
     {
+      path: '/welink',
+      name: 'welink',
+      component: () => import('@/views/WeLinkView.vue'),
+      meta: { title: 'WeLink 助手' },
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),

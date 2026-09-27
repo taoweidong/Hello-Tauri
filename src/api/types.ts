@@ -1,4 +1,4 @@
-import type { AppInfo, DbParam, DbRow, ExecResult, LogLevel, Migration, MigrateReport, StorageLayout } from '@/types'
+import type { AppInfo, CliResult, DbParam, DbRow, ExecResult, LogLevel, Migration, MigrateReport, StorageLayout } from '@/types'
 
 export type Platform = 'tauri' | 'web'
 
@@ -39,4 +39,16 @@ export interface Bridge {
   dbTransaction(statements: { sql: string; params?: DbParam[] }[]): Promise<number[]>
   /** 版本化迁移（宿主侧 _migrations 表跟踪），返回本次新应用的版本号 */
   dbMigrate(migrations: Migration[]): Promise<number[]>
+
+  // —— 子进程通道（Q1 同构：Rust 只做薄管道，命令名/参数/编码全在 TS） ——
+
+  /**
+   * 执行白名单内的命令行程序（仅 `welink-cli`）。
+   *
+   * 三条契约（两侧实现必须一致）：
+   *  * 输出以 **base64** 回传（编码判定在 TS：UTF-8 严格 → GBK 兜底）；
+   *  * 退出码非 0 **不算失败**：不 reject，由调用方按业务判定；
+   *  * 只有通道故障（程序名不在白名单、进程起不来）才 reject。
+   */
+  cliRun(program: string, args: string[], timeoutMs?: number): Promise<CliResult>
 }

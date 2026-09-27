@@ -1,4 +1,4 @@
-import type { AppInfo, DbParam, DbRow, ExecResult, LogLevel, Migration, StorageLayout } from '@/types'
+import type { AppInfo, CliResult, DbParam, DbRow, ExecResult, LogLevel, Migration, StorageLayout } from '@/types'
 import type { Bridge } from './types'
 
 const STORAGE_KEY = 'hello-tauri:config'
@@ -86,5 +86,12 @@ export const webBridge: Bridge = {
   },
   async dbMigrate(_migrations: Migration[]): Promise<number[]> {
     return []
+  },
+  // —— 子进程通道：浏览器没有进程模型。这里**明确报错**而不是返回假数据 ——
+  //    设计 §3.3 的「web 模式可用 mock 跑通全链路」由 infra/welink 工厂实现：
+  //    浏览器下强制 welinkSource=mock，mock 端口根本不经过 CLI，因此本方法
+  //    永远不会被业务路径调用。保留它只为 Bridge 契约两侧对齐。
+  async cliRun(_program: string, _args: string[], _timeoutMs?: number): Promise<CliResult> {
+    throw new Error('浏览器调试模式不支持执行本地命令，WeLink 数据源请使用 mock')
   },
 }

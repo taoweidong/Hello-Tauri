@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 
-import type { AppInfo, DbParam, DbRow, ExecResult, LogLevel, Migration, MigrateReport, StorageLayout } from '@/types'
+import type { AppInfo, CliResult, DbParam, DbRow, ExecResult, LogLevel, Migration, MigrateReport, StorageLayout } from '@/types'
 import type { Bridge } from './types'
 
 export const tauriBridge: Bridge = {
@@ -25,4 +25,6 @@ export const tauriBridge: Bridge = {
   dbTransaction: (statements: { sql: string; params?: DbParam[] }[]) =>
     invoke<number[]>('db_transaction', { statements }),
   dbMigrate: (migrations: Migration[]) => invoke<number[]>('db_migrate', { migrations }),
+  cliRun: (program: string, args: string[], timeoutMs?: number) =>
+    invoke<CliResult>('cli_run', { program, args, timeoutMs }),
 }

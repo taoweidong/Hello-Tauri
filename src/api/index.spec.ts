@@ -43,6 +43,8 @@ describe('bridge 运行时选择', () => {
       'dbSelect',
       'dbTransaction',
       'dbMigrate',
+      // M1 通道层：WeLink CLI 外部进程调用（Rust cli_run 的桥接口）
+      'cliRun',
     ] as const
     const { webBridge } = await import('@/api/web')
     const { tauriBridge } = await import('@/api/tauri')

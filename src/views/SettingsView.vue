@@ -7,6 +7,7 @@ import { bridge, platform } from '@/api'
 import { useAppStore } from '@/stores/app'
 import { logger } from '@/utils/logger'
 import type { AppSettings } from '@/types'
+import SettingsCard from '@/components/welink/SettingsCard.vue'
 
 const appStore = useAppStore()
 
@@ -21,6 +22,7 @@ watch(
 const routeOptions = [
   { label: '概览', value: '/' },
   { label: '数据管理', value: '/table' },
+  { label: 'WeLink 助手', value: '/welink' },
   { label: '配置', value: '/settings' },
   { label: '关于', value: '/about' },
 ]
@@ -31,11 +33,18 @@ const savedText = computed(() =>
 
 const storage = computed(() => appStore.storage)
 
+/** WeLink 卡片校验：选真实 CLI 但路径为空时禁用保存，避免存下一个必然失败的配置 */
+const welinkValid = ref(true)
+
 function apply() {
   appStore.settings = { ...form }
 }
 
 async function save() {
+  if (!welinkValid.value) {
+    ElMessage.error('WeLink 助手配置不合法（已选真实 CLI 但路径为空），请修正后再保存')
+    return
+  }
   apply()
   const ok = await appStore.save()
   if (ok) {
@@ -218,6 +227,14 @@ async function migrateDir() {
         </section>
       </div>
     </div>
+
+    <!-- WeLink 助手配置（设计与界面偏好同页：配置持久化在这里，运行时干预在助手页） -->
+    <SettingsCard
+      :model-value="form.weLink ?? {}"
+      class="welink-card"
+      @update:model-value="(value) => (form.weLink = value)"
+      @update:valid="(value: boolean) => (welinkValid = value)"
+    />
   </div>
 </template>
 
@@ -227,6 +244,10 @@ async function migrateDir() {
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 14px;
   align-items: start;
+}
+
+.welink-card {
+  margin-top: 14px;
 }
 
 @media (max-width: 1080px) {
