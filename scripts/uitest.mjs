@@ -268,7 +268,7 @@ async function session(exe, body) {
     client = attached.client
     await client.evaluate(INSTALL_HELPERS)
     // 导航项出现即代表 Vue 已挂载、App.vue onMounted 已跑
-    await waitFor(() => client.evaluate("document.querySelectorAll('.rail__item').length >= 4"), {
+    await waitFor(() => client.evaluate("document.querySelectorAll('.rail__item').length >= 5"), {
       label: '应用挂载',
       timeoutMs: 20000,
     })
@@ -312,9 +312,9 @@ async function runFunctional(client, sandboxRoot) {
     return title
   })
 
-  await check('四个导航项齐全且顺序正确', async () => {
+  await check('五个导航项齐全且顺序正确', async () => {
     const items = await query(client, `return $$('.rail__item').map((el) => norm(el));`)
-    assertEqual(items.join(','), '概览,数据管理,配置,关于', '导航项')
+    assertEqual(items.join(','), '概览,数据管理,WeLink 助手,配置,关于', '导航项')
     return items.join(' / ')
   })
 
@@ -350,6 +350,9 @@ async function runFunctional(client, sandboxRoot) {
   for (const [label, marker] of [
     ['概览', '数据与运行状态一览'],
     ['数据管理', '业务记录的检索与维护'],
+    // 进本页会触发 WeLink 仓储 ensureSchema → 应用迁移 v2，本次会话后续的
+    // 「迁移记录」断言必须容纳 v1+v2 两条（见第 11 节）。
+    ['WeLink 助手', '群/私聊消息自动回复 · 全链路留痕 · 防滥发闸口'],
     ['配置', '界面偏好与存储位置'],
     ['关于', '版本信息与技术构成'],
   ]) {
@@ -360,6 +363,22 @@ async function runFunctional(client, sandboxRoot) {
       return caption
     })
   }
+
+  // WeLink 助手页结构：全局控制条常驻 + 五 Tab 主区（设计 §11）
+  await check('WeLink 助手页：控制条与五个 Tab 均就位', async () => {
+    await gotoNav(client, 'WeLink 助手')
+    const shape = await query(client, `
+      return {
+        bar: $$('.bar').length,
+        tabs: $$('.tabs__btn').map((el) => norm(el)),
+        active: norm($('.tabs__btn.is-active')),
+      };
+    `)
+    assertEqual(shape.bar, 1, '控制条数量')
+    assertEqual(shape.tabs.join(','), '消息中心,私聊收件箱,回复历史,Agent 回溯,监控配置', 'Tab 顺序')
+    assertEqual(shape.active, '消息中心', '默认激活 Tab')
+    return `${shape.tabs.length} 个 Tab，默认「${shape.active}」`
+  })
 
   // ---- 3. 表格渲染与筛选 ----
   section('3. 数据管理页 —— 渲染与筛选')
@@ -826,10 +845,25 @@ async function verifyArtifacts(sandboxRoot, baselineCount, snapshotCount) {
         .map((row) => row.name)
       assert(tables.includes('_migrations'), '缺少 _migrations 表')
       assert(tables.includes('records'), '缺少 records 表')
+
+      // v1 由 App 启动时导入，v2 由第 2 节「导航到 WeLink 助手页面」触发
+      // （store.init → ensureSchema → dbMigrateAll）。
       const versions = db.prepare('SELECT version, description FROM _migrations ORDER BY version').all()
-      assertEqual(versions.length, 1, '迁移条数')
-      assertEqual(versions[0].version, 1, '迁移版本号')
-      assertEqual(versions[0].description, 'create_records', '迁移描述')
+      assertEqual(versions.length, 2, '迁移条数')
+      assertEqual(versions[0].version, 1, '迁移 v1 版本号')
+      assertEqual(versions[0].description, 'create_records', '迁移 v1 描述')
+      assertEqual(versions[1].version, 2, '迁移 v2 版本号')
+      assertEqual(versions[1].description, 'create_welink_assistant', '迁移 v2 描述')
+
+      // v2 的四张 WeLink 表必须真实落库（不是只登记了版本号）
+      for (const table of [
+        'welink_conversations',
+        'welink_messages',
+        'welink_reply_jobs',
+        'welink_agent_logs',
+      ]) {
+        assert(tables.includes(table), `缺少 WeLink 表 ${table}`)
+      }
 
       const columns = db.prepare('PRAGMA table_info(records)').all().map((row) => row.name)
       const expected = ['id', 'name', 'category', 'status', 'amount', 'owner', 'created_at']
@@ -837,7 +871,7 @@ async function verifyArtifacts(sandboxRoot, baselineCount, snapshotCount) {
 
       const journal = db.prepare('PRAGMA journal_mode').get()
       assertEqual(String(journal.journal_mode).toLowerCase(), 'wal', 'journal 模式')
-      return `迁移 v${versions[0].version}，${columns.length} 列，WAL`
+      return `迁移 v1-v${versions[versions.length - 1].version}，${columns.length} 列，WAL`
     } finally {
       db.close()
     }
