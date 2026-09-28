@@ -1432,7 +1432,16 @@ async function main() {
         rmSync(blockerFile, { force: true })
         rmSync(sandboxRoot, { recursive: true, force: true })
       } catch {
-        // 沙箱遗留在 target/ 下（已 gitignore），不影响结论
+        // 清理失败不改变测试结论：沙箱在 target/ 下（已 gitignore），不影响代码质量。
+        //
+        // 但**必须提示**，不能像以前那样完全静默。实测（2026-09-29）：受限环境的
+        // 批量删除保护会拦掉本清理，一天下来 target/ 里积了 20 个沙箱（3.1 MB），
+        // 而每次运行的报告都显示全绿、毫无线索 —— 直到手工去数才发现。
+        // 静默的副作用正是「你以为它清理了，其实没有」。
+        process.stdout.write(
+          `\n\x1b[90m提示：沙箱目录未清理（受限环境的删除保护会拦截），保留在 ${sandboxRoot}\x1b[0m\n` +
+            `\x1b[90m      它已在 .gitignore 中；如需回收空间可手工删除 target/uitest-sandbox-*\x1b[0m\n`,
+        )
       }
     }
   }
