@@ -1,0 +1,35 @@
+# 行尾规范化（补齐 .editorconfig 与 .prettierrc.json 之外的最后一环）
+#
+# 背景：本项目在 Windows 上开发，而 git 全局 `core.autocrlf=true` 会把工作区文件
+# 还原成 CRLF、提交时再转回 LF。但：
+#   * .editorconfig      声明 `end_of_line = lf`
+#   * .prettierrc.json   声明 `"endOfLine": "lf"`
+# 两者都要求 LF，与 autocrlf 的行为冲突。缺了本文件时，git **不记录**任何行尾约定，
+# 于是每次检出都会写出 CRLF，Prettier 一看就是「未格式化」，
+# 而 `prettier --write` 改回 LF 后 git 又转成 CRLF —— 形成
+# 「检查失败 → 格式化 → 下次再失败」的死循环，且 git status 会误报文件被修改。
+# （2026-09-29 实测：6 个文件被 prettier 标记未格式化，但 `git diff` 内容为空。）
+#
+# `text=auto` 让 git 按内容自行判定文本文件并在**仓库内**统一存 LF，
+# 检出时的行尾由本文件而非 autocrlf 决定 —— 这是把约定固化进仓库的正确做法，
+# 不依赖每个开发者本机的 git 配置。
+* text=auto eol=lf
+
+# Windows 批处理必须 CRLF，否则 cmd 解析可能出错（与 .editorconfig 一致）
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 图片等二进制文件不做行尾转换（避免 git 误判为文本而损坏文件）
+*.png binary
+*.ico binary
+*.icns binary
+*.exe binary
+*.db binary
+*.woff binary
+*.woff2 binary
+
+# 生成物：不参与 diff 统计，避免噪音（与 .prettierignore 的忽略清单保持一致）
+auto-imports.d.ts linguist-generated=true
+components.d.ts linguist-generated=true
+.eslintrc-auto-import.json linguist-generated=true
+package-lock.json linguist-generated=true

@@ -5,41 +5,41 @@
 
 验证基准：`npm run verify -- --escalated` **十阶段全绿**（0/9 → 9/9，约 137s）。
 
-| 阶段 | 结果 | 说明 |
-| --- | --- | --- |
-| 0／9 生成物新鲜度 | 通过 | 28 个组件 / 1 个指令声明齐备 |
-| 1／9 ESLint | 通过 | 0 个错误 / 0 个警告 |
-| 2／9 Prettier | 通过 | 全部文件符合格式 |
-| 3／9 vue-tsc | 通过 | 0 个类型错误 |
-| 4／9 vitest（含覆盖率阈值） | 通过 | 21 个文件 / 542 个用例 |
-| 5／9 vite 构建 | 通过 | 21 JS / 13 CSS，1.01 MB，无外链 |
-| 6／9 cargo 打包 | 通过 | 单文件 exe 4.46 MB |
-| 7／9 PE 导入表 + 资源内嵌 | 通过 | 13 个系统 DLL，前端已内嵌 |
-| 8／9 UI 自动化（真实 exe） | 通过 | 50/50 |
-| 9／9 冷启动 + 存储初始化 | 通过 | 6/6 |
+| 阶段                        | 结果 | 说明                            |
+| --------------------------- | ---- | ------------------------------- |
+| 0／9 生成物新鲜度           | 通过 | 28 个组件 / 1 个指令声明齐备    |
+| 1／9 ESLint                 | 通过 | 0 个错误 / 0 个警告             |
+| 2／9 Prettier               | 通过 | 全部文件符合格式                |
+| 3／9 vue-tsc                | 通过 | 0 个类型错误                    |
+| 4／9 vitest（含覆盖率阈值） | 通过 | 21 个文件 / 542 个用例          |
+| 5／9 vite 构建              | 通过 | 21 JS / 13 CSS，1.01 MB，无外链 |
+| 6／9 cargo 打包             | 通过 | 单文件 exe 4.46 MB              |
+| 7／9 PE 导入表 + 资源内嵌   | 通过 | 13 个系统 DLL，前端已内嵌       |
+| 8／9 UI 自动化（真实 exe）  | 通过 | 50/50                           |
+| 9／9 冷启动 + 存储初始化    | 通过 | 6/6                             |
 
 ---
 
 ## 一、P1 清单（8 项）
 
-| 编号 | 问题 | 处置 | 落点 |
-| --- | --- | --- | --- |
-| D-1 | 180 天保留期未接入调度 | ✅ 新建保留期清理任务并装配进 runtime | `src/orchestrator/retention.ts` → `runtime.ts:155` |
-| D-2 | `sanitizeReply` 未接入真实外发路径 | ✅ 在提交草稿前清洗 | `orchestrator/pipeline.ts:253` |
-| D-3 | Rust DB 命令同步执行，阻塞 UI 主线程 | ✅ 四命令改 `async` + `spawn_blocking` | `src-tauri/src/db.rs:71,313+` |
-| D-4 | 轮询间隔被最差退避二次惩罚 | ✅ 抽出 `utils/poll.ts`，去掉二次惩罚 | `utils/poll.ts`、`poller.ts` |
-| P-1 | Element Plus 全量引入，主 chunk 1.06 MB | ✅ 按需自动引入 + 路由级分包 | `vite.config.ts:49-58` |
-| S-4 | Agent 语料明文长期留存，无自动过期 | ✅ 与 D-1 同一任务 | `retention.ts`（`purgeAgentLogsBefore`） |
-| R-1 | 无 ESLint / Prettier / EditorConfig | ✅ 三件套齐备 | `eslint.config.mjs`、`.prettierrc.json`、`.editorconfig` |
-| T-2 | 无 CI | ✅ 两条流水线 | `.github/workflows/verify.yml`、`full-verify.yml` |
+| 编号 | 问题                                    | 处置                                   | 落点                                                     |
+| ---- | --------------------------------------- | -------------------------------------- | -------------------------------------------------------- |
+| D-1  | 180 天保留期未接入调度                  | ✅ 新建保留期清理任务并装配进 runtime  | `src/orchestrator/retention.ts` → `runtime.ts:155`       |
+| D-2  | `sanitizeReply` 未接入真实外发路径      | ✅ 在提交草稿前清洗                    | `orchestrator/pipeline.ts:253`                           |
+| D-3  | Rust DB 命令同步执行，阻塞 UI 主线程    | ✅ 四命令改 `async` + `spawn_blocking` | `src-tauri/src/db.rs:71,313+`                            |
+| D-4  | 轮询间隔被最差退避二次惩罚              | ✅ 抽出 `utils/poll.ts`，去掉二次惩罚  | `utils/poll.ts`、`poller.ts`                             |
+| P-1  | Element Plus 全量引入，主 chunk 1.06 MB | ✅ 按需自动引入 + 路由级分包           | `vite.config.ts:49-58`                                   |
+| S-4  | Agent 语料明文长期留存，无自动过期      | ✅ 与 D-1 同一任务                     | `retention.ts`（`purgeAgentLogsBefore`）                 |
+| R-1  | 无 ESLint / Prettier / EditorConfig     | ✅ 三件套齐备                          | `eslint.config.mjs`、`.prettierrc.json`、`.editorconfig` |
+| T-2  | 无 CI                                   | ✅ 两条流水线                          | `.github/workflows/verify.yml`、`full-verify.yml`        |
 
 **P-1 实测效果（这是本批收益最直观的一条）**
 
-| 指标 | 优化前 | 优化后 |
-| --- | --- | --- |
-| 主入口 chunk | 1.06 MB | **10.7 KB**（↓98.6%） |
-| chunk 体积告警线 | 默认 1000 KB | **300 KB**（收紧 3.3 倍） |
-| 产物构成 | 单包 | 21 JS / 13 CSS，按路由分包 |
+| 指标             | 优化前       | 优化后                     |
+| ---------------- | ------------ | -------------------------- |
+| 主入口 chunk     | 1.06 MB      | **10.7 KB**（↓98.6%）      |
+| chunk 体积告警线 | 默认 1000 KB | **300 KB**（收紧 3.3 倍）  |
+| 产物构成         | 单包         | 21 JS / 13 CSS，按路由分包 |
 
 > 说明：verify 报告里的「1.01 MB」是**全部 chunk 合计**，不是主 chunk。
 > 实测合计 JS 807.5 KB + CSS 230.6 KB，最大的 `WeLinkView` chunk 156 KB。
@@ -48,34 +48,34 @@
 
 ## 二、P2 清单（12 项）
 
-| 编号 | 问题 | 处置 | 落点 |
-| --- | --- | --- | --- |
-| R-3 | 版本号双真值（`web.ts` 硬编码） | ✅ 构建期注入 `__APP_VERSION__` | `vite.config.ts:61`、`web.ts:69` |
-| R-4 | 迁移 SQL 双真值 | ✅ 单一注册表 `MIGRATIONS` | `infra/db/index.ts:26` + `migrations/records.ts` |
-| A-1 | 侧栏导航项双真值 | ✅ 由路由表 `navRoutes()` 派生 | `layouts/MainLayout.vue:23` |
-| D-5 | `listConversations(500)` 静默截断 | ✅ 增加 `offset` 分页参数 | `infra/db/repos/welink.ts:257` |
-| D-6 | `staggerMs` 与 `pollIntervalSec` 语义冲突 | ✅ 节奏预算收敛（错峰 + 保底 + 硬顶） | `orchestrator/poller.ts` |
-| D-11 | `uitest.mjs` 界面快照硬编码 | ✅ 已按五导航项与迁移 v2 同步 | `scripts/uitest.mjs` |
-| P-4 | 收件箱 JOIN + GROUP BY 随消息量退化 | ✅ 改 `EXISTS` + 日期片段复用 | `infra/db/repos/welink.ts` |
-| S-1 | CSP 未设置 | ✅ 配置 + **端到端断言** | `tauri.conf.json:26`、`uitest.mjs` 第 14 节 |
-| S-2 | SQL 通道不限语句种类 | ✅ 语句白名单校验 | `src-tauri/src/db.rs` |
-| S-3 | Agent 明文 HTTP + prompt 含聊天内容 | ✅ 已按设计确立边界并文档化 | 见设计稿；内网场景下为既定取舍 |
-| T-1 | 无覆盖率统计 | ✅ v8 + 关键路径阈值（防回退基线） | `vitest.config.ts` |
-| T-4 | 视图层无单测且部分组件体量偏大 | ✅ 抽出展示层纯函数 + 12 用例 | `utils/welink-display.ts` + `.spec.ts` |
+| 编号 | 问题                                      | 处置                                  | 落点                                             |
+| ---- | ----------------------------------------- | ------------------------------------- | ------------------------------------------------ |
+| R-3  | 版本号双真值（`web.ts` 硬编码）           | ✅ 构建期注入 `__APP_VERSION__`       | `vite.config.ts:61`、`web.ts:69`                 |
+| R-4  | 迁移 SQL 双真值                           | ✅ 单一注册表 `MIGRATIONS`            | `infra/db/index.ts:26` + `migrations/records.ts` |
+| A-1  | 侧栏导航项双真值                          | ✅ 由路由表 `navRoutes()` 派生        | `layouts/MainLayout.vue:23`                      |
+| D-5  | `listConversations(500)` 静默截断         | ✅ 增加 `offset` 分页参数             | `infra/db/repos/welink.ts:257`                   |
+| D-6  | `staggerMs` 与 `pollIntervalSec` 语义冲突 | ✅ 节奏预算收敛（错峰 + 保底 + 硬顶） | `orchestrator/poller.ts`                         |
+| D-11 | `uitest.mjs` 界面快照硬编码               | ✅ 已按五导航项与迁移 v2 同步         | `scripts/uitest.mjs`                             |
+| P-4  | 收件箱 JOIN + GROUP BY 随消息量退化       | ✅ 改 `EXISTS` + 日期片段复用         | `infra/db/repos/welink.ts`                       |
+| S-1  | CSP 未设置                                | ✅ 配置 + **端到端断言**              | `tauri.conf.json:26`、`uitest.mjs` 第 14 节      |
+| S-2  | SQL 通道不限语句种类                      | ✅ 语句白名单校验                     | `src-tauri/src/db.rs`                            |
+| S-3  | Agent 明文 HTTP + prompt 含聊天内容       | ✅ 已按设计确立边界并文档化           | 见设计稿；内网场景下为既定取舍                   |
+| T-1  | 无覆盖率统计                              | ✅ v8 + 关键路径阈值（防回退基线）    | `vitest.config.ts`                               |
+| T-4  | 视图层无单测且部分组件体量偏大            | ✅ 抽出展示层纯函数 + 12 用例         | `utils/welink-display.ts` + `.spec.ts`           |
 
 ## 三、P3 清单（7 项，含合并条目）
 
-| 编号 | 问题 | 处置 |
-| --- | --- | --- |
-| R-2 | 唯一 `any` 用法 | ✅ 已消除（`rowOf<T>` 收窄） |
-| A-2 | 双文件通道并存（legacy `table.json`） | ✅ 仅作升级数据源，不再写入 |
-| D-7 | `noUserIdFused` 解除分支不可达 | ✅ 按「根因解除」语义修正，并防自回复死循环 |
-| D-8 | `panic="abort"` 下中毒锁恢复代码不可达 | ✅ 移除死代码与误导注释 |
-| D-9 | `logUnsubscribe` 从不调用 | ✅ 已在 `stores/welink.ts:57` 真正调用 |
-| D-10 | `bundle.targets: ["nsis"]` 无效配置 | ✅ 已删除（`bundle.active=false` 下无意义） |
-| P-5 / P-6 / P-7 | 单连接串行化 / 双重去重 / `flush` 复杂度 | ✅ 已优化 |
-| S-5 / S-6 | 白名单只校验 stem / 路径检查不 canonicalize | ✅ 已加 canonicalize |
-| T-5 | `verify.mjs` / `uitest.mjs` 自身无测试 | ⚠️ **保留**：见下「遗留取舍」 |
+| 编号            | 问题                                        | 处置                                        |
+| --------------- | ------------------------------------------- | ------------------------------------------- |
+| R-2             | 唯一 `any` 用法                             | ✅ 已消除（`rowOf<T>` 收窄）                |
+| A-2             | 双文件通道并存（legacy `table.json`）       | ✅ 仅作升级数据源，不再写入                 |
+| D-7             | `noUserIdFused` 解除分支不可达              | ✅ 按「根因解除」语义修正，并防自回复死循环 |
+| D-8             | `panic="abort"` 下中毒锁恢复代码不可达      | ✅ 移除死代码与误导注释                     |
+| D-9             | `logUnsubscribe` 从不调用                   | ✅ 已在 `stores/welink.ts:57` 真正调用      |
+| D-10            | `bundle.targets: ["nsis"]` 无效配置         | ✅ 已删除（`bundle.active=false` 下无意义） |
+| P-5 / P-6 / P-7 | 单连接串行化 / 双重去重 / `flush` 复杂度    | ✅ 已优化                                   |
+| S-5 / S-6       | 白名单只校验 stem / 路径检查不 canonicalize | ✅ 已加 canonicalize                        |
+| T-5             | `verify.mjs` / `uitest.mjs` 自身无测试      | ⚠️ **保留**：见下「遗留取舍」               |
 
 ---
 
@@ -83,12 +83,12 @@
 
 这几条**不在报告清单里**，是修复过程中顺带暴露的：
 
-| # | 缺陷 | 后果 | 定位方式 |
-| --- | --- | --- | --- |
-| 1 | `listInbox` 的日期条件只作用于 `JOIN`，不作用于 `last_content` 子查询 | SQLite 与内存实现结果漂移 | 写收件箱契约测试时发现 |
-| 2 | 内存侧 `onlyUnreplied` 条件**写反**（`!== '' \|\| !query.onlyUnreplied`） | `false` 时不排除无 in 消息的会话 | 契约测试断言双实现等价时发现 |
-| 3 | `ControlBar.vue` 的 `placement="bottom-left"` 不在 `Placement` 联合类型内 | 运行期被忽略并回退默认定位 | 类型修复时 vue-tsc 暴露 |
-| 4 | `uitest.mjs` 的 `killByName('msedgewebview2.exe')` 杀掉**全机** WebView2 进程 | 误杀用户应用；并发测试互相打架 | 一次并发跑出的「13 个 UI 用例失败」 |
+| #   | 缺陷                                                                          | 后果                             | 定位方式                            |
+| --- | ----------------------------------------------------------------------------- | -------------------------------- | ----------------------------------- |
+| 1   | `listInbox` 的日期条件只作用于 `JOIN`，不作用于 `last_content` 子查询         | SQLite 与内存实现结果漂移        | 写收件箱契约测试时发现              |
+| 2   | 内存侧 `onlyUnreplied` 条件**写反**（`!== '' \|\| !query.onlyUnreplied`）     | `false` 时不排除无 in 消息的会话 | 契约测试断言双实现等价时发现        |
+| 3   | `ControlBar.vue` 的 `placement="bottom-left"` 不在 `Placement` 联合类型内     | 运行期被忽略并回退默认定位       | 类型修复时 vue-tsc 暴露             |
+| 4   | `uitest.mjs` 的 `killByName('msedgewebview2.exe')` 杀掉**全机** WebView2 进程 | 误杀用户应用；并发测试互相打架   | 一次并发跑出的「13 个 UI 用例失败」 |
 
 ### 缺陷 4 的实测证据（这条最值得记录）
 
@@ -138,11 +138,11 @@ Error: [safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {"count":1074,"threshold
 
 ## 六、遗留取舍（明确不修，附理由）
 
-| 项 | 决定 | 理由 |
-| --- | --- | --- |
-| T-5（`verify.mjs` / `uitest.mjs` 自身无测试） | 保留 | 这两个脚本的验证对象就是「真实产物」。给它们写单测等于**再造一层 mock**，而 mock 恰恰测不出「产物能不能跑」。它们本身是验证工具，靠每次 `verify` 全量实证；已通过反证（注入故障看是否变红）确认非空转。 |
-| S-3（Agent 明文 HTTP） | 保留 | 内网离线场景下的既定取舍（无证书体系可依赖）。已在设计稿中记录边界与影响面。 |
-| 受限沙箱下的阶段 4/5/6 | 需 `--escalated` | 三个阶段（覆盖率清理 / `dist` 清空 / `target` 写盘）都要删目录，沙箱必拦。**不可在脚本内绕过**（除非牺牲覆盖率 clean 的准确性），已写进脚本文档与失败提示。 |
+| 项                                            | 决定             | 理由                                                                                                                                                                                                    |
+| --------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T-5（`verify.mjs` / `uitest.mjs` 自身无测试） | 保留             | 这两个脚本的验证对象就是「真实产物」。给它们写单测等于**再造一层 mock**，而 mock 恰恰测不出「产物能不能跑」。它们本身是验证工具，靠每次 `verify` 全量实证；已通过反证（注入故障看是否变红）确认非空转。 |
+| S-3（Agent 明文 HTTP）                        | 保留             | 内网离线场景下的既定取舍（无证书体系可依赖）。已在设计稿中记录边界与影响面。                                                                                                                            |
+| 受限沙箱下的阶段 4/5/6                        | 需 `--escalated` | 三个阶段（覆盖率清理 / `dist` 清空 / `target` 写盘）都要删目录，沙箱必拦。**不可在脚本内绕过**（除非牺牲覆盖率 clean 的准确性），已写进脚本文档与失败提示。                                             |
 
 ---
 
@@ -164,8 +164,8 @@ Error: [safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {"count":1074,"threshold
 
 ## 八、后续可做（非报告范围）
 
-| 项 | 价值 | 备注 |
-| --- | --- | --- |
-| 覆盖率阈值抬升 | 中 | 当前阈值刻意取「防回退基线」而非质量目标。抬线前须先补测试，**不要反过来**（见 `vitest.config.ts` 注释）。 |
-| `src/stores/welink.ts` 测试补强 | 中 | 该文件覆盖率 31.58% lines，是当前最低点，但它是 UI 编排层、逻辑多已被 orchestrator 层用例覆盖。 |
-| `uitest.mjs` 的导航项断言 | 低 | 目前把项数与顺序写死（D-11 只是同步过）。彻底解法是**从路由表派生**期望值，但会让测试依赖源码而非产物，需权衡。 |
+| 项                              | 价值 | 备注                                                                                                            |
+| ------------------------------- | ---- | --------------------------------------------------------------------------------------------------------------- |
+| 覆盖率阈值抬升                  | 中   | 当前阈值刻意取「防回退基线」而非质量目标。抬线前须先补测试，**不要反过来**（见 `vitest.config.ts` 注释）。      |
+| `src/stores/welink.ts` 测试补强 | 中   | 该文件覆盖率 31.58% lines，是当前最低点，但它是 UI 编排层、逻辑多已被 orchestrator 层用例覆盖。                 |
+| `uitest.mjs` 的导航项断言       | 低   | 目前把项数与顺序写死（D-11 只是同步过）。彻底解法是**从路由表派生**期望值，但会让测试依赖源码而非产物，需权衡。 |
