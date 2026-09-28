@@ -27,7 +27,13 @@ export interface AgentClientOptions {
 export function agentClient(options: AgentClientOptions): AgentClient {
   const { settings } = options
   const source = runtime === 'tauri' ? settings.agentSource : 'mock'
-  const key = [source, settings.baseUrl, settings.endpoint, settings.timeoutMs, JSON.stringify(options.mock ?? {})].join('|')
+  const key = [
+    source,
+    settings.baseUrl,
+    settings.endpoint,
+    settings.timeoutMs,
+    JSON.stringify(options.mock ?? {}),
+  ].join('|')
   if (cached && cachedKey === key) return cached
 
   if (source === 'http' && settings.baseUrl.trim()) {

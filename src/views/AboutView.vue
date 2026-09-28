@@ -4,6 +4,12 @@ import { IconBox, IconLayers, IconSliders, IconDatabase } from '@/components/ico
 
 const appStore = useAppStore()
 
+/**
+ * 兜底版本号（R-3）：真值来自构建期注入的 `__APP_VERSION__`（源自 package.json）。
+ * 先在 script 里赋给局部变量再给模板用 —— 模板只能访问组件作用域内的绑定。
+ */
+const fallbackVersion = __APP_VERSION__
+
 const stack = [
   { name: '前端框架', value: 'Vue 3 + TypeScript + Vite' },
   { name: 'UI 组件库', value: 'Element Plus' },
@@ -39,7 +45,7 @@ const structure = [
           <dt>描述</dt>
           <dd>{{ appStore.settings.description || '-' }}</dd>
           <dt>版本</dt>
-          <dd class="num">v{{ appStore.info?.version ?? '0.1.0' }}</dd>
+          <dd class="num">v{{ appStore.info?.version ?? fallbackVersion }}</dd>
           <dt>Tauri</dt>
           <dd class="num">{{ appStore.info?.tauriVersion ?? '-' }}</dd>
           <dt>系统平台</dt>
@@ -49,11 +55,25 @@ const structure = [
         </dl>
         <div class="hero">
           <span class="hero__badge">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
           </span>
           <div>
             <p class="hero__title">单文件绿色版</p>
-            <p class="hero__text">打包产物为单个 exe，复制到任意 Windows 机器即可运行，无需安装 Node.js、Rust 或 VC++ 运行库。</p>
+            <p class="hero__text">
+              打包产物为单个 exe，复制到任意 Windows 机器即可运行，无需安装 Node.js、Rust 或 VC++ 运行库。
+            </p>
           </div>
         </div>
       </section>

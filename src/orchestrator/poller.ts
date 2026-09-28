@@ -8,7 +8,8 @@
  *     因此连点按钮不会打出并发请求 —— 这是「手动与自动天然去重」的实现。
  *  2. **分级自适应轮询**（O2）：轮询一轮 = 拉取全部监控会话，20 个群就是 20 次 CLI 进程
  *     创建。按 `last_active` 分三级：热（30min 内）每轮拉、温（24h 内）每 3 轮、
- *     冷（更早）每 6 轮或仅手动。会话间 ≥2s 错峰（`staggerMs`），避免同一刻爆进程。
+ *     冷（更早）每 6 轮或仅手动。会话间错峰（`staggerMs`，**按会话数动态收敛**，
+ *     见下方 D-6 说明），避免同一刻爆进程。
  *  3. **每轮业务判定下沉到仓储**（P4）：触发表由 `buildTriggerMap` 算出后传给
  *     `applyPollResult`，消息批写 + cursor 推进 + 建 job + 汇总列维护在**一个事务**里完成。
  *
@@ -21,6 +22,7 @@ import type { WelinkRepository } from '@/infra/db'
 import type { NormalizedMessage, TriggerType, WelinkConversation, WelinkSettings } from '@/types/welink'
 import { logger } from '@/utils/logger'
 import { nowStamp, parseStamp } from '@/utils/time'
+import { POLL_STAGGER_MS, effectiveStaggerMs } from '@/utils/poll'
 import { emptySummary, type ConversationState, type EventSink, type PollSummary } from './events'
 import { realTimers, type TimerApi } from './timers'
 import { buildTriggerMap } from './triggers'
@@ -35,6 +37,9 @@ export const WARM_WINDOW_MS = 24 * 60 * 60 * 1000
 export const WARM_EVERY = 3
 export const COLD_EVERY = 6
 
+/** 有会话在退避时整轮间隔的放大系数（**有上界**，见 `baseIntervalMs` 的 D-4 说明） */
+export const BACKOFF_ROUND_FACTOR = 2
+
 /** 同一事务内续批上限（P8）：hasMore=true 时最多再拉 2 批，剩余留待下轮 */
 export const CONTINUE_BATCHES = 3
 
@@ -45,7 +50,13 @@ export interface PollerOptions {
   emit: EventSink
   timers?: TimerApi
   now?: () => Date
-  /** 会话间错峰毫秒（默认 2000；测试传 0 避免拖慢） */
+  /**
+   * 会话间错峰的**每会话**期望间隔（毫秒）。
+   *
+   * D-6 后语义变了：这里是**上限**而不是定值 —— 实际值由
+   * `effectiveStaggerMs(本轮间隔, 本轮会话数, 本值)` 收敛，保证「错峰总耗时」
+   * 不超过一轮间隔。测试传 0 表示完全关闭错峰。
+   */
   staggerMs?: number
   /** 端口获取函数（默认走工厂；测试注入 mock 端口） */
   client?: (settings: WelinkSettings) => WelinkPort
@@ -70,18 +81,29 @@ export interface Poller {
   conversationState(convId: string): ConversationState
   /** 当前轮次计数（UI 状态灯「退避中（第 n 轮）」） */
   round(): number
+  /**
+   * 本轮实际使用的每会话错峰（毫秒）。
+   *
+   * 暴露出来是为了让**设置页显示的数字与实际执行的一致**（D-6）。`null` 表示
+   * 还没有跑过任何一轮，此时按配置与会话数估算（见 `utils/poll.ts` 的
+   * `planPollRound`）。
+   */
+  currentStaggerMs(): number | null
 }
 
 export function createPoller(options: PollerOptions): Poller {
   const timers = options.timers ?? realTimers
   const now = options.now ?? (() => new Date())
-  const staggerMs = options.staggerMs ?? 2000
+  /** 错峰配置**上限**（D-6）。实际每会话值由 `effectiveStaggerMs` 按会话数收敛。 */
+  const staggerCapMs = options.staggerMs ?? POLL_STAGGER_MS
   const client = options.client ?? ((settings: WelinkSettings) => welinkClient({ settings }))
 
   let timer: unknown = null
   let running = false
   let visible = true
   let roundNo = 0
+  /** 上一轮实际使用的每会话错峰（D-6：供设置页显示真实值，null = 还没跑过） */
+  let lastStaggerMs: number | null = null
   /** in-flight 锁：整个轮询循环只有一把 —— 手动与自动共用（P2） */
   let inFlight: Promise<PollSummary> | null = null
   /** 各会话退避状态（不随监控清单增删而清空，便于观察「曾经的坏会话」） */
@@ -100,22 +122,39 @@ export function createPoller(options: PollerOptions): Poller {
   function scheduleNext(delayMs: number) {
     if (!running) return
     timers.clear(timer)
-    timer = timers.set(() => {
-      timer = null
-      void runRound(false)
-    }, Math.max(0, delayMs))
+    timer = timers.set(
+      () => {
+        timer = null
+        void runRound(false)
+      },
+      Math.max(0, delayMs),
+    )
   }
 
-  /** 本轮间隔：基准 × 隐藏系数（P9）× 退避系数 */
+  /**
+   * 本轮间隔：基准 × 隐藏系数（P9）× 退避放大系数。
+   *
+   * **为什么不能用「所有会话里最大的 backoffSec」**（D-4 修掉的真实缺陷）：
+   * 退避是**会话级**的 —— `runRound` 里已经用 `state.nextAllowedAt > nowMs` 逐会话
+   * 判断（见其上方注释）。若这里再把最差退避放大到整轮间隔，就是**同一个机制罚两次**：
+   * 一个坏会话进入 60s 退避后，全部健康会话（本可 5s 一轮）被一起拖慢 12 倍，
+   * 而且失败会话越多整体越慢 —— 与「单会话失败不中断整轮」的设计初衷正好相反。
+   *
+   * 替代方案是**有上界**的折中：只要还有会话在退避，整轮间隔就翻 [`BACKOFF_ROUND_FACTOR`]
+   * 倍（封顶 2 倍），既保留「别在坏会话上每小时空转」的意图，又不会让健康会话
+   * 被无限期拖着。真正该等多久，由每个会话自己的 `nextAllowedAt` 决定。
+   */
   function baseIntervalMs(): number {
     const base = options.settings().pollIntervalSec * 1000
     const hiddenFactor = visible ? 1 : 3
-    // 有会话在退避时，把整轮间隔也拉长到最大退避，避免「每小时空转 720 次」
-    let worst = 0
+    let anyBackoff = false
     for (const state of states.values()) {
-      if (state.backoffSec > worst) worst = state.backoffSec
+      if (state.backoffSec > 0) {
+        anyBackoff = true
+        break
+      }
     }
-    return Math.max(base * hiddenFactor, worst * 1000)
+    return base * hiddenFactor * (anyBackoff ? BACKOFF_ROUND_FACTOR : 1)
   }
 
   /** 分级判定（O2）：该会话本轮是否值得拉 */
@@ -137,7 +176,10 @@ export function createPoller(options: PollerOptions): Poller {
       roundNo += 1
       options.emit({ type: 'roundStarted', round: roundNo })
 
-      let conversations: WelinkConversation[] = []
+      // 初值不给空数组：失败分支直接 return，空数组永远不会被读到，
+      // 留着会让人误以为「读失败时按空清单继续跑」（实际不是）。TS 的
+      // 明确赋值检查在这个形态下能正确判定赋值完备。
+      let conversations: WelinkConversation[]
       try {
         conversations = await options.repo.listWatching()
       } catch (error) {
@@ -150,14 +192,39 @@ export function createPoller(options: PollerOptions): Poller {
       const port = client(settings)
       const nowMs = now().getTime()
 
-      for (const conv of conversations) {
+      /**
+       * 先算出**本轮真正要拉**的会话（D-6 的关键：错峰按实际拉取数收敛，
+       * 而不是监控总数）。
+       *
+       * 为什么必须两趟：分级轮询（O2）会跳过温/冷会话，20 个监控会话在某一轮
+       * 可能只有 3 个要拉。若按 20 收敛，错峰会被压得过小（白留着空隙）；按 20
+       * 铺开又不成立（其余 17 个本轮根本不拉，谈不上「错峰」）。先过滤再收敛，
+       * 页面显示的预估数字也才能与实际一致。
+       */
+      const due = conversations.filter((conv) => {
         const state = stateOf(conv.convId)
         // 退避未到期 → 跳过（手动拉取也尊重退避：失败会话立刻重试只会继续失败）
-        if (state.nextAllowedAt > nowMs) continue
-        if (!manual && !shouldPoll(conv)) continue
+        if (state.nextAllowedAt > nowMs) return false
+        if (!manual && !shouldPoll(conv)) return false
+        return true
+      })
+
+      /**
+       * 本轮每会话错峰（D-6）。
+       *
+       * 语义变化：`staggerMs` 从「定值」改为「上限」。总额收敛到本轮间隔之内，
+       * 会话越多每个间隔越小（有地板，见 `utils/poll.ts`）。这样
+       * `pollIntervalSec` 才恢复成「用户能感知的周期」—— 而不是被 20 × 2s 淹没。
+       * 基准用 `baseIntervalMs()`：隐藏窗口（×3）时预算同步放宽，不必额外收敛。
+       */
+      const roundStaggerMs = effectiveStaggerMs(baseIntervalMs(), due.length, staggerCapMs)
+      lastStaggerMs = roundStaggerMs
+
+      for (const conv of due) {
+        const state = stateOf(conv.convId)
 
         // 会话间错峰（O2）：CLI 进程创建要留出间隔
-        if (summary.polled > 0 && staggerMs > 0) await delay(staggerMs, timers)
+        if (summary.polled > 0 && roundStaggerMs > 0) await delay(roundStaggerMs, timers)
 
         summary.polled += 1
         try {
@@ -179,7 +246,9 @@ export function createPoller(options: PollerOptions): Poller {
           state.reason = error instanceof Error ? error.message : String(error)
           state.nextAllowedAt = nowMs + state.backoffSec * 1000
           options.emit({ type: 'conversationState', convId: conv.convId, state: { ...state } })
-          logger.warn(`轮询失败（${conv.title || conv.convId}，第 ${state.failCount} 次，退避 ${state.backoffSec}s）：${state.reason}`)
+          logger.warn(
+            `轮询失败（${conv.title || conv.convId}，第 ${state.failCount} 次，退避 ${state.backoffSec}s）：${state.reason}`,
+          )
         }
       }
 
@@ -315,6 +384,10 @@ export function createPoller(options: PollerOptions): Poller {
 
     round() {
       return roundNo
+    },
+
+    currentStaggerMs() {
+      return lastStaggerMs
     },
   }
 }

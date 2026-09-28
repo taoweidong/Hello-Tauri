@@ -1,0 +1,114 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+
+/**
+ * welink store 的轮询节奏派生（D-6）。
+ *
+ * 只测这一个派生函数，不测整个 store：`pollPlan` 的全部价值在于**「页面上的数字
+ * 必须是真的」**，而它的三种数据来源（实测 / 预估 / 不可知）恰好分别对应三种
+ * 容易说谎的情形。把这三条钉住，比再抄一遍 `planPollRound` 的单测更有意义
+ * （后者已在 `utils/poll.spec.ts` 覆盖）。
+ */
+
+const { repoMock } = vi.hoisted(() => ({
+  repoMock: {
+    // 返回类型必须显式给出：`async () => []` 会被推断为 `never[]`，
+    // 之后 `mockResolvedValue([conversation(true)])` 就会报「不能赋给 never」。
+    listConversations: vi.fn(async (_limit?: number): Promise<unknown[]> => []),
+    countConversations: vi.fn(async (): Promise<number> => 0),
+    listUnfinishedJobs: vi.fn(async (): Promise<unknown[]> => []),
+    countHolding: vi.fn(async (): Promise<number> => 0),
+    countSentSince: vi.fn(async (): Promise<number> => 0),
+    countGlobalSentSince: vi.fn(async (): Promise<number> => 0),
+    lastSentAt: vi.fn(async (): Promise<string | null> => null),
+  },
+}))
+
+vi.mock('@/infra/db', () => ({
+  welink: () => repoMock,
+  dbMigrateAll: vi.fn(async () => []),
+}))
+vi.mock('@/utils/logger', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  onLog: vi.fn(() => () => {}),
+}))
+
+async function freshStore() {
+  vi.resetModules()
+  const { useWelinkStore } = await import('@/stores/welink')
+  return useWelinkStore()
+}
+
+function conversation(watching: boolean) {
+  return {
+    pk: 1,
+    convType: 'group' as const,
+    convId: 'G-1',
+    title: '研发一组',
+    remark: '',
+    watching,
+    autoReply: true,
+    muteUntil: null,
+    lastMsgAt: '',
+    unreadCount: 0,
+    mentionCount: 0,
+    lastActive: '',
+    lastCursor: '',
+    updatedAt: '',
+  }
+}
+
+describe('stores/welink —— pollPlan（D-6：设置页显示的数字必须是真的）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  it('**未装载会话清单时不冒充「0 个会话」**（known=false）', async () => {
+    const store = await freshStore()
+    const plan = store.pollPlan(5)
+    expect(plan.known).toBe(false)
+    // 会话数不可知时不能给出「0 个会话、周期 5s」这种听起来确定的错话
+    expect(plan.conversationCount).toBe(0)
+    // 但间隔本身仍然是配置真值，可以照实显示
+    expect(plan.periodMs).toBe(5000)
+  })
+
+  it('装载后按监控会话数给出预估（known=true）', async () => {
+    const store = await freshStore()
+    repoMock.listConversations.mockResolvedValue([conversation(true), conversation(true), conversation(true)])
+    await store.loadConversations()
+    const plan = store.pollPlan(5)
+    expect(plan.known).toBe(true)
+    expect(plan.conversationCount).toBe(3)
+    // 3 个会话 → 每会话 2000ms（预算 5000/2 够用）→ 周期 5s + 4s
+    expect(plan.staggerMs).toBe(2000)
+    expect(plan.periodMs).toBe(9000)
+  })
+
+  it('只统计**监控中**的会话（未监控的不参与轮询）', async () => {
+    const store = await freshStore()
+    repoMock.listConversations.mockResolvedValue([conversation(true), conversation(false), conversation(false)])
+    await store.loadConversations()
+    // 1 个监控会话 → 没有「之间」→ 无错峰
+    expect(store.pollPlan(5).staggerMs).toBe(0)
+    expect(store.pollPlan(5).conversationCount).toBe(1)
+  })
+
+  it('传入的间隔优先于已生效配置（用户拖数字时提示立刻跟着变）', async () => {
+    const store = await freshStore()
+    repoMock.listConversations.mockResolvedValue([conversation(true), conversation(true)])
+    await store.loadConversations()
+    expect(store.pollPlan(30).periodMs).toBe(30_000 + 2000)
+    expect(store.pollPlan(5).periodMs).toBe(5000 + 2000)
+  })
+
+  it('多会话时标记收敛（UI 据此解释「间隔为何不是实际周期」）', async () => {
+    const store = await freshStore()
+    repoMock.listConversations.mockResolvedValue(Array.from({ length: 20 }, () => conversation(true)))
+    await store.loadConversations()
+    const plan = store.pollPlan(5)
+    expect(plan.converged).toBe(true)
+    expect(plan.staggerMs).toBe(300)
+  })
+})

@@ -27,3 +27,12 @@ vibe_images/
 .DS_Store
 Thumbs.db
 *.log
+
+# ESLint / 覆盖率产物
+coverage/
+.eslintcache
+
+# 注意：以下三个是 unplugin 的**生成文件**，但必须提交（P-1）
+#   auto-imports.d.ts / components.d.ts / .eslintrc-auto-import.json
+# 原因：它们承载 typecheck 与 lint 所需的全局声明，CI 上如果缺了会在
+# 「首次构建之前」就失败（typecheck/lint 跑在 build 前面）。不要加进这里。

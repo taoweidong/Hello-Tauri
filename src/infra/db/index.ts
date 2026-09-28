@@ -13,26 +13,17 @@ import type { Migration } from '@/types'
 import type { WelinkRepository } from './ports'
 import { sqlWelinkRepository } from './repos/welink'
 import { memoryWelinkRepository } from './repos/welink-memory'
+import { migrationV1 } from './migrations/records'
 import { migrationV2 } from './migrations/welink'
 
-export const MIGRATIONS: Migration[] = [
-  {
-    version: 1,
-    description: 'create_records',
-    // v1 与历史实现（repositories/records.ts）逐字一致：已落库的库不会被重复执行，
-    // 但保持文本相同能让「迁移清单」成为唯一可信的表结构来源。
-    sql: `CREATE TABLE records (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      status TEXT NOT NULL,
-      amount REAL NOT NULL DEFAULT 0,
-      owner TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );`,
-  },
-  migrationV2,
-]
+/**
+ * 全库迁移注册表（**唯一真值**）。
+ *
+ * R-4：v1 的 SQL 曾经在 `repositories/records.ts` 里另有一份「逐字一致」的
+ * 声明 —— 两份文本靠人肉同步，漂移后建表结构取决于谁先跑，且已落库的库不会
+ * 重跑迁移，缺陷会被掩盖很久。现在两边都 import 同一份定义。
+ */
+export const MIGRATIONS: Migration[] = [migrationV1, migrationV2]
 
 let migrated: Promise<number[]> | null = null
 

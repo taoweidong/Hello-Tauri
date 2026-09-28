@@ -171,7 +171,9 @@ const emptySnapshot = (): SafetySnapshot => ({
 })
 
 /** 有状态假仓储：逐条复刻真实实现的关键 WHERE 条件 */
-function createFakeRepo(seed: { jobs?: WelinkJob[]; conversations?: WelinkConversation[]; context?: WelinkMessage[] } = {}) {
+function createFakeRepo(
+  seed: { jobs?: WelinkJob[]; conversations?: WelinkConversation[]; context?: WelinkMessage[] } = {},
+) {
   const jobs = new Map<number, WelinkJob>()
   for (const item of seed.jobs ?? []) jobs.set(item.pk, { ...item })
   const conversations = new Map<string, WelinkConversation>()
@@ -267,15 +269,17 @@ function createFakeRepo(seed: { jobs?: WelinkJob[]; conversations?: WelinkConver
       })
     }),
     /** 只接受 sending（防双发记账），成功后置回执位 */
-    markSent: vi.fn(async (pk: number, receipt: { msgUid: string; sentAt: string; convPk: number; content: string }) => {
-      const item = jobs.get(pk)
-      if (!item || item.status !== 'sending') return false
-      item.status = 'sent'
-      item.lastError = ''
-      receipts.add(pk)
-      sentReceipts.set(pk, receipt)
-      return true
-    }),
+    markSent: vi.fn(
+      async (pk: number, receipt: { msgUid: string; sentAt: string; convPk: number; content: string }) => {
+        const item = jobs.get(pk)
+        if (!item || item.status !== 'sending') return false
+        item.status = 'sent'
+        item.lastError = ''
+        receipts.add(pk)
+        sentReceipts.set(pk, receipt)
+        return true
+      },
+    ),
     hasOutgoingReceipt: vi.fn(async (pk: number) => receipts.has(pk)),
     insertAgentLog: vi.fn(async (log: Record<string, unknown>) => {
       agentLogs.push(log)
@@ -328,21 +332,23 @@ interface Harness {
   statusEvents: () => Array<{ jobPk: number; from: string; to: string; reason: string }>
 }
 
-function harness(config: {
-  jobs?: WelinkJob[]
-  conversations?: WelinkConversation[]
-  context?: WelinkMessage[]
-  settings?: Partial<WelinkSettings>
-  decision?: GateDecision | (() => GateDecision)
-  reply?: string | ((prompt: string) => string)
-  /** complete 是否自动返回；false 时需手动 releaseAll（观察并发用） */
-  autoComplete?: boolean
-  /** 是否自动返回默认真值与自动完成 */
-  sendImpl?: (text: string) => Promise<{ msgUid: string }>
-  /** 外发端口是否挂起等 `port.releaseAll()`（测「严格串行」用） */
-  manualSend?: boolean
-  now?: string
-} = {}): Harness {
+function harness(
+  config: {
+    jobs?: WelinkJob[]
+    conversations?: WelinkConversation[]
+    context?: WelinkMessage[]
+    settings?: Partial<WelinkSettings>
+    decision?: GateDecision | (() => GateDecision)
+    reply?: string | ((prompt: string) => string)
+    /** complete 是否自动返回；false 时需手动 releaseAll（观察并发用） */
+    autoComplete?: boolean
+    /** 是否自动返回默认真值与自动完成 */
+    sendImpl?: (text: string) => Promise<{ msgUid: string }>
+    /** 外发端口是否挂起等 `port.releaseAll()`（测「严格串行」用） */
+    manualSend?: boolean
+    now?: string
+  } = {},
+): Harness {
   const scheduler = createScheduler()
   const events: WelinkEvent[] = []
   const repo = createFakeRepo({ jobs: config.jobs, conversations: config.conversations, context: config.context })
@@ -355,11 +361,10 @@ function harness(config: {
     ...config.settings,
   }
 
-  const checkMock = vi.fn(
-    (): GateDecision =>
-      typeof config.decision === 'function'
-        ? config.decision()
-        : (config.decision ?? { action: 'send', reason: '', detail: '放行' }),
+  const checkMock = vi.fn((): GateDecision =>
+    typeof config.decision === 'function'
+      ? config.decision()
+      : (config.decision ?? { action: 'send', reason: '', detail: '放行' }),
   )
   const onSentMock = vi.fn()
   const snapshotMock = vi.fn(emptySnapshot)
@@ -387,7 +392,8 @@ function harness(config: {
   const calls: string[] = []
   const parks: Array<{ resolve: () => void; reject: (error: unknown) => void; prompt: string }> = []
   let auto = config.autoComplete ?? true
-  const replyOf = (prompt: string) => (typeof config.reply === 'function' ? config.reply(prompt) : (config.reply ?? '收到，我看一下，稍后回复你。'))
+  const replyOf = (prompt: string) =>
+    typeof config.reply === 'function' ? config.reply(prompt) : (config.reply ?? '收到，我看一下，稍后回复你。')
 
   const complete = vi.fn(async (prompt: string) => {
     calls.push(prompt)
@@ -424,7 +430,9 @@ function harness(config: {
   })
   const port = { send, listConversations: vi.fn(), pull: vi.fn() } as unknown as WelinkPort
 
-  let clockMs = new Date(config.now ?? '2026-09-27T14:00:00').getTime()
+  // 固定「现在」（不推进）：时间推进由 scheduler.advance 单独完成 ——
+  // 两者都动会让「定时器到点」与「业务判定时间」混淆，断言变难写。
+  const clockMs = new Date(config.now ?? '2026-09-27T14:00:00').getTime()
   const pipeline = createPipeline({
     repo: repo.repo,
     gate,
@@ -447,7 +455,14 @@ function harness(config: {
       client: agent,
       complete,
       emitCall: (record) =>
-        callHandler?.({ prompt: '', response: '', status: 'ok', latencyMs: 1, error: '', ...record } as AgentCallRecord),
+        callHandler?.({
+          prompt: '',
+          response: '',
+          status: 'ok',
+          latencyMs: 1,
+          error: '',
+          ...record,
+        } as AgentCallRecord),
       get active() {
         return active
       },
@@ -959,7 +974,10 @@ describe('orchestrator/pipeline —— 人工模式（manual）', () => {
   })
 
   it('sendNow 的越权标记是一次性的（下一次自动外发仍会被 manual 拦）', async () => {
-    const h = harness({ jobs: [job({ status: 'ready', draft: '草稿', sendModeUsed: 'manual' })], sendImpl: async () => ({ msgUid: 'u1' }) })
+    const h = harness({
+      jobs: [job({ status: 'ready', draft: '草稿', sendModeUsed: 'manual' })],
+      sendImpl: async () => ({ msgUid: 'u1' }),
+    })
     h.pipeline.start()
     await h.pipeline.sendNow(1)
     await h.pipeline.drain()
@@ -1099,7 +1117,11 @@ describe('orchestrator/pipeline —— 崩溃恢复（§6.3）', () => {
 
   it('重启后 enqueueMany 把未终态任务全量接回', async () => {
     const h = harness({
-      jobs: [job({ pk: 1, status: 'pending' }), job({ pk: 2, status: 'discussing' }), job({ pk: 3, status: 'ready', draft: '草稿' })],
+      jobs: [
+        job({ pk: 1, status: 'pending' }),
+        job({ pk: 2, status: 'discussing' }),
+        job({ pk: 3, status: 'ready', draft: '草稿' }),
+      ],
       reply: '收到',
       sendImpl: async () => ({ msgUid: 'u' }),
     })
@@ -1252,7 +1274,9 @@ describe('orchestrator/pipeline —— 并发不变量（O1/D12）', () => {
   })
 
   it('外发段异常（底层抛）被隔离，后续任务继续', async () => {
-    const h = harness({ jobs: [job({ pk: 1, status: 'ready', draft: 'A' }), job({ pk: 2, status: 'ready', draft: 'B' })] })
+    const h = harness({
+      jobs: [job({ pk: 1, status: 'ready', draft: 'A' }), job({ pk: 2, status: 'ready', draft: 'B' })],
+    })
     h.repo.mocks.markStatus.mockRejectedValueOnce(new Error('库挂了'))
     h.pipeline.start()
     await h.pipeline.sendNow(1)
@@ -1262,7 +1286,9 @@ describe('orchestrator/pipeline —— 并发不变量（O1/D12）', () => {
   })
 
   it('外发段异常（底层抛）被隔离，后续任务继续', async () => {
-    const h = harness({ jobs: [job({ pk: 1, status: 'ready', draft: 'A' }), job({ pk: 2, status: 'ready', draft: 'B' })] })
+    const h = harness({
+      jobs: [job({ pk: 1, status: 'ready', draft: 'A' }), job({ pk: 2, status: 'ready', draft: 'B' })],
+    })
     h.repo.mocks.markStatus.mockRejectedValueOnce(new Error('库挂了'))
     h.pipeline.start()
     await h.pipeline.sendNow(1)

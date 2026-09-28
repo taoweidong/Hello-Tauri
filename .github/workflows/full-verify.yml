@@ -1,0 +1,67 @@
+# 完整验证链：Rust 编译 → 单文件 exe → PE 导入表校验 → WebView2 UI 自动化 → 冷启动冒烟。
+#
+# 为什么不放进快速门（verify.yml）：
+#  * 耗时以分钟计（cargo release 编译 + 驱动真实 exe 跑几十个 UI 用例）；
+#  * 依赖 Windows runner 上的 WebView2 运行时（windows-latest 自带）；
+#  * 它的失败往往指向「打包链/环境」而不是「这次提交的业务代码」，
+#    挂在每次 push 上会让红线信号变嘈杂。
+#
+# 触发方式：手动（workflow_dispatch，发版前跑）+ 每日定时（定时跑是为了尽早发现
+# 「上游 runner 镜像升级把打包链搞坏」这类与提交无关的漂移）。
+name: 完整验证
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每天 UTC 18:00（北京时间次日 02:00）——避开开发高峰，跑在安静时段
+    - cron: '0 18 * * *'
+
+concurrency:
+  group: full-verify
+  cancel-in-progress: false
+
+jobs:
+  full:
+    name: 打包 · 单文件 · UI 自动化 · 冒烟
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Rust 工具链：项目 rust-version 是 1.77.2，用 stable 满足且留出余量。
+      # 不加 --offline —— CI 首次拉 crates.io 是必要的（本项目的离线约束
+      # 针对的是「打包后的应用运行环境」，不是构建机）。
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 cargo 产物
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: 安装依赖
+        run: npm ci
+
+      # verify.mjs 一条命令跑完七个阶段，且各阶段可独立失败 ——
+      # 失败时仍能拿到全局视图（哪些阶段受影响），比逐个 step 跑更好判读。
+      - name: 全量验证（verify.mjs）
+        run: npm run verify
+
+      - name: 上传验证报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-report
+          path: |
+            release/
+            coverage/
+          if-no-files-found: ignore
+          retention-days: 14

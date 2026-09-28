@@ -1,0 +1,74 @@
+# 质量门（T-2）：每次 push / PR 必过的快速检查。
+#
+# 为什么拆成两个 workflow：
+#  * 本文件（verify.yml）是**快速门**：lint + 类型检查 + 单测 + 前端构建，
+#    不带 Rust 编译与 exe 打包，几分钟内出结果。开发者在推 PR 时最需要的是
+#    「我这改动有没有踩到红线」的即时反馈，而不是等十分钟的完整打包。
+#  * full-verify.yml 是**完整链**：Rust 编译 + 单文件 exe + PE 校验 + WebView2
+#    UI 自动化 + 冷启动冒烟，只在手动触发或每日定时跑（它需要 Windows runner 上
+#    的 WebView2 运行时，且耗时以「分钟」计）。
+#
+# runner 选择：必须是 windows，因为本项目的产物目标就是 Windows 单文件 exe，
+# `+crt-static` 与 MSVC 工具链都编码在 .cargo/config.toml 里（Linux runner 上
+# 连 Cargo 都编不出正确产物，验证等于白跑）。
+name: 质量门
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一分支的旧运行自动取消：快速门的价值在于「立刻知道当前 HEAD 是否干净」，
+# 排队等一个已过期的 commit 没有意义。
+concurrency:
+  group: gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: lint · 类型 · 单测 · 构建
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # 内网离线打包是**运行时的**约束（应用不得联网），不是开发机上的约束。
+      # CI 需要装依赖，因此这里允许联网；registry 用默认源，不塞私有镜像。
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 代码规范（ESLint）
+        run: npm run lint
+
+      - name: 格式检查（Prettier）
+        run: npm run format:check
+
+      - name: 类型检查（vue-tsc）
+        run: npm run typecheck
+
+      # 覆盖率阈值写死在 vitest.config.ts：关键路径（orchestrator / infra-db）
+      # 一旦明显退步，这一步就会红，无需人工盯数字。
+      - name: 单元测试 + 覆盖率阈值
+        run: npm run test:coverage
+
+      - name: 前端构建（vite）
+        run: npm run build:web
+
+      - name: 覆盖率摘要
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: coverage/coverage-summary.json
+          if-no-files-found: ignore
+          retention-days: 7

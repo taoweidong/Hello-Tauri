@@ -21,13 +21,7 @@
  *  3. **熔断是状态而不是计数**：触发后写进 `fuses` 集合，该场景后续 job 一律
  *     `skip(fused)`，直到人工 `resetFuse()`；期间拉取与存档照常。
  */
-import type {
-  HoldReason,
-  SkipReason,
-  WelinkConversation,
-  WelinkJob,
-  WelinkSettings,
-} from '@/types/welink'
+import type { HoldReason, SkipReason, WelinkConversation, WelinkJob, WelinkSettings } from '@/types/welink'
 import { nowStamp, parseStamp } from '@/utils/time'
 import type { SafetySnapshot } from './events'
 
@@ -266,7 +260,8 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
       rollHour()
       const { job, conversation } = input
       const isManual = job.triggerType === 'manual'
-      const scope = job.triggerType === 'group_at_me' ? 'group_at_me' : job.triggerType === 'private' ? 'private' : 'manual'
+      const scope =
+        job.triggerType === 'group_at_me' ? 'group_at_me' : job.triggerType === 'private' ? 'private' : 'manual'
 
       // —— L0 一键急停：封死唯一出口（manual 人工发送也需人工解锁后重走） ——
       if (panic) {
@@ -292,7 +287,11 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
       const autoReply = cached ? cached.autoReply : conversation.autoReply
       const muteUntil = cached ? cached.muteUntil : conversation.muteUntil
       if (!autoReply && !isManual) {
-        return { action: 'skip', reason: 'conv_switch', detail: `「${conversation.title || conversation.convId}」未开启自动回复` }
+        return {
+          action: 'skip',
+          reason: 'conv_switch',
+          detail: `「${conversation.title || conversation.convId}」未开启自动回复`,
+        }
       }
       if (muteUntil && !isManual) {
         const until = parseStamp(muteUntil)
@@ -308,7 +307,11 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
       const fuse = fuses.get(scope)
       if (fuse && !isManual) {
         fuse.blocked += 1
-        return { action: 'skip', reason: 'fused', detail: `${sceneLabel(scope)}因「${fuse.reason}」熔断中（本窗已拦 ${fuse.blocked} 条）` }
+        return {
+          action: 'skip',
+          reason: 'fused',
+          detail: `${sceneLabel(scope)}因「${fuse.reason}」熔断中（本窗已拦 ${fuse.blocked} 条）`,
+        }
       }
 
       // —— S4 静默时段：挂起不丢弃；补发时草稿已超 4h → 转人工 ——
@@ -343,7 +346,11 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
       if (lastSent && minIntervalMs > 0 && now().getTime() - lastSent.getTime() < minIntervalMs) {
         const waitSec = Math.ceil((minIntervalMs - (now().getTime() - lastSent.getTime())) / 1000)
         registerSkip(scope, 'rate_conv')
-        return { action: 'skip', reason: 'rate_conv', detail: `距上次回复不足 ${settings.safety.perConvMinIntervalSec}s，需再等 ${waitSec}s` }
+        return {
+          action: 'skip',
+          reason: 'rate_conv',
+          detail: `距上次回复不足 ${settings.safety.perConvMinIntervalSec}s，需再等 ${waitSec}s`,
+        }
       }
 
       // —— S5 同人短窗合并：同一发送者在本会话合并窗内已有一次外发 → 合并掉 ——
@@ -377,7 +384,12 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
       if (globalClosedUntil) {
         const until = parseStamp(globalClosedUntil)
         if (until && until.getTime() > now().getTime()) {
-          return { action: 'defer', reason: 'rate_global_hourly', detail: `全局配额已满，冷却至 ${globalClosedUntil.slice(11, 16)}`, terminal: false }
+          return {
+            action: 'defer',
+            reason: 'rate_global_hourly',
+            detail: `全局配额已满，冷却至 ${globalClosedUntil.slice(11, 16)}`,
+            terminal: false,
+          }
         }
         globalClosedUntil = null
       }
@@ -435,12 +447,22 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
         for (const key of [...fuseHits.keys()]) {
           if (key.startsWith(`${scope}|`)) fuseHits.delete(key)
         }
-        if (scope === 'global') noUserIdFused = false
       } else {
         fuses.clear()
         fuseHits.clear()
-        noUserIdFused = false
       }
+      // 无论哪种范围，**都不清 noUserIdFused**（刻意保留）。
+      //
+      // 这不是死分支 —— UI 的「解除熔断」按钮会把「全局」译成字面量 'global'
+      // 传进来（ControlBar.vue 的 liftFuse），因此 `scope === 'global'` 可达。
+      // 曾经这里写的是 `if (scope === 'global') noUserIdFused = false`，后果很严重：
+      // 工号仍然为空、`filterSelf` 仍然失效（自发消息不会被打上 direction='out'），
+      // 但防自回复的兜底熔断被人工关掉了 —— 助手发出的回复会被自己拉回来当成
+      // 新消息，形成**自回复死循环**（设计 §637 明确把「myUserId 为空 → S8 熔断」
+      // 列为死循环防护的一环）。
+      //
+      // 正确语义：这个熔断的**根因**是「工号没填」，唯一解除方式是补齐工号
+      // （见 `reload()`）。人工点「解除」只能解除「拦截次数超阈值」那类熔断。
     },
 
     invalidateConversation(convId) {
@@ -475,7 +497,12 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
         globalCap: settings.safety.globalHourlyCap,
         globalClosedUntil,
         convCounts,
-        fuses: [...fuses.values()].map((item) => ({ key: item.scope, scope: sceneLabel(item.scope), reason: item.reason, since: item.since })),
+        fuses: [...fuses.values()].map((item) => ({
+          key: item.scope,
+          scope: sceneLabel(item.scope),
+          reason: item.reason,
+          since: item.since,
+        })),
         globalFuse: noUserIdFused,
         globalFuseReason: noUserIdFused ? '未填写工号（设置页补齐后自动解除）' : '',
       }

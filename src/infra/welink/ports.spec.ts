@@ -16,13 +16,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { DEMO_SCRIPT, createMockWelinkPort, MOCK_CONVERSATIONS } from '@/infra/welink/mock'
 import { WelinkError } from '@/infra/welink/port'
-import {
-  normalizeMessage,
-  parseJson,
-  parseListOutput,
-  parsePullOutput,
-  parseSendOutput,
-} from '@/infra/welink/adapter'
+import { normalizeMessage, parseJson, parseListOutput, parsePullOutput, parseSendOutput } from '@/infra/welink/adapter'
 import { listArgs, pullArgs, sendArgs } from '@/infra/welink/commands'
 import { withTransportRetry } from '@/infra/welink/exec'
 
@@ -150,10 +144,7 @@ describe('infra/welink —— adapter：宽进严出', () => {
   })
 
   it('自发消息不可能被判为 @我（先定 direction 再定 atMe）', () => {
-    const message = normalizeMessage(
-      { id: 'm1', senderId: 'E-0001', atMe: true, content: '@我 自己发给自己' },
-      CONTEXT,
-    )
+    const message = normalizeMessage({ id: 'm1', senderId: 'E-0001', atMe: true, content: '@我 自己发给自己' }, CONTEXT)
     expect(message.direction).toBe('out')
     expect(message.atMe).toBe(false)
   })
@@ -188,7 +179,9 @@ describe('infra/welink —— adapter：宽进严出', () => {
     expect(normalizeMessage({ id: 'm1', sentAt: '2026-09-27T10:00:00.000Z' }, CONTEXT).sentAt).toBe(
       '2026-09-27 10:00:00',
     )
-    expect(normalizeMessage({ id: 'm2', sentAt: 1759000000 }, CONTEXT).sentAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
+    expect(normalizeMessage({ id: 'm2', sentAt: 1759000000 }, CONTEXT).sentAt).toMatch(
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
+    )
     expect(normalizeMessage({ id: 'm3', sentAt: 1759000000000 }, CONTEXT).sentAt).toMatch(
       /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
     )
@@ -200,10 +193,7 @@ describe('infra/welink —— adapter：宽进严出', () => {
   })
 
   it('parsePullOutput 兼容 {messages} 与裸数组两种形状', () => {
-    const wrapped = parsePullOutput(
-      JSON.stringify({ messages: [{ id: 'm1' }], cursor: 'c1', hasMore: true }),
-      CONTEXT,
-    )
+    const wrapped = parsePullOutput(JSON.stringify({ messages: [{ id: 'm1' }], cursor: 'c1', hasMore: true }), CONTEXT)
     expect(wrapped.cursor).toBe('c1')
     expect(wrapped.hasMore).toBe(true)
     expect(wrapped.messages).toHaveLength(1)

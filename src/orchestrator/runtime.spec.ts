@@ -19,6 +19,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  */
 import { createWelinkRuntime, type WelinkRuntime } from '@/orchestrator/runtime'
 import type { WelinkEvent } from '@/orchestrator/events'
+import { RETENTION_FIRST_DELAY_MS, RETENTION_INTERVAL_MS } from '@/orchestrator/retention'
 import type { TimerApi } from '@/orchestrator/timers'
 import { memoryWelinkRepository, resetWelinkMemory } from '@/infra/db/repos/welink-memory'
 import type { WelinkPort } from '@/infra/welink'
@@ -234,7 +235,10 @@ async function harness(overrides: Partial<WelinkSettings> = {}): Promise<Harness
   const settings = normalizeWelinkSettings({
     ...DEFAULT_WELINK_SETTINGS,
     ...overrides,
-    enabled: true,
+    // 默认开总开关（多数用例跑的是「助手在跑」的场景）；
+    // 想测关闭态必须显式传 enabled:false —— 这里**不能**无条件写 true，
+    // 否则 overrides 里的 enabled 被静默吞掉（曾让「总开关关闭时不起清理」用例假通过）。
+    enabled: overrides.enabled ?? true,
     myUserId: 'E-0001',
     sendMode: 'auto',
     // 关掉频控干扰：本测试关心链路是否通，不关心限流（限流另有 safety-gate.spec）
@@ -255,8 +259,12 @@ async function harness(overrides: Partial<WelinkSettings> = {}): Promise<Harness
     port: () => port.port,
     agent: agent.agent,
     timers: scheduler.timers,
-    autoStart: false,
+    // 与 settings.enabled 同源：否则 bootstrap 认为「没在跑」而 runtime 认为「在跑」，
+    // 清理器/轮询的起停判据会分裂（enabled:false 的用例必须两边都不启动）
+    autoStart: overrides.enabled ?? true,
     staggerMs: 0,
+    // 保留期清理挂进同一套假时钟：不真等 10s / 一天，也不让测试的 queued 计数被它污染
+    retention: { firstDelayMs: RETENTION_FIRST_DELAY_MS, intervalMs: RETENTION_INTERVAL_MS },
   })
 
   // 建立监控会话（watching + autoReply）—— 生产环境由用户配置，这里直接铺数据
@@ -349,7 +357,9 @@ describe('M3 全链路：mock 端口 → 内存库 → mock Agent → SafetyGate
   })
 
   it('S5 同人短窗合并：同一人连发两条 @我 只生成一次回复，但上下文含两条', async () => {
-    const h = await harness({ safety: { ...DEFAULT_WELINK_SETTINGS.safety, mergeWindowSec: 300, perConvMinIntervalSec: 0 } })
+    const h = await harness({
+      safety: { ...DEFAULT_WELINK_SETTINGS.safety, mergeWindowSec: 300, perConvMinIntervalSec: 0 },
+    })
     h.port.push('G-1001', [
       { msgUid: 'u1', content: '@我 第一个问题', sentAt: '2026-09-27 14:00:00' },
       { msgUid: 'u2', content: '@我 第二个问题', sentAt: '2026-09-27 14:00:10' },
@@ -472,5 +482,38 @@ describe('M3 全链路：mock 端口 → 内存库 → mock Agent → SafetyGate
     expect(h.runtime.running()).toBe(false)
     expect(h.runtime.pipeline.running()).toBe(false)
     expect(h.runtime.poller.running()).toBe(false)
+  })
+
+  it('助手启动后保留期清理随之启动，停止后随之停止（D-1：清理不能只定义不调度）', async () => {
+    const h = await harness()
+
+    // 未启动时清理器不该在跑（避免「关了助手还在后台改数据」）
+    expect(h.runtime.retention.running()).toBe(false)
+
+    await h.runtime.start()
+    expect(h.runtime.retention.running()).toBe(true)
+
+    // 每日一次的间隔必须是 24h（不是「每轮轮询顺手删一遍」那种高频动作）
+    expect(RETENTION_INTERVAL_MS).toBe(24 * 60 * 60 * 1000)
+    // 首轮延迟正数：不抢冷启动的迁移/恢复
+    expect(RETENTION_FIRST_DELAY_MS).toBeGreaterThan(0)
+
+    h.runtime.stop()
+    expect(h.runtime.retention.running()).toBe(false)
+  })
+
+  it('总开关关闭时不起清理（用户没在采集数据，后台不该动库）', async () => {
+    const h = await harness({ enabled: false })
+    await h.runtime.start()
+    expect(h.runtime.retention.running()).toBe(false)
+  })
+
+  it('purgeNow 暴露给 UI：与每日自动轮次共用 single-flight（连点不会并发删）', async () => {
+    const h = await harness()
+    const [a, b] = await Promise.all([h.runtime.purgeNow(), h.runtime.purgeNow()])
+    // 空库下两批都是 0，重点是两次调用指向同一次执行结果
+    expect(a).toEqual(b)
+    expect(a.messages).toBe(0)
+    expect(a.agentLogs).toBe(0)
   })
 })

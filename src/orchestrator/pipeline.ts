@@ -31,7 +31,7 @@
  */
 import type { AgentClient, AgentCallRecord } from '@/infra/agent'
 import { AgentError } from '@/infra/agent'
-import { renderPrompt } from '@/infra/agent/prompt'
+import { renderPrompt, sanitizeReply } from '@/infra/agent/prompt'
 import type { WelinkPort } from '@/infra/welink'
 import type { WelinkRepository } from '@/infra/db'
 import type { WelinkJob, WelinkSettings } from '@/types/welink'
@@ -241,11 +241,24 @@ export function createPipeline(options: PipelineOptions): Pipeline {
     }
 
     // 要点3：draft 与 status='ready' 同一条 UPDATE（commitDraft）
-    const committed = await options.repo.commitDraft(jobPk, draft, prompt)
+    //
+    // 清洗必须在**落库之前**（D-2）：模型常带包裹痕迹（``` 代码块、`回复：` 前缀、
+    // 整体引号），若原样落库，群里看到的会是「```」而不是一句话。清洗放在这里而不是
+    // mock 内部，是因为 mock 只是调试替身 —— 真实内网模型同样会输出这些痕迹，
+    // 清洗必须作用于**所有**生成路径。
+    //
+    // 顺序要求：先 sanitize 再落库，于是 S6 的长度校验（Gate 里 `draftProblem`）
+    // 判的是清洗后的文本 —— 否则「包裹了一堆 ``` 的超长输出」会被清洗后变短，
+    // 出现「库里合规、实际外发超长」的错位。
+    const cleaned = sanitizeReply(draft)
+    const committed = await options.repo.commitDraft(jobPk, cleaned, prompt)
     if (!committed) {
       // 并发下已被别的 worker 接管 —— 不重复入队，避免双发
       logger.warn(`草稿提交未生效（job ${jobPk}），可能已被其他 worker 处理`)
       return
+    }
+    if (cleaned !== draft) {
+      logger.info(`草稿已清洗模型包裹痕迹（job ${jobPk}：${draft.length} → ${cleaned.length} 字）`)
     }
     emitStatus(jobPk, 'discussing', 'ready', '草稿已生成')
     sendQueue.push(jobPk)
@@ -496,10 +509,13 @@ export function createPipeline(options: PipelineOptions): Pipeline {
       if (delayMs > 0) return
       timers.clear(flushTimer)
     }
-    flushTimer = timers.set(() => {
-      flushTimer = null
-      void flush()
-    }, Math.max(0, delayMs))
+    flushTimer = timers.set(
+      () => {
+        flushTimer = null
+        void flush()
+      },
+      Math.max(0, delayMs),
+    )
   }
 
   /**
@@ -519,18 +535,22 @@ export function createPipeline(options: PipelineOptions): Pipeline {
   function scheduleRetry(delayMs = retryDelayMs) {
     if (!running) return
     if (retryTimer !== null) return
-    retryTimer = timers.set(() => {
-      retryTimer = null
-      while (retryGenerate.length) generateQueue.push(retryGenerate.shift()!)
-      // 多个任务在同一根定时器上汇聚时，按**最先到点**的那个排下一次（各自倍数已算过，
-      // 这里取最小值是为保守；实际生产里同一时刻很少有两个生成任务同时进重试）
-      if (retryGenerate.length) {
-        let soonest = GENERATE_RETRY_MS
-        for (const pk of retryGenerate) soonest = Math.min(soonest, GENERATE_RETRY_MS * 2 ** (generateRetries.get(pk) ?? 0))
-        scheduleRetry(soonest)
-      }
-      void flush()
-    }, Math.max(0, delayMs))
+    retryTimer = timers.set(
+      () => {
+        retryTimer = null
+        while (retryGenerate.length) generateQueue.push(retryGenerate.shift()!)
+        // 多个任务在同一根定时器上汇聚时，按**最先到点**的那个排下一次（各自倍数已算过，
+        // 这里取最小值是为保守；实际生产里同一时刻很少有两个生成任务同时进重试）
+        if (retryGenerate.length) {
+          let soonest = GENERATE_RETRY_MS
+          for (const pk of retryGenerate)
+            soonest = Math.min(soonest, GENERATE_RETRY_MS * 2 ** (generateRetries.get(pk) ?? 0))
+          scheduleRetry(soonest)
+        }
+        void flush()
+      },
+      Math.max(0, delayMs),
+    )
   }
 
   return {

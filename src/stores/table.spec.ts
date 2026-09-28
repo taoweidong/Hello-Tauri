@@ -10,9 +10,33 @@ import type { TableRow, TableRowDraft } from '@/types'
 
 function seedRows(): TableRow[] {
   return [
-    { id: 3, name: '离线报表任务', category: '数据服务', status: 'inactive', amount: 7400, owner: '王强', createdAt: '2026-02-03' },
-    { id: 2, name: '订单查询服务', category: '业务应用', status: 'active', amount: 35600, owner: '李娜', createdAt: '2026-01-22' },
-    { id: 1, name: '日志采集网关', category: '基础设施', status: 'active', amount: 12800, owner: '张伟', createdAt: '2026-01-08' },
+    {
+      id: 3,
+      name: '离线报表任务',
+      category: '数据服务',
+      status: 'inactive',
+      amount: 7400,
+      owner: '王强',
+      createdAt: '2026-02-03',
+    },
+    {
+      id: 2,
+      name: '订单查询服务',
+      category: '业务应用',
+      status: 'active',
+      amount: 35600,
+      owner: '李娜',
+      createdAt: '2026-01-22',
+    },
+    {
+      id: 1,
+      name: '日志采集网关',
+      category: '基础设施',
+      status: 'active',
+      amount: 12800,
+      owner: '张伟',
+      createdAt: '2026-01-08',
+    },
   ]
 }
 
@@ -22,9 +46,33 @@ const { fakeBackend, resetRows } = vi.hoisted(() => {
   let backendRows: import('@/types').TableRow[] = []
   const init = () => {
     backendRows = [
-      { id: 3, name: '离线报表任务', category: '数据服务', status: 'inactive', amount: 7400, owner: '王强', createdAt: '2026-02-03' },
-      { id: 2, name: '订单查询服务', category: '业务应用', status: 'active', amount: 35600, owner: '李娜', createdAt: '2026-01-22' },
-      { id: 1, name: '日志采集网关', category: '基础设施', status: 'active', amount: 12800, owner: '张伟', createdAt: '2026-01-08' },
+      {
+        id: 3,
+        name: '离线报表任务',
+        category: '数据服务',
+        status: 'inactive',
+        amount: 7400,
+        owner: '王强',
+        createdAt: '2026-02-03',
+      },
+      {
+        id: 2,
+        name: '订单查询服务',
+        category: '业务应用',
+        status: 'active',
+        amount: 35600,
+        owner: '李娜',
+        createdAt: '2026-01-22',
+      },
+      {
+        id: 1,
+        name: '日志采集网关',
+        category: '基础设施',
+        status: 'active',
+        amount: 12800,
+        owner: '张伟',
+        createdAt: '2026-01-08',
+      },
     ]
   }
   init()
@@ -141,7 +189,13 @@ describe('table store（后端注入假件）', () => {
   })
 
   describe('CRUD 走后端且更新本地状态', () => {
-    const draft: TableRowDraft = { name: '新项目', category: '数据服务', status: 'active', amount: 100, owner: '测试员' }
+    const draft: TableRowDraft = {
+      name: '新项目',
+      category: '数据服务',
+      status: 'active',
+      amount: 100,
+      owner: '测试员',
+    }
 
     it('create 调后端 insert、行插到队首、重置页码', async () => {
       const store = useTableStore()

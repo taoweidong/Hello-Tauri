@@ -29,18 +29,34 @@ import {
   type WelinkSettings,
 } from '@/types/welink'
 import { logger, onLog } from '@/utils/logger'
+import { planPollRound, POLL_STAGGER_MS, type PollRoundPlan } from '@/utils/poll'
 import { nowStamp, today } from '@/utils/time'
 import type { ConversationState, PollSummary, SafetySnapshot, WelinkEvent } from '@/orchestrator/events'
 import { emptySummary } from '@/orchestrator/events'
 import { createWelinkRuntime, type WelinkRuntime } from '@/orchestrator/runtime'
 import type { BootstrapReport } from '@/orchestrator/bootstrap'
-import { HOLD_REASON_LABEL, JOB_STATUS_LABEL, SKIP_REASON_LABEL } from '@/infra/db/ports'
+import { CONVERSATION_PAGE_LIMIT, HOLD_REASON_LABEL, JOB_STATUS_LABEL, SKIP_REASON_LABEL } from '@/infra/db/ports'
 
 /** 运行状态灯（§11.0） */
 export type RuntimeStatus = 'idle' | 'init' | 'running' | 'backoff' | 'stopped' | 'panic'
 
 /** 日志旁路只订阅一次（模块级，避免 store 重建时重复叠加订阅） */
 let logUnsubscribe: (() => void) | null = null
+
+/**
+ * 退订日志旁路（D-9）。
+ *
+ * 为什么需要：模块级单例 + `if (!logUnsubscribe)` 守卫使得**重复订阅不会发生**，
+ * 但「声明了退订函数却永不调用」是一句没兑现的承诺 —— 将来若把 store 改成
+ * 非单例（如多实例/热重载场景），它会立刻变成一个真实的引用泄漏。
+ *
+ * 调用时机：页面卸载（`WeLinkView.onUnmounted`）与测试的 `afterEach`。
+ * 注意退订后**不能**清 `logs`：日志是用户的诊断信息，卸载页面不该抹掉它。
+ */
+export function unsubscribeWelinkLogs(): void {
+  logUnsubscribe?.()
+  logUnsubscribe = null
+}
 
 export const useWelinkStore = defineStore('welink', () => {
   // ---------------- 配置 ----------------
@@ -72,6 +88,15 @@ export const useWelinkStore = defineStore('welink', () => {
 
   // ---------------- 数据视图（增量维护） ----------------
   const conversations = ref<WelinkConversation[]>([])
+  /**
+   * 会话清单是否已装载过。
+   *
+   * 为什么需要这个标志：`conversations` 初值是 `[]`，而「装载过但没有监控会话」
+   * 与「压根没装载」在数据上完全同形。设置页的轮询周期提示必须区分这两者 ——
+   * 否则用户从未打开助手页时，页面会振振有词地写「当前 0 个监控会话」，
+   * 这是**错话**而不是空话（D-6 的提示若不可信，比不提示更坏）。
+   */
+  const conversationsLoaded = ref(false)
   const convoStates = ref<Record<string, ConversationState>>({})
   /** 当前选中会话的消息时间线（增量 append） */
   const messages = ref<WelinkMessage[]>([])
@@ -96,7 +121,9 @@ export const useWelinkStore = defineStore('welink', () => {
           const known = new Set(messages.value.map((item) => item.msgUid))
           const fresh = event.messages.filter((item) => !known.has(item.msgUid))
           if (fresh.length) {
-            messages.value = [...messages.value, ...fresh].sort((a, b) => (a.sentAt === b.sentAt ? a.pk - b.pk : a.sentAt < b.sentAt ? -1 : 1))
+            messages.value = [...messages.value, ...fresh].sort((a, b) =>
+              a.sentAt === b.sentAt ? a.pk - b.pk : a.sentAt < b.sentAt ? -1 : 1,
+            )
           }
         }
         patchConversationFromMessages(event.convId, event.messages)
@@ -194,7 +221,9 @@ export const useWelinkStore = defineStore('welink', () => {
     const open: JobStatus[] = ['pending', 'discussing', 'ready', 'sending', 'failed']
     const list = convJobs.value.filter((item) => item.pk !== job.pk)
     if (open.includes(job.status)) list.push({ ...job })
-    convJobs.value = list.sort((a, b) => (a.createdAt === b.createdAt ? a.pk - b.pk : a.createdAt < b.createdAt ? -1 : 1))
+    convJobs.value = list.sort((a, b) =>
+      a.createdAt === b.createdAt ? a.pk - b.pk : a.createdAt < b.createdAt ? -1 : 1,
+    )
   }
 
   function updateRuntimeStatus() {
@@ -377,7 +406,21 @@ export const useWelinkStore = defineStore('welink', () => {
   // ---------------- 查询 ----------------
 
   async function loadConversations() {
-    conversations.value = await repo().listConversations(500, 0)
+    conversations.value = await repo().listConversations(CONVERSATION_PAGE_LIMIT, 0)
+    conversationsLoaded.value = true
+    // 超限不能静默（D-5）：此前这里硬编码 500，超过就**悄悄少一批** ——
+    // 表现为「某个群怎么都不出现在列表里」，而用户完全看不出是分页截断。
+    // 现在总表计数与返回条数一比，超限就明确告警（仍不自动翻页：会话列表是
+    // 人工维护的白名单，量级到 500 时更该让用户看见而不是替它翻页）。
+    if (conversations.value.length >= CONVERSATION_PAGE_LIMIT) {
+      const total = await repo().countConversations()
+      if (total > conversations.value.length) {
+        logger.warn(
+          `WeLink：会话列表已达上限（显示 ${conversations.value.length} / 共 ${total} 个），` +
+            `超出部分未展示 —— 建议清理不再需要的会话`,
+        )
+      }
+    }
     if (runtime) {
       const next: Record<string, ConversationState> = { ...convoStates.value }
       for (const conv of conversations.value) next[conv.convId] = runtime.poller.conversationState(conv.convId)
@@ -432,9 +475,9 @@ export const useWelinkStore = defineStore('welink', () => {
     conversations.value = [...conversations.value]
     messages.value = await repo().listMessages({ convPk: conv.pk, limit })
     hasMoreMessages.value = messages.value.length >= limit
-    convJobs.value = (await repo().listJobsByStatus(['pending', 'discussing', 'ready', 'sending', 'failed'], 200)).filter(
-      (job) => job.targetId === convId,
-    )
+    convJobs.value = (
+      await repo().listJobsByStatus(['pending', 'discussing', 'ready', 'sending', 'failed'], 200)
+    ).filter((job) => job.targetId === convId)
     for (const job of convJobs.value) jobIndex.value.set(job.pk, job)
     jobIndex.value = new Map(jobIndex.value)
   }
@@ -481,7 +524,9 @@ export const useWelinkStore = defineStore('welink', () => {
    * 「默认不监控、不回复」，勾 watch 只是省一次点击，autoReply 一律保持关）。
    * 已有项只更新 title，绝不覆盖 watching / autoReply / remark。
    */
-  async function syncConversations(watchIds: string[] = []): Promise<{ imported: number; watched: number; skipped: number }> {
+  async function syncConversations(
+    watchIds: string[] = [],
+  ): Promise<{ imported: number; watched: number; skipped: number }> {
     const active = await ensureRuntime()
     // 候选清单来自端口（真实 CLI / mock），导入到库；已有项不覆盖 watching/auto_reply
     const candidates = await active.port().listConversations()
@@ -502,7 +547,10 @@ export const useWelinkStore = defineStore('welink', () => {
     }
     await loadConversations()
     runtime?.poller.refreshConversations()
-    pushLog('info', `同步会话完成：新增 ${imported} 个（默认不监控、不回复）${watched ? `，其中 ${watched} 个已勾选监控` : ''}`)
+    pushLog(
+      'info',
+      `同步会话完成：新增 ${imported} 个（默认不监控、不回复）${watched ? `，其中 ${watched} 个已勾选监控` : ''}`,
+    )
     return { imported, watched, skipped: candidates.length - imported }
   }
 
@@ -681,7 +729,53 @@ export const useWelinkStore = defineStore('welink', () => {
       .sort((a, b) => (a.lastMsgAt === b.lastMsgAt ? b.pk - a.pk : a.lastMsgAt < b.lastMsgAt ? 1 : -1)),
   )
 
-  const selectedConversation = computed(() => conversations.value.find((item) => item.convId === selectedConvId.value) ?? null)
+  const selectedConversation = computed(
+    () => conversations.value.find((item) => item.convId === selectedConvId.value) ?? null,
+  )
+
+  /**
+   * 本轮轮询节奏预估（D-6）。
+   *
+   * 为什么由 store 派生而不是让设置页自己算：设置页只持有配置草稿，看不到
+   * 「监控中的会话数」与「实际错峰」；而这两个数是「实际周期」的全部输入。
+   * 放在这里 = 配置 + 运行时数据在唯一一处汇合，页面拿到的是**同一个数**。
+   *
+   * 三种数据来源（按可信度递减）：
+   *  1. 已跑过一轮 → 用 `poller.currentStaggerMs()` 的**实测值**（最可信）；
+   *  2. 装过会话清单 → 按监控数**预估**（`planPollRound`）；
+   *  3. 都没装载（用户直接进设置页，没开过助手页）→ `known: false`，
+   *     UI 不能显示「0 个会话」这种错话，只能提示「先打开助手页」或按 1 个估算。
+   */
+  function pollPlan(intervalSec?: number): PollRoundPlan & { known: boolean } {
+    const sec = intervalSec ?? settings.value.pollIntervalSec
+    const count = watchingConversations.value.length
+    // 未装载且没有实测值 → 会话数不可知，不要用 0 冒充
+    const known = conversationsLoaded.value || runtime?.poller.currentStaggerMs() != null
+    const plan = planPollRound({ intervalSec: sec, conversationCount: count })
+    if (!known)
+      return {
+        ...plan,
+        conversationCount: 0,
+        staggerMs: 0,
+        staggerTotalMs: 0,
+        periodMs: sec * 1000,
+        converged: false,
+        known: false,
+      }
+
+    const actualStagger = runtime?.poller.currentStaggerMs() ?? null
+    if (actualStagger === null) return { ...plan, known: true }
+    const staggerTotalMs = Math.max(0, plan.conversationCount - 1) * actualStagger
+    return {
+      ...plan,
+      staggerMs: actualStagger,
+      staggerTotalMs,
+      roundMs: staggerTotalMs,
+      periodMs: Math.max(0, sec) * 1000 + staggerTotalMs,
+      converged: plan.conversationCount > 1 && actualStagger < POLL_STAGGER_MS,
+      known: true,
+    }
+  }
 
   /** 未读总数（侧栏角标） */
   const unreadTotal = computed(() => conversations.value.reduce((sum, item) => sum + item.unreadCount, 0))
@@ -759,6 +853,8 @@ export const useWelinkStore = defineStore('welink', () => {
     hasMoreMessages,
     reviewCount,
     unreadTotal,
+    /** 轮询节奏预估（D-6：设置页如实显示实际周期） */
+    pollPlan,
     // 生命周期
     init,
     applySettings,

@@ -20,6 +20,7 @@ import { createBootstrap, type Bootstrap, type BootstrapReport } from './bootstr
 import type { EventSink } from './events'
 import { createPipeline, type Pipeline } from './pipeline'
 import { createPoller, type Poller } from './poller'
+import { createRetention, type Retention, type RetentionReport } from './retention'
 import { createSafetyGate, type SafetyGate } from './safety-gate'
 import type { TimerApi } from './timers'
 
@@ -36,6 +37,8 @@ export interface WelinkRuntimeOptions {
   autoStart?: boolean
   /** 轮询会话间错峰（测试传 0） */
   staggerMs?: number
+  /** 保留期清理的首轮延迟与间隔（测试传小值；生产用默认的每日一次） */
+  retention?: { firstDelayMs?: number; intervalMs?: number }
 }
 
 export interface WelinkRuntime {
@@ -44,6 +47,8 @@ export interface WelinkRuntime {
   poller: Poller
   pipeline: Pipeline
   bootstrap: Bootstrap
+  /** 保留期清理器（每日一次；手动触发与上次结果供监控页用） */
+  retention: Retention
   /** 端口实例（演示剧本 / 来源徽标用） */
   port(): WelinkPort
   agent(): AgentClient
@@ -53,6 +58,8 @@ export interface WelinkRuntime {
   stop(): void
   /** 立即拉取（与自动轮询共用 in-flight 锁） */
   pullNow(): Promise<import('./events').PollSummary>
+  /** 立即执行一轮保留期清理（与每日自动轮次共用 single-flight） */
+  purgeNow(): Promise<RetentionReport>
   /** 窗口可见性（P9）：隐藏时轮询间隔 ×3 */
   setVisible(visible: boolean): void
   /** 配置热更新（改设置后调用） */
@@ -135,6 +142,24 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
     autoStart: options.autoStart ?? currentSettings.enabled,
   })
 
+  /**
+   * 保留期清理（D-1 + S-4）。
+   *
+   * 挂在这里而不是 bootstrap 里：bootstrap 的语义是「**一次性**启动恢复」，
+   * 而清理是**周期性**动作，生命周期跟随 runtime 的 start/stop。混进 bootstrap
+   * 会让「重启一次只恢复一次」这条不变量变得含糊。
+   *
+   * start 时机：只有助手真正在跑（`runsScheduler`）才起清理 —— 总开关关闭时
+   * 用户没在采集数据，后台不需要动库（也避免「关了助手还在改数据」的困惑）。
+   */
+  const retention = createRetention({
+    repo,
+    timers: options.timers,
+    now: options.now,
+    firstDelayMs: options.retention?.firstDelayMs,
+    intervalMs: options.retention?.intervalMs,
+  })
+
   let started = false
 
   return {
@@ -143,6 +168,7 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
     poller,
     pipeline,
     bootstrap,
+    retention,
 
     port() {
       return resolvePort(currentSettings)
@@ -157,19 +183,26 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
       gate.reload(currentSettings)
       const report = await bootstrap.run()
       started = currentSettings.enabled
+      if (started) retention.start()
       return report
     },
 
     stop() {
       // 停的顺序与启动相反：先断生产（轮询）再断消费（管线），
-      // 避免停止瞬间还有新任务入队却没人处理。
+      // 避免停止瞬间还有新任务入队却没人处理。清理器最后停：它不产生任务，
+      // 但会改数据，等采集与处理都安静下来再收尾最安全。
       poller.stop()
       pipeline.stop()
+      retention.stop()
       started = false
     },
 
     pullNow() {
       return poller.pullNow()
+    },
+
+    purgeNow() {
+      return retention.runOnce()
     },
 
     setVisible(visible) {

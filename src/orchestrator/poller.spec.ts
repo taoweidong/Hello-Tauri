@@ -141,24 +141,26 @@ interface Harness {
   clockAdvance: (ms: number) => void
 }
 
-function harness(config: {
-  conversations?: WelinkConversation[]
-  settings?: Partial<WelinkSettings>
-  pull?: (conv: WelinkConversation, after: string, limit: number) => Promise<PullResult>
-  staggerMs?: number
-  startedAt?: string
-  /**
-   * 是否每次 `listWatching()` 返回浅拷贝。
-   *
-   * 默认为 **true**：分级轮询的用例需要**稳定的夹具**。因为 poller 在拉到新数据后
-   * 会回写 `conv.lastActive = nowStamp(now())`（这是有意的：会话有新数据就立刻变热），
-   * 若沿用同一对象，「温会话第 2 轮应被跳过」这类断言会因为会话被上一轮焐热而失效。
-   *
-   * 想模拟「真实仓储每轮重新读库、能读到最新的 last_active」时显式传 false ——
-   * 见「本会话拉到新数据后立刻变热」用例。
-   */
-  cloneConversations?: boolean
-} = {}): Harness {
+function harness(
+  config: {
+    conversations?: WelinkConversation[]
+    settings?: Partial<WelinkSettings>
+    pull?: (conv: WelinkConversation, after: string, limit: number) => Promise<PullResult>
+    staggerMs?: number
+    startedAt?: string
+    /**
+     * 是否每次 `listWatching()` 返回浅拷贝。
+     *
+     * 默认为 **true**：分级轮询的用例需要**稳定的夹具**。因为 poller 在拉到新数据后
+     * 会回写 `conv.lastActive = nowStamp(now())`（这是有意的：会话有新数据就立刻变热），
+     * 若沿用同一对象，「温会话第 2 轮应被跳过」这类断言会因为会话被上一轮焐热而失效。
+     *
+     * 想模拟「真实仓储每轮重新读库、能读到最新的 last_active」时显式传 false ——
+     * 见「本会话拉到新数据后立刻变热」用例。
+     */
+    cloneConversations?: boolean
+  } = {},
+): Harness {
   const scheduler = createScheduler()
   const events: WelinkEvent[] = []
   const emit: EventSink = (event) => events.push(event)
@@ -220,7 +222,9 @@ const summaries = (events: WelinkEvent[]): PollSummary[] =>
   events.filter((event) => event.type === 'roundFinished').map((event) => (event as { summary: PollSummary }).summary)
 
 const convStates = (events: WelinkEvent[]): ConversationState[] =>
-  events.filter((event) => event.type === 'conversationState').map((event) => (event as { state: ConversationState }).state)
+  events
+    .filter((event) => event.type === 'conversationState')
+    .map((event) => (event as { state: ConversationState }).state)
 
 /**
  * 驱动「自动轮询」跑 n 轮。
@@ -388,7 +392,9 @@ describe('orchestrator/poller —— setTimeout 链（不是 setInterval）', ()
     const h = harness()
     await h.poller.pullNow()
     await h.poller.pullNow()
-    const rounds = h.events.filter((event) => event.type === 'roundStarted').map((event) => (event as { round: number }).round)
+    const rounds = h.events
+      .filter((event) => event.type === 'roundStarted')
+      .map((event) => (event as { round: number }).round)
     expect(rounds).toEqual([1, 2])
     expect(h.events.filter((event) => event.type === 'roundFinished')).toHaveLength(2)
     expect(h.poller.round()).toBe(2)
@@ -501,15 +507,15 @@ describe('orchestrator/poller —— 退避序列（BACKOFF_STEPS）', () => {
 // ---------------------------------------------------------------- 分级轮询 O2
 
 describe('orchestrator/poller —— 分级轮询（O2）', () => {
-const nowMs = parseStamp('2026-09-27 14:00:00')!.getTime()
-/**
- * 「距今 ms 毫秒前」的本地时间戳。
- *
- * 必须用项目自己的 `nowStamp`（本地时间）而不是 `toISOString()`（**UTC**）——
- * 这正是 `utils/time.ts` 开头警告过的坑：东八区下 `toISOString()` 会差 8 小时，
- * 于是「29 分钟前」会被算成 8.5 小时前，分级轮询的断言全部失真（本文件踩过）。
- */
-const ago = (ms: number) => nowStamp(new Date(nowMs - ms))
+  const nowMs = parseStamp('2026-09-27 14:00:00')!.getTime()
+  /**
+   * 「距今 ms 毫秒前」的本地时间戳。
+   *
+   * 必须用项目自己的 `nowStamp`（本地时间）而不是 `toISOString()`（**UTC**）——
+   * 这正是 `utils/time.ts` 开头警告过的坑：东八区下 `toISOString()` 会差 8 小时，
+   * 于是「29 分钟前」会被算成 8.5 小时前，分级轮询的断言全部失真（本文件踩过）。
+   */
+  const ago = (ms: number) => nowStamp(new Date(nowMs - ms))
 
   it('从未有消息的会话视为热（首次导入必须立刻拉到数据）', async () => {
     const h = harness({ conversations: [conversation({ lastActive: '' })] })
@@ -596,6 +602,92 @@ const ago = (ms: number) => nowStamp(new Date(nowMs - ms))
     })
     await h.poller.pullNow()
     expect(h.pullMock).toHaveBeenCalledTimes(2)
+  })
+
+  /**
+   * D-6：`staggerMs` 现在是**上限**而不是定值。
+   *
+   * 会话多到「每会话满配 × (N-1)」会淹没一轮间隔时，必须向间隔收敛 ——
+   * 否则用户把 `pollIntervalSec` 调到 3s 也感知不到，会误以为开关坏了。
+   */
+  it('**会话多时错峰自动收敛**（不再固定 2s）', async () => {
+    // 6 个会话 + 5s 间隔 → 预算 5000/5 = 1000ms → 收敛到 1000（配置是 2000）
+    const h = harness({
+      conversations: Array.from({ length: 6 }, (_, index) => conversation({ convId: `G-${index + 1}`, pk: index + 1 })),
+      settings: { pollIntervalSec: 5 },
+      staggerMs: 2000,
+    })
+    const pending = h.poller.pullNow()
+    await settle()
+    expect(h.pullMock).toHaveBeenCalledTimes(1)
+    // 收敛后是 1000ms 而不是配置的 2000ms
+    h.scheduler.advance(999)
+    await settle()
+    expect(h.pullMock).toHaveBeenCalledTimes(1)
+    h.scheduler.advance(1)
+    await settle()
+    expect(h.pullMock).toHaveBeenCalledTimes(2)
+    // 剩余会话继续按 1000ms 推进（4 次退让 + 最后一批）
+    for (let index = 0; index < 5; index += 1) {
+      h.scheduler.advance(1000)
+      await settle()
+    }
+    await pending
+    expect(h.pullMock).toHaveBeenCalledTimes(6)
+  })
+
+  it('**按实际拉取数收敛**（分级轮询跳过冷会话后不白留空隙）', async () => {
+    /**
+     * 3 个监控会话：1 个热 + 2 个冷。
+     *
+     * 冷会话的判定是 `roundNo % COLD_EVERY === 1`（即 1、7、13… 轮），
+     * 所以第 1 轮全都拉（错峰按 3 个算），第 2 轮只剩热会话（错峰按 1 个算 = 0）。
+     * 这正是 D-6 要求「按实际拉取数收敛」的场景：若按监控总数 3 收敛，
+     * 第 2 轮会白留两个空隙。
+     */
+    const h = harness({
+      conversations: [
+        conversation({ convId: 'HOT', lastActive: '2026-09-27 13:59:00' }),
+        conversation({ convId: 'COLD-1', pk: 2, lastActive: '2026-09-01 00:00:00' }),
+        conversation({ convId: 'COLD-2', pk: 3, lastActive: '2026-09-01 00:00:00' }),
+      ],
+      settings: { pollIntervalSec: 5 },
+      staggerMs: 2000,
+      startedAt: '2026-09-27 14:00:00',
+    })
+    h.poller.start() // 第 1 轮：3 个会话都拉 → 错峰 2000（预算 5000/2 > 2000）
+    await settle()
+    h.scheduler.advance(2000)
+    await settle()
+    h.scheduler.advance(2000)
+    await settle()
+    expect(summaries(h.events)).toHaveLength(1)
+    expect(summaries(h.events)[0]).toMatchObject({ conversations: 3, polled: 3 })
+    expect(h.poller.currentStaggerMs()).toBe(2000)
+
+    await autoRounds(h, 1) // 第 2 轮：只有热会话该拉
+    const second = summaries(h.events)[1]
+    expect(second).toMatchObject({ conversations: 3, polled: 1 })
+    // 单会话无错峰（没有「之间」可言）—— 按监控总数算的话这里会是 2000
+    expect(h.poller.currentStaggerMs()).toBe(0)
+  })
+
+  it('currentStaggerMs 未跑过时为 null（UI 据此区分「预估」与「实测」）', () => {
+    const h = harness()
+    expect(h.poller.currentStaggerMs()).toBeNull()
+  })
+
+  it('currentStaggerMs 在一轮之后回填实际值（设置页显示的是真的）', async () => {
+    const h = harness({
+      conversations: [conversation({ convId: 'G-1' }), conversation({ convId: 'G-2', pk: 2 })],
+      settings: { pollIntervalSec: 5 },
+      staggerMs: 2000,
+    })
+    const pending = h.poller.pullNow()
+    await settle()
+    h.scheduler.advance(2000)
+    await pending
+    expect(h.poller.currentStaggerMs()).toBe(2000)
   })
 })
 

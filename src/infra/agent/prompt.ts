@@ -34,12 +34,8 @@ export function formatContextLine(message: WelinkMessage): string {
 
 /** 渲染完整提示词（纯函数，便于单测逐项断言） */
 export function renderPrompt(input: PromptInput): string {
-  const context = input.context.length
-    ? input.context.map(formatContextLine).join('\n')
-    : '（暂无历史消息）'
-  const question = input.trigger
-    ? input.trigger.content
-    : '（未取到触发消息，请基于最近对话给出回应）'
+  const context = input.context.length ? input.context.map(formatContextLine).join('\n') : '（暂无历史消息）'
+  const question = input.trigger ? input.trigger.content : '（未取到触发消息，请基于最近对话给出回应）'
   const sender = input.trigger?.senderName || input.trigger?.senderId || '对方'
   const target = input.target?.remark
     ? `${input.target.title}（${input.target.remark}）`

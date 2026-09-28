@@ -46,9 +46,9 @@ describe('orchestrator/triggers —— §7.1 触发规则', () => {
     })
 
     it('私聊消息（有 watching）→ private', () => {
-      expect(
-        matchTrigger(msg({ convType: 'private', convId: 'E-2001', atMe: false, content: '在吗' }), settings),
-      ).toBe('private')
+      expect(matchTrigger(msg({ convType: 'private', convId: 'E-2001', atMe: false, content: '在吗' }), settings)).toBe(
+        'private',
+      )
     })
 
     it('私聊即使未 @我 也触发（私聊天然指向本人）', () => {
@@ -95,14 +95,12 @@ describe('orchestrator/triggers —— §7.1 触发规则', () => {
   })
 
   describe('isAtAll —— @所有人 文本兜底检测', () => {
-    it.each([
-      '@所有人 下午三点例会',
-      '@全体成员 注意',
-      '@All please review',
-      '@  所有人（中间有空格）',
-    ])('识别「%s」', (content) => {
-      expect(isAtAll(content)).toBe(true)
-    })
+    it.each(['@所有人 下午三点例会', '@全体成员 注意', '@All please review', '@  所有人（中间有空格）'])(
+      '识别「%s」',
+      (content) => {
+        expect(isAtAll(content)).toBe(true)
+      },
+    )
 
     it.each(['@你 看一下', '@赵敏 收到', '所有人事已毕'])('普通文本「%s」不算 @所有人', (content) => {
       expect(isAtAll(content)).toBe(false)

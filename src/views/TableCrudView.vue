@@ -10,6 +10,7 @@ import { csvFileName, downloadCsv, exportRecordsCsv } from '@/repositories/csv'
 import { platform } from '@/api'
 import { logger } from '@/utils/logger'
 import type { TableRow, TableRowDraft } from '@/types'
+import { rowOf } from '@/utils/table'
 
 const appStore = useAppStore()
 const tableStore = useTableStore()
@@ -104,11 +105,12 @@ async function submit() {
 }
 
 async function removeOne(row: TableRow) {
-  const confirmed = await ElMessageBox.confirm(
-    `「${row.name}」将被删除，此操作不可撤销。`,
-    '删除记录',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' },
-  ).catch(() => false)
+  const confirmed = await ElMessageBox.confirm(`「${row.name}」将被删除，此操作不可撤销。`, '删除记录', {
+    type: 'warning',
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    confirmButtonClass: 'el-button--danger',
+  }).catch(() => false)
   if (confirmed === false) return
   try {
     await tableStore.remove([row.id])
@@ -126,7 +128,12 @@ async function removeSelected() {
   const confirmed = await ElMessageBox.confirm(
     `已选 ${selectedRows.value.length} 条记录，删除后不可撤销。`,
     '批量删除',
-    { type: 'warning', confirmButtonText: `删除 ${selectedRows.value.length} 条`, cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' },
+    {
+      type: 'warning',
+      confirmButtonText: `删除 ${selectedRows.value.length} 条`,
+      cancelButtonText: '取消',
+      confirmButtonClass: 'el-button--danger',
+    },
   ).catch(() => false)
   if (confirmed === false) return
   try {
@@ -139,11 +146,11 @@ async function removeSelected() {
 }
 
 async function resetData() {
-  const confirmed = await ElMessageBox.confirm(
-    '将恢复为初始示例数据，当前修改会全部丢失。',
-    '恢复示例数据',
-    { type: 'warning', confirmButtonText: '恢复', cancelButtonText: '取消' },
-  ).catch(() => false)
+  const confirmed = await ElMessageBox.confirm('将恢复为初始示例数据，当前修改会全部丢失。', '恢复示例数据', {
+    type: 'warning',
+    confirmButtonText: '恢复',
+    cancelButtonText: '取消',
+  }).catch(() => false)
   if (confirmed === false) return
   try {
     await tableStore.resetSeed()
@@ -156,6 +163,18 @@ async function resetData() {
 
 function onSelectionChange(rows: TableRow[]) {
   selectedRows.value = rows
+}
+
+/**
+ * 停用行置灰（R-2：替掉此前的 `({ row }: any)` 类型逃逸）。
+ *
+ * 为什么抽成具名函数而不是内联箭头：`row-class-name` 的签名由 Element Plus
+ * 定义（`({ row, rowIndex }) => string`），内联写法要么依赖隐式 any（strict 下
+ * 报错），要么在模板里写类型注解（SFC 模板支持度差）。抽出来后参数类型可显式
+ * 标注为 `TableRow` —— 行数据的真值类型，与 `:data` 的来源同源。
+ */
+function dimInactiveRow({ row }: { row: TableRow }): string {
+  return row.status === 'inactive' ? 'row--dim' : ''
 }
 
 function clearFilters() {
@@ -228,12 +247,14 @@ function onPageSizeChange(size: number) {
       <el-table
         :data="tableStore.paged"
         row-key="id"
-        :row-class-name="({ row }: any) => (row.status === 'inactive' ? 'row--dim' : '')"
+        :row-class-name="dimInactiveRow"
         @selection-change="onSelectionChange"
       >
         <el-table-column type="selection" width="40" />
         <el-table-column prop="id" label="编号" width="76" sortable>
-          <template #default="{ row }"><span class="num muted">#{{ row.id }}</span></template>
+          <template #default="{ row }"
+            ><span class="num muted">#{{ row.id }}</span></template
+          >
         </el-table-column>
         <el-table-column prop="name" label="名称" min-width="150" show-overflow-tooltip>
           <template #default="{ row }">
@@ -242,10 +263,14 @@ function onPageSizeChange(size: number) {
           </template>
         </el-table-column>
         <el-table-column prop="category" label="分类" width="104">
-          <template #default="{ row }"><span class="cell2">{{ row.category }}</span></template>
+          <template #default="{ row }"
+            ><span class="cell2">{{ row.category }}</span></template
+          >
         </el-table-column>
         <el-table-column prop="owner" label="负责人" width="92">
-          <template #default="{ row }"><span class="cell2">{{ row.owner }}</span></template>
+          <template #default="{ row }"
+            ><span class="cell2">{{ row.owner }}</span></template
+          >
         </el-table-column>
         <el-table-column label="状态" width="84">
           <template #default="{ row }">
@@ -253,16 +278,20 @@ function onPageSizeChange(size: number) {
           </template>
         </el-table-column>
         <el-table-column prop="amount" label="金额（元）" width="128" align="right" sortable>
-          <template #default="{ row }"><span class="num">{{ fmt(row.amount) }}</span></template>
+          <template #default="{ row }"
+            ><span class="num">{{ fmt(row.amount) }}</span></template
+          >
         </el-table-column>
         <el-table-column prop="createdAt" label="创建日期" width="104">
-          <template #default="{ row }"><span class="num cell2">{{ row.createdAt }}</span></template>
+          <template #default="{ row }"
+            ><span class="num cell2">{{ row.createdAt }}</span></template
+          >
         </el-table-column>
         <el-table-column label="" width="104" align="right" fixed="right">
           <template #default="{ row }">
             <span class="actions">
-              <button class="act pressable" @click="openEdit(row)">编辑</button>
-              <button class="act act--danger pressable" @click="removeOne(row)">删除</button>
+              <button class="act pressable" @click="openEdit(rowOf<TableRow>(row))">编辑</button>
+              <button class="act act--danger pressable" @click="removeOne(rowOf<TableRow>(row))">删除</button>
             </span>
           </template>
         </el-table-column>
@@ -279,7 +308,10 @@ function onPageSizeChange(size: number) {
       <!-- 分页脚 -->
       <footer class="pager">
         <span class="pager__meta num">
-          {{ tableStore.total ? (tableStore.page - 1) * tableStore.pageSize + 1 : 0 }}–{{ Math.min(tableStore.page * tableStore.pageSize, tableStore.total) }} / {{ tableStore.total }}
+          {{ tableStore.total ? (tableStore.page - 1) * tableStore.pageSize + 1 : 0 }}–{{
+            Math.min(tableStore.page * tableStore.pageSize, tableStore.total)
+          }}
+          / {{ tableStore.total }}
         </span>
         <el-pagination
           v-model:current-page="tableStore.page"
@@ -317,7 +349,14 @@ function onPageSizeChange(size: number) {
           </el-radio-group>
         </el-form-item>
         <el-form-item label="金额" prop="amount">
-          <el-input-number v-model="draft.amount" :min="0" :max="9999999" :step="100" controls-position="right" class="form__amount" />
+          <el-input-number
+            v-model="draft.amount"
+            :min="0"
+            :max="9999999"
+            :step="100"
+            controls-position="right"
+            class="form__amount"
+          />
           <span class="form__unit">元</span>
         </el-form-item>
       </el-form>

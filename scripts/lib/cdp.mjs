@@ -38,6 +38,16 @@ export async function fetchTargets(port, { timeoutMs = 30000, intervalMs = 250 }
 export async function connect(wsUrl) {
   const socket = new WebSocket(wsUrl)
   const pending = new Map()
+  /**
+   * CDP **事件**（无 `id` 的消息）按 method 分发给订阅者。
+   *
+   * 为什么必须有这条通道：CDP 的返回与事件是同一个 WebSocket 流，旧实现只处理
+   * 带 id 的返回、其余一律丢弃。于是「页面报错 / CSP 拦截」这类**只以事件形式
+   * 出现**的信息完全看不见 —— 界面看着正常，其实控制台在刷红字。
+   * 典型受害者就是 CSP：`script-src 'self'` 配错了只会让某个脚本被静默拒绝，
+   * DOM 断言可能仍然全过。
+   */
+  const listeners = new Map()
   let seq = 0
 
   socket.addEventListener('message', (event) => {
@@ -45,6 +55,11 @@ export async function connect(wsUrl) {
     try {
       message = JSON.parse(event.data)
     } catch {
+      return
+    }
+    if (message.id === undefined) {
+      const set = listeners.get(message.method)
+      if (set) for (const fn of set) fn(message.params)
       return
     }
     const resolver = pending.get(message.id)
@@ -101,10 +116,7 @@ export async function connect(wsUrl) {
       userGesture: true,
     })
     if (result.exceptionDetails) {
-      const text =
-        result.exceptionDetails.exception?.description ??
-        result.exceptionDetails.text ??
-        '页面脚本执行异常'
+      const text = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? '页面脚本执行异常'
       throw new Error(text.split('\n')[0])
     }
     return result.result?.value
@@ -113,6 +125,17 @@ export async function connect(wsUrl) {
   return {
     send,
     evaluate,
+    /**
+     * 订阅 CDP 事件，返回取消订阅函数。
+     *
+     * 与 `send` 不同，事件是**推送**的：必须在触发动作**之前**订阅，否则丢事件
+     * （CDP 不补发）。收集到的内容放在闭包里，由调用方在断言时读取。
+     */
+    on(method, handler) {
+      if (!listeners.has(method)) listeners.set(method, new Set())
+      listeners.get(method).add(handler)
+      return () => listeners.get(method)?.delete(handler)
+    },
     /** 求值并解析 JSON（页面侧 JSON.stringify 后返回，规避 returnByValue 的序列化限制） */
     async evalJson(body) {
       const raw = await evaluate(`JSON.stringify((() => { ${body} })())`)

@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { IconTable, IconRefresh, IconArrowRight, IconDatabase, IconActivity, IconUser, IconClock } from '@/components/icons'
+import {
+  IconTable,
+  IconRefresh,
+  IconArrowRight,
+  IconDatabase,
+  IconActivity,
+  IconUser,
+  IconClock,
+} from '@/components/icons'
 
 import { platform } from '@/api'
 import { useAppStore } from '@/stores/app'
@@ -27,7 +35,14 @@ const distribution = computed(() => {
 
 const ledger = computed(() => [
   { key: 'total', label: '记录总数', value: fmt(tableStore.stats.total), unit: '条', icon: IconDatabase },
-  { key: 'active', label: '启用', value: fmt(tableStore.stats.active), unit: '条', icon: IconActivity, ratio: tableStore.stats.total ? tableStore.stats.active / tableStore.stats.total : 0 },
+  {
+    key: 'active',
+    label: '启用',
+    value: fmt(tableStore.stats.active),
+    unit: '条',
+    icon: IconActivity,
+    ratio: tableStore.stats.total ? tableStore.stats.active / tableStore.stats.total : 0,
+  },
   { key: 'inactive', label: '停用', value: fmt(tableStore.stats.inactive), unit: '条', icon: IconClock },
   { key: 'amount', label: '金额合计', value: fmt(tableStore.stats.amount), unit: '元', icon: IconTable },
 ])
@@ -79,7 +94,9 @@ const infoRows = computed(() => [
         </header>
         <el-table :data="tableStore.recent" size="small" :show-header="true">
           <el-table-column prop="id" label="编号" width="70">
-            <template #default="{ row }"><span class="num muted">#{{ row.id }}</span></template>
+            <template #default="{ row }"
+              ><span class="num muted">#{{ row.id }}</span></template
+            >
           </el-table-column>
           <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip>
             <template #default="{ row }">
@@ -88,7 +105,9 @@ const infoRows = computed(() => [
             </template>
           </el-table-column>
           <el-table-column prop="category" label="分类" width="110">
-            <template #default="{ row }"><span class="cell2">{{ row.category }}</span></template>
+            <template #default="{ row }"
+              ><span class="cell2">{{ row.category }}</span></template
+            >
           </el-table-column>
           <el-table-column prop="owner" label="负责人" width="90">
             <template #default="{ row }">
@@ -101,13 +120,17 @@ const infoRows = computed(() => [
             </template>
           </el-table-column>
           <el-table-column prop="amount" label="金额" width="110" align="right">
-            <template #default="{ row }"><span class="num">{{ fmt(row.amount) }}</span></template>
+            <template #default="{ row }"
+              ><span class="num">{{ fmt(row.amount) }}</span></template
+            >
           </el-table-column>
           <template #empty>
             <div class="empty">
               <IconDatabase class="empty__icon" />
               <p>暂无记录</p>
-              <button class="link" @click="router.push('/table')">去添加第一条 <IconArrowRight class="link__icon" /></button>
+              <button class="link" @click="router.push('/table')">
+                去添加第一条 <IconArrowRight class="link__icon" />
+              </button>
             </div>
           </template>
         </el-table>
@@ -121,7 +144,9 @@ const infoRows = computed(() => [
             <div v-for="item in distribution" :key="item.name" class="dist__row">
               <span class="dot" :class="`dot--${item.idx}`" aria-hidden="true" />
               <span class="dist__name">{{ item.name }}</span>
-              <span class="dist__track"><span class="dist__fill" :class="`dot--${item.idx}`" :style="{ width: item.pct + '%' }" /></span>
+              <span class="dist__track"
+                ><span class="dist__fill" :class="`dot--${item.idx}`" :style="{ width: item.pct + '%' }"
+              /></span>
               <span class="dist__num num">{{ item.count }}</span>
             </div>
           </div>

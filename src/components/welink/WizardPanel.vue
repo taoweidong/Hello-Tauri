@@ -35,7 +35,8 @@ const canNext = computed(() => {
 })
 
 const stepHint = computed(() => {
-  if (step.value === 1) return form.source === 'mock' ? '当前使用模拟数据，可直接下一步' : '请填写 welink-cli.exe 的完整路径'
+  if (step.value === 1)
+    return form.source === 'mock' ? '当前使用模拟数据，可直接下一步' : '请填写 welink-cli.exe 的完整路径'
   if (step.value === 2) return '工号用于识别「我自己发的」消息，留空会导致自回复循环（会被熔断拦下但无法回复）'
   return '选一个演示群，完成后助手会自动拉取该群消息并尝试回复'
 })
@@ -107,7 +108,12 @@ onMounted(() => {
       <span class="wiz__sub">三步配置好，立刻看到「拉取 → 生成 → 闸口 → 外发」的完整链路</span>
       <span class="spacer" />
       <span class="wiz__steps">
-        <span v-for="index in 3" :key="index" class="wiz__step" :class="{ 'is-active': step === index, 'is-done': step > index }">
+        <span
+          v-for="index in 3"
+          :key="index"
+          class="wiz__step"
+          :class="{ 'is-active': step === index, 'is-done': step > index }"
+        >
           {{ index }}
         </span>
       </span>
@@ -140,7 +146,7 @@ onMounted(() => {
       <div v-else class="wiz__form">
         <div class="wiz__actions">
           <el-button size="small" :icon="IconRefresh" :loading="busy" @click="loadCandidates">同步候选会话</el-button>
-          <span class="wiz__count" v-if="candidates.length">共 {{ candidates.length }} 个候选</span>
+          <span v-if="candidates.length" class="wiz__count">共 {{ candidates.length }} 个候选</span>
         </div>
         <div class="wiz__list">
           <button

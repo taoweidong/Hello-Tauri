@@ -86,7 +86,9 @@ async function migrateDir() {
       cancelButtonText: '取消',
       inputPlaceholder: storage.value?.root ?? 'D:\\TangYuan',
       inputValidator: (value: string) => (value.trim() ? true : '目录不能为空'),
-    }).then((r) => r.value).catch(() => false)
+    })
+      .then((r) => r.value)
+      .catch(() => false)
   } catch {
     return
   }
@@ -145,7 +147,14 @@ async function migrateDir() {
           </el-form-item>
 
           <el-form-item label="应用描述">
-            <el-input v-model="form.description" type="textarea" :rows="2" maxlength="80" show-word-limit placeholder="一句话说明这个应用是做什么的" />
+            <el-input
+              v-model="form.description"
+              type="textarea"
+              :rows="2"
+              maxlength="80"
+              show-word-limit
+              placeholder="一句话说明这个应用是做什么的"
+            />
           </el-form-item>
 
           <div class="hairline" />

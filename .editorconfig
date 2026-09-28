@@ -1,0 +1,21 @@
+# 统一编辑器行为（质量报告 R-1 的一部分：此前无任何 EditorConfig）
+# 与 .prettierrc.json 保持一致 —— 两者不一致时会反复制造无意义 diff。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Windows 下 .bat 必须 CRLF，否则 cmd 解析可能出错
+[*.{bat,cmd}]
+end_of_line = crlf
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.rs]
+indent_size = 4

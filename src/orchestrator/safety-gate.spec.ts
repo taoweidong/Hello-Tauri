@@ -43,13 +43,15 @@ function createClock(stamp: string) {
   }
 }
 
-function settings(overrides: {
-  myUserId?: string
-  enabled?: boolean
-  groupAtMe?: boolean
-  privateAutoReply?: boolean
-  safety?: Partial<WelinkSafetySettings>
-} = {}): WelinkSettings {
+function settings(
+  overrides: {
+    myUserId?: string
+    enabled?: boolean
+    groupAtMe?: boolean
+    privateAutoReply?: boolean
+    safety?: Partial<WelinkSafetySettings>
+  } = {},
+): WelinkSettings {
   return {
     ...DEFAULT_WELINK_SETTINGS,
     myUserId: overrides.myUserId ?? 'E-0001',
@@ -164,9 +166,7 @@ describe('SafetyGate —— L1 助手总开关', () => {
 
   it('总开关关闭**不拦**人工明确发起的发送（manual 是显式意图）', () => {
     const { gate } = setup({ enabled: false })
-    expect(
-      check(gate, { job: job({ triggerType: 'manual', sendModeUsed: 'manual' }) }).action,
-    ).toBe('send')
+    expect(check(gate, { job: job({ triggerType: 'manual', sendModeUsed: 'manual' }) }).action).toBe('send')
   })
 
   it('setEnabled 可运行时切换（控制条 start/stop 的第二道保险）', () => {
@@ -278,6 +278,55 @@ describe('SafetyGate —— S8 熔断', () => {
   it('isNoUserId 只按工号是否为空判定', () => {
     expect(isNoUserId(settings({ myUserId: '  ' }))).toBe(true)
     expect(isNoUserId(settings({ myUserId: 'E-1' }))).toBe(false)
+  })
+
+  // ---- 安全不变量：工号兜底熔断不能被人工解除 ----
+  //
+  // 这一组是**防自回复死循环**的回归闸（设计 §637）。曾经 resetFuse 里写着
+  // `if (scope === 'global') noUserIdFused = false`，而 UI 的「解除熔断」按钮
+  // 恰好就传 'global' —— 于是用户可以在工号仍为空的情况下把兜底熔断关掉，
+  // filterSelf 随之失效，助手发出的话被自己拉回来当成新消息 → 无限自回复。
+  it('解锁全部熔断（不带 scope）不能解除工号兜底（否则自回复死循环）', () => {
+    const { gate } = setup({ myUserId: '' })
+    expect(gate.snapshot().globalFuse).toBe(true)
+
+    gate.resetFuse()
+
+    expect(gate.snapshot().globalFuse).toBe(true)
+    expect(check(gate)).toMatchObject({ action: 'skip', reason: 'fused' })
+  })
+
+  it("解锁「全局」熔断（UI 传的 'global'）同样不能解除工号兜底", () => {
+    const { gate } = setup({ myUserId: '' })
+    gate.resetFuse('global')
+
+    expect(gate.snapshot().globalFuse).toBe(true)
+    expect(check(gate).action).toBe('skip')
+  })
+
+  it('工号兜底熔断的唯一解除方式是补齐工号（reload）', () => {
+    const { gate } = setup({ myUserId: '' })
+    // 人工解除一律无效
+    gate.resetFuse()
+    gate.resetFuse('global')
+    expect(gate.snapshot().globalFuse).toBe(true)
+
+    // 补齐工号 → 自动解除
+    gate.reload(settings({ myUserId: 'E-0001' }))
+    expect(gate.snapshot().globalFuse).toBe(false)
+    expect(check(gate).action).toBe('send')
+  })
+
+  it('工号兜底熔断不进 fuses 列表（两类熔断语义分离，UI 横幅不混淆）', () => {
+    // 为什么要有这条：`snapshot().fuses` 是「阈值类熔断」的列表，而工号兜底是
+    // `globalFuse` 布尔位。两者混在一起会让 UI 显示「群 @我场景熔断」这种
+    // 与事实不符的文案（实际原因是工号没填）。
+    const { gate } = setup({ myUserId: '' })
+    gate.resetFuse('group_at_me')
+
+    expect(gate.snapshot().fuses).toEqual([])
+    expect(gate.snapshot().globalFuse).toBe(true)
+    expect(gate.snapshot().globalFuseReason).toContain('工号')
   })
 
   it('间隔类拦截累计超过阈值 → 熔断该场景（第 N+1 次触发）', () => {
@@ -395,7 +444,10 @@ describe('SafetyGate —— S8 熔断', () => {
 
 describe('SafetyGate —— S4 静默时段', () => {
   it('静默时段内 → defer（terminal=false，时段结束按序补发）', () => {
-    const { gate } = setup({ safety: { quietHours: { enabled: true, from: '22:00', to: '08:00' } } }, '2026-09-27 23:30:00')
+    const { gate } = setup(
+      { safety: { quietHours: { enabled: true, from: '22:00', to: '08:00' } } },
+      '2026-09-27 23:30:00',
+    )
     // 草稿是刚生成的（未超 4h），才会走「挂起补发」而不是「转人工」
     const decision = check(gate, { job: job({ createdAt: '2026-09-27 23:25:00' }) })
     expect(decision).toMatchObject({ action: 'defer', reason: 'quiet', terminal: false })
@@ -403,7 +455,10 @@ describe('SafetyGate —— S4 静默时段', () => {
   })
 
   it('时段外放行', () => {
-    const { gate } = setup({ safety: { quietHours: { enabled: true, from: '22:00', to: '08:00' } } }, '2026-09-27 14:00:00')
+    const { gate } = setup(
+      { safety: { quietHours: { enabled: true, from: '22:00', to: '08:00' } } },
+      '2026-09-27 14:00:00',
+    )
     expect(check(gate).action).toBe('send')
   })
 
@@ -421,23 +476,35 @@ describe('SafetyGate —— S4 静默时段', () => {
   })
 
   it('起止相同视为未启用（不误拦全天）', () => {
-    const { gate } = setup({ safety: { quietHours: { enabled: true, from: '09:00', to: '09:00' } } }, '2026-09-27 09:00:00')
+    const { gate } = setup(
+      { safety: { quietHours: { enabled: true, from: '09:00', to: '09:00' } } },
+      '2026-09-27 09:00:00',
+    )
     expect(check(gate).action).toBe('send')
   })
 
   it('quietHours.enabled=false 时完全不生效', () => {
-    const { gate } = setup({ safety: { quietHours: { enabled: false, from: '22:00', to: '08:00' } } }, '2026-09-27 23:30:00')
+    const { gate } = setup(
+      { safety: { quietHours: { enabled: false, from: '22:00', to: '08:00' } } },
+      '2026-09-27 23:30:00',
+    )
     expect(check(gate).action).toBe('send')
   })
 
   it('静默时段 + 草稿超 4h → hold stale_draft（隔夜内容不盲发）', () => {
-    const { gate } = setup({ safety: { quietHours: { enabled: true, from: '22:00', to: '08:00' } } }, '2026-09-28 03:00:00')
+    const { gate } = setup(
+      { safety: { quietHours: { enabled: true, from: '22:00', to: '08:00' } } },
+      '2026-09-28 03:00:00',
+    )
     const decision = check(gate, { job: job({ createdAt: '2026-09-27 14:00:00' }) })
     expect(decision).toMatchObject({ action: 'hold', reason: 'stale_draft' })
   })
 
   it('静默时段但草稿未超 4h → 仍是 defer（等时段结束补发）', () => {
-    const { gate } = setup({ safety: { quietHours: { enabled: true, from: '22:00', to: '08:00' } } }, '2026-09-28 03:00:00')
+    const { gate } = setup(
+      { safety: { quietHours: { enabled: true, from: '22:00', to: '08:00' } } },
+      '2026-09-28 03:00:00',
+    )
     expect(check(gate, { job: job({ createdAt: '2026-09-28 01:00:00' }) })).toMatchObject({
       action: 'defer',
       terminal: false,
@@ -445,14 +512,20 @@ describe('SafetyGate —— S4 静默时段', () => {
   })
 
   it('超 4h 判定用 createdAt（不是 updatedAt）', () => {
-    const { gate } = setup({ safety: { quietHours: { enabled: true, from: '22:00', to: '08:00' } } }, '2026-09-28 03:00:00')
+    const { gate } = setup(
+      { safety: { quietHours: { enabled: true, from: '22:00', to: '08:00' } } },
+      '2026-09-28 03:00:00',
+    )
     expect(
       check(gate, { job: job({ createdAt: '2026-09-27 10:00:00', updatedAt: '2026-09-28 02:59:00' }) }).action,
     ).toBe('hold')
   })
 
   it('manual 任务不受静默时段约束（用户明确点了发送）', () => {
-    const { gate } = setup({ safety: { quietHours: { enabled: true, from: '22:00', to: '08:00' } } }, '2026-09-27 23:30:00')
+    const { gate } = setup(
+      { safety: { quietHours: { enabled: true, from: '22:00', to: '08:00' } } },
+      '2026-09-27 23:30:00',
+    )
     expect(check(gate, { job: job({ triggerType: 'manual' }) }).action).toBe('send')
   })
 })
@@ -658,10 +731,7 @@ describe('SafetyGate —— S2 每会话每小时上限', () => {
   })
 
   it('跨小时自动归零（懒重置）', () => {
-    const { gate, clock } = setup(
-      { safety: { perConvMinIntervalSec: 0, perConvHourlyCap: 1 } },
-      '2026-09-27 14:30:00',
-    )
+    const { gate, clock } = setup({ safety: { perConvMinIntervalSec: 0, perConvHourlyCap: 1 } }, '2026-09-27 14:30:00')
     gate.onSent('G-1001', '')
     expect(check(gate)).toMatchObject({ action: 'skip', reason: 'rate_conv_hourly' })
     clock.to('2026-09-27 15:00:00')
@@ -672,9 +742,9 @@ describe('SafetyGate —— S2 每会话每小时上限', () => {
     const { gate } = setup({ safety: { perConvMinIntervalSec: 0, perConvHourlyCap: 1 } })
     gate.onSent('G-1001', '')
     expect(check(gate).action).toBe('skip')
-    expect(check(gate, { job: job({ targetId: 'G-1002' }), conversation: conversation({ convId: 'G-1002' }) }).action).toBe(
-      'send',
-    )
+    expect(
+      check(gate, { job: job({ targetId: 'G-1002' }), conversation: conversation({ convId: 'G-1002' }) }).action,
+    ).toBe('send')
   })
 
   it('primeConversation 用库中本小时计数预热（O5 避免每次 check 查库）', () => {
@@ -773,7 +843,16 @@ describe('SafetyGate —— 关键立场（改代码前必读）', () => {
     const { gate } = setup()
     const snapshot = gate.snapshot()
     expect(Object.keys(snapshot).sort()).toEqual(
-      ['convCounts', 'fuses', 'globalCap', 'globalClosedUntil', 'globalCount', 'globalFuse', 'globalFuseReason', 'panic'].sort(),
+      [
+        'convCounts',
+        'fuses',
+        'globalCap',
+        'globalClosedUntil',
+        'globalCount',
+        'globalFuse',
+        'globalFuseReason',
+        'panic',
+      ].sort(),
     )
   })
 

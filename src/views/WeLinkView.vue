@@ -16,7 +16,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { IconActivity } from '@/components/icons'
 import { useAppStore } from '@/stores/app'
-import { useWelinkStore } from '@/stores/welink'
+import { unsubscribeWelinkLogs, useWelinkStore } from '@/stores/welink'
 import ControlBar from '@/components/welink/ControlBar.vue'
 import MessagesTab from '@/components/welink/MessagesTab.vue'
 import InboxTab from '@/components/welink/InboxTab.vue'
@@ -60,6 +60,18 @@ function openTrace(jobPk: number) {
 async function goSettings() {
   wizardOpen.value = false
   await router.push('/settings')
+}
+
+/**
+ * 工号兜底熔断 → 定位到工号输入框所在处。
+ *
+ * 工号字段在**本页「配置」Tab** 的 SettingsCard 里（不是全局 /settings 页），
+ * 因此就近切 Tab 即可，不必跨页跳转 —— 用户点了「去填写工号」却跳到另一个
+ * 页面、还得自己找回来，是最容易让人放弃的路径（O8 的初衷正是「把静默拒绝
+ * 变成显式指引」）。
+ */
+function goUserIdField() {
+  activeTab.value = 'config'
 }
 
 // —— 首次引导（O8）：enabled=off 且未配置过时自动展开三步卡片 ——
@@ -148,6 +160,14 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (visibilityHandler) document.removeEventListener('visibilitychange', visibilityHandler)
+  /**
+   * D-9：退订编排层日志旁路。
+   *
+   * 为什么在这里退订而不是在 `store.stop()`：`stop()` 是「暂停助手」，
+   * 用户随后还会看日志；而 `onUnmounted` 才是「这个页面不存在了」。
+   * 退订后 **不** 清 `store.logs` —— 日志是诊断信息，重新进页面应还能看到。
+   */
+  unsubscribeWelinkLogs()
 })
 
 // Tab 懒加载：切换时才触发该 Tab 的查询（O4）
@@ -174,7 +194,9 @@ watch(
         welink={{ store.sourceBadge.welink }} · agent={{ store.sourceBadge.agent }}
       </el-tag>
       <el-tag v-if="store.sourceBadge.mock" size="small" type="warning" effect="light" round>模拟数据</el-tag>
-      <el-button v-if="needWizard && !wizardOpen" size="small" type="primary" plain @click="wizardOpen = true">开始引导</el-button>
+      <el-button v-if="needWizard && !wizardOpen" size="small" type="primary" plain @click="wizardOpen = true"
+        >开始引导</el-button
+      >
     </div>
 
     <!-- myUserId 缺失红条（O8：把熔断的静默拒绝变成显式指引） -->
@@ -196,6 +218,7 @@ watch(
       @play-demo="playDemo"
       @open-review="openHistory({ onlyHolding: true })"
       @open-skipped="openHistory({ onlySkipped: true })"
+      @open-settings="goUserIdField"
     />
 
     <!-- 首次引导（O8） -->
@@ -240,7 +263,15 @@ watch(
           @manage="activeTab = 'config'"
         />
         <!-- ② 私聊收件箱（R2） -->
-        <InboxTab v-else-if="activeTab === 'inbox'" @open-conversation="(id) => { focusConvId = id; activeTab = 'messages' }" />
+        <InboxTab
+          v-else-if="activeTab === 'inbox'"
+          @open-conversation="
+            (id) => {
+              focusConvId = id
+              activeTab = 'messages'
+            }
+          "
+        />
         <!-- ③ 回复历史（R3） -->
         <HistoryTab
           v-else-if="activeTab === 'history'"
@@ -249,11 +280,7 @@ watch(
           @open-trace="openTrace"
         />
         <!-- ④ Agent 回溯（R4） -->
-        <TraceTab
-          v-else-if="activeTab === 'trace'"
-          :focus-job-pk="focusJobPk"
-          @focus-consumed="focusJobPk = null"
-        />
+        <TraceTab v-else-if="activeTab === 'trace'" :focus-job-pk="focusJobPk" @focus-consumed="focusJobPk = null" />
         <!-- ⑤ 监控配置（R1） -->
         <ConfigTab v-else />
       </div>

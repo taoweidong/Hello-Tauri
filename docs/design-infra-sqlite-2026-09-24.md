@@ -6,11 +6,11 @@
 
 ## 0. 需求映射
 
-| # | 需求 | 本文档对应章节 |
-| --- | --- | --- |
-| 1 | 引入 SQLite 存二维数据 | §4 数据层 |
-| 2 | 引入 JSON 配置存系统配置（存储目录 / 标题描述 / 核心配置） | §5 配置层 |
-| 3 | 建基础设施组件（DB ORM 交互、文件读写等），业务基于其上扩展 | §2 分层、§6 组件清单 |
+| #   | 需求                                                        | 本文档对应章节       |
+| --- | ----------------------------------------------------------- | -------------------- |
+| 1   | 引入 SQLite 存二维数据                                      | §4 数据层            |
+| 2   | 引入 JSON 配置存系统配置（存储目录 / 标题描述 / 核心配置）  | §5 配置层            |
+| 3   | 建基础设施组件（DB ORM 交互、文件读写等），业务基于其上扩展 | §2 分层、§6 组件清单 |
 
 ## 1. 可行性验证（PoC，已完成）
 
@@ -18,13 +18,13 @@
 
 独立 PoC（rusqlite bundled + 与项目相同的 `.cargo/config.toml` 与 release profile）结果：
 
-| 判据 | 结果 |
-| --- | --- |
-| 在 `+crt-static` 下能否编译 | ✅ 通过（`cc` crate 调 MSVC `cl.exe` 编译内置 sqlite C） |
-| 运行期正确性 | ✅ 建表/插入/查询 `OK [(1, "x")]` |
-| 产物的外部 DLL 依赖 | ✅ 仅 3 个系统 DLL（`ntdll`/`kernel32`/`api-ms-win-core-synch`），sqlite 引擎**完全静态内联** |
-| 体积增量 | 裸 console 程序 0.4 MB → 含 sqlite 1.24 MB（**+0.8 MB**） |
-| 内网离线 | ✅ 全套 crate 已落入本地 cargo 缓存，`--offline` 可复用 |
+| 判据                        | 结果                                                                                          |
+| --------------------------- | --------------------------------------------------------------------------------------------- |
+| 在 `+crt-static` 下能否编译 | ✅ 通过（`cc` crate 调 MSVC `cl.exe` 编译内置 sqlite C）                                      |
+| 运行期正确性                | ✅ 建表/插入/查询 `OK [(1, "x")]`                                                             |
+| 产物的外部 DLL 依赖         | ✅ 仅 3 个系统 DLL（`ntdll`/`kernel32`/`api-ms-win-core-synch`），sqlite 引擎**完全静态内联** |
+| 体积增量                    | 裸 console 程序 0.4 MB → 含 sqlite 1.24 MB（**+0.8 MB**）                                     |
+| 内网离线                    | ✅ 全套 crate 已落入本地 cargo 缓存，`--offline` 可复用                                       |
 
 **结论：SQLite 不破坏单文件承诺。** 这是后续所有选型的前提，已排除在实现阶段翻车的风险。
 
@@ -61,12 +61,12 @@
 
 ## 3. 依赖选型决策
 
-| 候选 | 决策 | 理由 |
-| --- | --- | --- |
-| **rusqlite (bundled)** | ✅ **采用** | 同步 API、薄、`crt-static` 已 PoC 通过、体积仅 +0.8 MB、完全静态内联 |
-| tauri-plugin-sql | ❌ 不采用 | 底层 sqlx+tokio 异步栈，`crt-static` 兼容**未验证**（tokio 在 static CRT 下历史上踩坑）；DB 路径锁死 `BaseDirectory::AppConfig`，与"存储目录可配置"冲突；拖入整套 tokio 增体积 |
-| diesel | ❌ 不采用 | 面向多后端、需额外编译依赖，客户端内嵌库过重 |
-| SeaORM | ❌ 不采用 | 基于 sqlx，同样异步 + 多驱动，违背"Rust 最小化" |
+| 候选                   | 决策        | 理由                                                                                                                                                                           |
+| ---------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **rusqlite (bundled)** | ✅ **采用** | 同步 API、薄、`crt-static` 已 PoC 通过、体积仅 +0.8 MB、完全静态内联                                                                                                           |
+| tauri-plugin-sql       | ❌ 不采用   | 底层 sqlx+tokio 异步栈，`crt-static` 兼容**未验证**（tokio 在 static CRT 下历史上踩坑）；DB 路径锁死 `BaseDirectory::AppConfig`，与"存储目录可配置"冲突；拖入整套 tokio 增体积 |
+| diesel                 | ❌ 不采用   | 面向多后端、需额外编译依赖，客户端内嵌库过重                                                                                                                                   |
+| SeaORM                 | ❌ 不采用   | 基于 sqlx，同样异步 + 多驱动，违背"Rust 最小化"                                                                                                                                |
 
 ORM 层次：**不引重型 ORM**。rusqlite 之上写一层**极薄的仓储抽象**（TS 侧 Repository 模式 + Rust 侧通用 SQL 通道）。理由见 §6——把 SQL 留在 TS 既贴合"主力语言 TS"，又让 Rust 保持通用与稳定。
 
@@ -136,10 +136,9 @@ CREATE TABLE records (
 
 ```jsonc
 {
-  "meta":     { "title": "Hello-Tauri", "description": "…", "version": "0.1.0" }, // 标题/描述(需求2)
-  "storage":  { "dataDir": "D:\\TangYuan", "logKeepDays": 30 },
-  "prefs":    { "theme": "light", "pageSize": 10, "autoSave": true,
-                "sidebarCollapsed": false, "defaultRoute": "/" }                    // 现有 AppSettings 归此
+  "meta": { "title": "Hello-Tauri", "description": "…", "version": "0.1.0" }, // 标题/描述(需求2)
+  "storage": { "dataDir": "D:\\TangYuan", "logKeepDays": 30 },
+  "prefs": { "theme": "light", "pageSize": 10, "autoSave": true, "sidebarCollapsed": false, "defaultRoute": "/" }, // 现有 AppSettings 归此
 }
 ```
 
@@ -152,21 +151,23 @@ CREATE TABLE records (
 ## 6. 基础设施组件清单
 
 ### Rust 侧（`src-tauri/src/`，通用、无业务）
-| 模块 | 命令 | 职责 |
-| --- | --- | --- |
-| `db.rs` | db_execute/select/transaction/migrate | SQLite 通道（rusqlite） |
-| `config.rs` | config_get/set | 分层系统配置 + bootstrap |
-| `storage.rs` | storage_info / 目录迁移 | dataDir 解析、可写探针、迁移 |
-| `fs.rs` | fs_read/fs_write（限 storage 内，防穿越） | 通用文件读写（需求3"文件读写"） |
-| `log.rs` | append_log | 文件日志 + DB 日志双写 |
+
+| 模块         | 命令                                      | 职责                            |
+| ------------ | ----------------------------------------- | ------------------------------- |
+| `db.rs`      | db_execute/select/transaction/migrate     | SQLite 通道（rusqlite）         |
+| `config.rs`  | config_get/set                            | 分层系统配置 + bootstrap        |
+| `storage.rs` | storage_info / 目录迁移                   | dataDir 解析、可写探针、迁移    |
+| `fs.rs`      | fs_read/fs_write（限 storage 内，防穿越） | 通用文件读写（需求3"文件读写"） |
+| `log.rs`     | append_log                                | 文件日志 + DB 日志双写          |
 
 ### TS 侧
-| 模块 | 职责 |
-| --- | --- |
-| `infra/db.ts` `fs.ts` `config.ts` `log.ts` | 对 Bridge 的类型化封装，暴露 Promise API |
-| `api/`（Bridge） | 扩 `dbExecute/dbSelect/configGet/configSet/fsRead/fsWrite` 等；web 侧给可跑的实现（§7） |
-| `repositories/` | DAO：SQL 与行→对象映射。`tableRepo`、`metaRepo`… |
-| `types/` | `SystemConfig`、`RecordRow`（原 TableRow）等 |
+
+| 模块                                       | 职责                                                                                    |
+| ------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `infra/db.ts` `fs.ts` `config.ts` `log.ts` | 对 Bridge 的类型化封装，暴露 Promise API                                                |
+| `api/`（Bridge）                           | 扩 `dbExecute/dbSelect/configGet/configSet/fsRead/fsWrite` 等；web 侧给可跑的实现（§7） |
+| `repositories/`                            | DAO：SQL 与行→对象映射。`tableRepo`、`metaRepo`…                                        |
+| `types/`                                   | `SystemConfig`、`RecordRow`（原 TableRow）等                                            |
 
 ## 7. 浏览器调试模式（`web.ts`）
 
@@ -174,12 +175,12 @@ Web 模式定位仍是"无 Rust 环境调试 UI"，**不引入真 SQL 引擎**�
 
 ## 8. 对现有功能的迁移
 
-| 现有 | 处理 |
-| --- | --- |
-| `read_table`/`write_table`（table.json 全量） | 移除；改为 SQLite `records` 表。首启若检测到旧 `data/table.json`，一次性导入 `records`（迁移种子里做） |
-| `load_config`/`save_config`（config.json=AppSettings） | 升级为分层 `app.json` + `bootstrap.json`；旧 config.json 自动并入 `prefs` |
-| `D:\TangYuan` 硬编码首选根 | 变为 `storage.dataDir` 默认值，仍可配 |
-| Bridge 3→8 方法 | 再扩到 db/config/fs 通道；tauri 与 web 两侧同步 |
+| 现有                                                   | 处理                                                                                                   |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `read_table`/`write_table`（table.json 全量）          | 移除；改为 SQLite `records` 表。首启若检测到旧 `data/table.json`，一次性导入 `records`（迁移种子里做） |
+| `load_config`/`save_config`（config.json=AppSettings） | 升级为分层 `app.json` + `bootstrap.json`；旧 config.json 自动并入 `prefs`                              |
+| `D:\TangYuan` 硬编码首选根                             | 变为 `storage.dataDir` 默认值，仍可配                                                                  |
+| Bridge 3→8 方法                                        | 再扩到 db/config/fs 通道；tauri 与 web 两侧同步                                                        |
 
 ## 9. 分期实施（每期独立可验证、可提交）
 
@@ -193,11 +194,11 @@ Web 模式定位仍是"无 Rust 环境调试 UI"，**不引入真 SQL 引擎**�
 
 ## 10. 决策点（需你拍板）
 
-| # | 议题 | 推荐 | 理由 |
-| --- | --- | --- | --- |
-| Q1 | Rust 抽象层次 | **通用 SQL 通道**（SQL 留在 TS） | 最大化"Rust 薄/TS 厚"，新增业务不改 Rust |
-| Q2 | 改 dataDir 是否搬数据 | **自动复制迁移、旧目录保留** | 防数据"凭空消失"，可回滚 |
-| Q3 | web 模式是否等价实现 SQL | **仅语义等价，不做真 SQL** | 零外部资源、保持调试定位 |
-| Q4 | 是否 P0 先补单测 | **是** | 改存储契约无护栏风险高（分析报告 P1） |
+| #   | 议题                     | 推荐                             | 理由                                     |
+| --- | ------------------------ | -------------------------------- | ---------------------------------------- |
+| Q1  | Rust 抽象层次            | **通用 SQL 通道**（SQL 留在 TS） | 最大化"Rust 薄/TS 厚"，新增业务不改 Rust |
+| Q2  | 改 dataDir 是否搬数据    | **自动复制迁移、旧目录保留**     | 防数据"凭空消失"，可回滚                 |
+| Q3  | web 模式是否等价实现 SQL | **仅语义等价，不做真 SQL**       | 零外部资源、保持调试定位                 |
+| Q4  | 是否 P0 先补单测         | **是**                           | 改存储契约无护栏风险高（分析报告 P1）    |
 
 > 另需你知悉的取舍：**不使用** `tauri build`（它会静默丢掉 crt-static，§上一设计文档已证）；SQLite 走 `rusqlite` 而非官方 plugin，因后者路径锁死且异步栈对 `crt-static` 未验证。

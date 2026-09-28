@@ -30,16 +30,7 @@ export function listArgs(): string[] {
 
 /** `pull` 参数 */
 export function pullArgs(convId: string, convType: WelinkConvType, after: string, limit: number): string[] {
-  const args = [
-    SUBCOMMANDS.pull,
-    '--conv',
-    convId,
-    '--type',
-    convType,
-    '--limit',
-    String(limit),
-    '--json',
-  ]
+  const args = [SUBCOMMANDS.pull, '--conv', convId, '--type', convType, '--limit', String(limit), '--json']
   // after 为空串时不传该参数：首次拉取应取「最新一批」，而不是「从纪元开始」
   if (after) args.push('--after', after)
   return args

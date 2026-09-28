@@ -228,11 +228,85 @@ function selectSql(rawSql: string, params: DbParam[] = []): DbRow[] {
 
   const byIdAsc = (left: Row, right: Row) => number(left.id) - number(right.id)
   const bySentAt = (left: Row, right: Row) =>
-    text(left.sent_at) === text(right.sent_at) ? byIdAsc(left, right) : text(left.sent_at) < text(right.sent_at) ? -1 : 1
+    text(left.sent_at) === text(right.sent_at)
+      ? byIdAsc(left, right)
+      : text(left.sent_at) < text(right.sent_at)
+        ? -1
+        : 1
 
   if (sql.includes('SELECT id FROM welink_conversations WHERE conv_id =')) {
     const convId = text(arg(params, 1))
     return tables.conversations.filter((row) => row.conv_id === convId).map((row) => ({ id: row.id }))
+  }
+
+  // 触发消息主键回查（createJob 用它把 msgUid 换成 pk —— 跨重启时主键已不可信）
+  if (sql.includes('SELECT id FROM welink_messages WHERE msg_uid =')) {
+    const uid = text(arg(params, 1))
+    return tables.messages.filter((row) => text(row.msg_uid) === uid).map((row) => ({ id: row.id }))
+  }
+
+  // ---- 收件箱（R2）：已改为 EXISTS + 共用日期片段，不再有 JOIN/GROUP BY ----
+  //
+  // 必须排在「通用会话列」分支**之前**：收件箱 SQL 现在既不 JOIN 也不 GROUP BY，
+  // 会被下方 `FROM welink_conversations && !JOIN` 的宽松匹配抢先截获。
+  if (sql.includes('FROM welink_conversations c WHERE c.conv_type')) {
+    // 日期参数排在参数表最前（buildInboxWhere 先 hold 日期，再 hold 关键词）
+    const from = sql.includes('sent_at >= ?') ? text(arg(params, 1)) : ''
+    const to = sql.includes('sent_at <= ?') ? text(arg(params, sql.includes('sent_at >= ?') ? 2 : 1)) : ''
+    const keywordIndex = params.findIndex((value) => text(value).startsWith('%') && text(value).endsWith('%'))
+    const keyword = keywordIndex >= 0 ? text(params[keywordIndex]).slice(1, -1) : ''
+    const onlyUnreplied = sql.includes('FROM welink_reply_jobs j')
+    const openTargets = new Set(
+      tables.jobs
+        .filter((row) => ['pending', 'discussing', 'ready', 'sending', 'failed'].includes(text(row.status)))
+        .map((row) => text(row.target_id)),
+    )
+    /** 范围内（按方向 + 日期）的消息 */
+    const inRange = (convPk: unknown) =>
+      tables.messages
+        .filter((row) => row.conv_pk === convPk && text(row.direction) === 'in')
+        .filter((row) => !from || text(row.sent_at) >= from)
+        .filter((row) => !to || text(row.sent_at) <= to)
+
+    let rows = tables.conversations
+      .filter((row) => text(row.conv_type) === 'private')
+      .filter((row) => inRange(row.id).length > 0)
+      .filter((row) => !keyword || text(row.title).includes(keyword) || text(row.conv_id).includes(keyword))
+      .filter((row) => !onlyUnreplied || openTargets.has(text(row.conv_id)))
+
+    rows = rows.sort((left, right) =>
+      text(left.last_msg_at) === text(right.last_msg_at)
+        ? number(right.id) - number(left.id)
+        : text(left.last_msg_at) < text(right.last_msg_at)
+          ? 1
+          : -1,
+    )
+
+    if (sql.startsWith('SELECT COUNT(*) AS count')) return [{ count: rows.length }]
+
+    // 带 LIMIT/OFFSET 的列表：占位符形如 `LIMIT ?N OFFSET ?M`，N/M 是构建时算出的序号，
+    // 不能假定它们就是最后两个（日期/keyword 参数会影响总数）。直接解析 SQL 里的序号。
+    const limitNo = Number(/LIMIT \?(\d+)/.exec(sql)?.[1] ?? 0)
+    const offsetNo = Number(/OFFSET \?(\d+)/.exec(sql)?.[1] ?? 0)
+    const limit = limitNo ? number(arg(params, limitNo)) : rows.length
+    const offset = offsetNo ? number(arg(params, offsetNo)) : 0
+    return rows.slice(offset, offset + limit).map((row) => {
+      const incoming = inRange(row.id).sort((left, right) =>
+        text(left.sent_at) === text(right.sent_at)
+          ? number(right.id) - number(left.id)
+          : text(left.sent_at) < text(right.sent_at)
+            ? 1
+            : -1,
+      )
+      return {
+        conv_pk: row.id,
+        conv_id: row.conv_id,
+        title: row.title,
+        unread_count: row.unread_count,
+        last_msg_at: row.last_msg_at,
+        last_content: text(incoming[0]?.content),
+      }
+    })
   }
 
   if (sql.startsWith('SELECT COUNT(*) AS count FROM welink_conversations')) {
@@ -288,10 +362,16 @@ function selectSql(rawSql: string, params: DbParam[] = []): DbRow[] {
   }
 
   if (sql.includes('FROM welink_reply_jobs j')) {
+    // getJob：按主键取单条（createJob 写完后立刻回读，读不到会抛错）
+    if (sql.includes('WHERE j.id =')) {
+      const id = number(arg(params, 1))
+      return tables.jobs.filter((row) => number(row.id) === id).map(jobRow)
+    }
+    // createJob 的回读：按 target_id + created_at 找刚建的那批
     const targetId = text(arg(params, 1))
     const createdAt = text(arg(params, 2))
     return tables.jobs
-      .filter((row) => row.target_id === targetId && text(row.created_at) === createdAt)
+      .filter((row) => text(row.target_id) === targetId && text(row.created_at) === createdAt)
       .sort(byIdAsc)
       .map(jobRow)
   }
@@ -299,13 +379,30 @@ function selectSql(rawSql: string, params: DbParam[] = []): DbRow[] {
   throw new Error(`SQLite 仿真未覆盖的读语句：\n${sql}`)
 }
 
+/**
+ * 仿真 `lastInsertId`：必须看**本次语句插的是哪张表**。
+ *
+ * 原实现写成 `seq.conv || seq.msg || seq.job`（取第一个非零），一旦会话与消息
+ * 都已存在，任何后续 INSERT 都会拿到 `seq.conv` 而不是自己那张表的序号 ——
+ * `createJob` 紧接着 `getJob(lastInsertId)` 回读就会「写成功却读不到」。
+ * 这是测试基建缺陷，会让使用 createJob 的用例以业务错误的形态失败，必须修在根上。
+ */
+function lastInsertIdOf(sql: string): number {
+  if (/INSERT (OR IGNORE )?INTO welink_conversations/.test(sql)) return seq.conv
+  if (/INSERT (OR IGNORE )?INTO welink_messages/.test(sql)) return seq.msg
+  if (/INSERT INTO welink_reply_jobs/.test(sql)) return seq.job
+  return 0
+}
+
 function installSqliteSim() {
   db.dbExecute.mockImplementation(async (sql, params = []) => ({
     changes: execStatement(sql, params),
-    lastInsertId: seq.conv || seq.msg || seq.job,
+    lastInsertId: lastInsertIdOf(sql.replace(/\s+/g, ' ').trim()),
   }))
   db.dbSelect.mockImplementation(async (sql, params = []) => selectSql(sql, params))
-  db.dbTransaction.mockImplementation(async (statements) => statements.map((item) => execStatement(item.sql, item.params ?? [])))
+  db.dbTransaction.mockImplementation(async (statements) =>
+    statements.map((item) => execStatement(item.sql, item.params ?? [])),
+  )
 }
 
 // ---------------- 契约用例 ----------------
@@ -418,8 +515,14 @@ describe('WelinkRepository 双实现契约（SQLite ⇄ 内存）', () => {
     const { sqlite, memory } = await runBoth(async (repo) => {
       await repo.upsertConversation({ convType: 'group', convId: 'G-1', title: '群', watching: true })
       const batch = messagesFor('G-1', [{}])
-      const first = await repo.applyPollResult('G-1', batch, 'c1', { triggers: { 'uid-1': 'group_at_me' }, sendMode: 'auto' })
-      const second = await repo.applyPollResult('G-1', batch, 'c2', { triggers: { 'uid-1': 'group_at_me' }, sendMode: 'auto' })
+      const first = await repo.applyPollResult('G-1', batch, 'c1', {
+        triggers: { 'uid-1': 'group_at_me' },
+        sendMode: 'auto',
+      })
+      const second = await repo.applyPollResult('G-1', batch, 'c2', {
+        triggers: { 'uid-1': 'group_at_me' },
+        sendMode: 'auto',
+      })
       const conv = await repo.getConversation('G-1')
       return {
         first: first.inserted.length,
@@ -500,5 +603,230 @@ describe('WelinkRepository 双实现契约（SQLite ⇄ 内存）', () => {
     })
     expect(sqlite).toEqual(['第二句', '第三句'])
     expect(memory).toEqual(['第二句', '第三句'])
+  })
+})
+
+/**
+ * 收件箱（R2）的契约。
+ *
+ * 这一组是**补写的**：原契约测试完全没覆盖 `listInbox` / `countInbox`，
+ * 而这两个方法恰恰是双实现分歧最隐蔽的地方 —— SQLite 侧曾用 `JOIN ... GROUP BY`
+ * （日期条件只作用于 JOIN、不作用于 `last_content` 子查询），内存侧却一直带着
+ * 日期过滤。于是「筛最近 30 天，预览显示半年前那句话」只在桌面端复现，
+ * 浏览器调试模式（内存实现）永远正常 —— 正是本文件开头警告的那类最难查的 bug。
+ *
+ * 改写成 `EXISTS` + 共用日期片段后（P-4），这里把语义钉住。
+ */
+describe('WelinkRepository 收件箱语义（R2 · 双实现必须一致）', () => {
+  /** 造一个私聊会话 + 若干 in 消息 */
+  async function seedPrivate(
+    repo: WelinkRepository,
+    convId: string,
+    title: string,
+    items: Array<Partial<NormalizedMessage>>,
+  ) {
+    await repo.upsertConversation({ convType: 'private', convId, title, watching: true })
+    if (!items.length) return
+    await repo.applyPollResult(
+      convId,
+      items.map((item, index) => message({ msgUid: `${convId}-u${index + 1}`, convId, convType: 'private', ...item })),
+      'c1',
+      { triggers: {}, sendMode: 'auto' },
+    )
+  }
+
+  it('只收私聊：群聊即便有 in 消息也不进收件箱', async () => {
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      await seedPrivate(repo, 'E-1', '张三', [{}])
+      await repo.upsertConversation({ convType: 'group', convId: 'G-1', title: '群', watching: true })
+      await repo.applyPollResult('G-1', messagesFor('G-1', [{}]), 'c1', { triggers: {}, sendMode: 'auto' })
+      return (await repo.listInbox({ limit: 50, offset: 0 })).map((row) => row.convId)
+    })
+    expect(sqlite).toEqual(['E-1'])
+    expect(memory).toEqual(['E-1'])
+  })
+
+  it('只收「有 in 消息」的私聊：仅发出过 out 的会话不进收件箱', async () => {
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      await seedPrivate(repo, 'E-1', '有来信', [{ direction: 'in' }])
+      await seedPrivate(repo, 'E-2', '只有发出', [{ direction: 'out' }])
+      return (await repo.listInbox({ limit: 50, offset: 0 })).map((row) => row.convId)
+    })
+    expect(sqlite).toEqual(['E-1'])
+    expect(memory).toEqual(['E-1'])
+  })
+
+  it('**日期筛选同时作用于「是否存在 in 消息」与「最后一条内容」**（原分歧点）', async () => {
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      // 3 月有一条来信，9 月没有 → 筛「9 月起」时该会话不应出现
+      await seedPrivate(repo, 'E-old', '老联系人', [{ content: '三月的问候', sentAt: '2026-03-01 09:00:00' }])
+      // 9 月有来信 → 应出现，且预览必须是 9 月那条（不能是更早的）
+      await seedPrivate(repo, 'E-new', '新联系人', [
+        { content: '九月的问候', sentAt: '2026-09-20 09:00:00' },
+        { content: '最新的问候', sentAt: '2026-09-25 09:00:00', msgUid: 'later' },
+      ])
+      return (await repo.listInbox({ from: '2026-09-01 00:00:00', limit: 50, offset: 0 })).map((row) => ({
+        convId: row.convId,
+        lastContent: row.lastContent,
+      }))
+    })
+    // 只有 9 月有来信的会话出现；且预览取范围内的最后一条
+    expect(sqlite).toEqual([{ convId: 'E-new', lastContent: '最新的问候' }])
+    expect(memory).toEqual([{ convId: 'E-new', lastContent: '最新的问候' }])
+  })
+
+  it('日期上限同样生效（to 之后的消息不算，会话整体被排除）', async () => {
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      await seedPrivate(repo, 'E-late', '迟到的联系人', [{ content: '十月来信', sentAt: '2026-10-05 09:00:00' }])
+      return (await repo.listInbox({ to: '2026-09-30 23:59:59', limit: 50, offset: 0 })).map((row) => row.convId)
+    })
+    expect(sqlite).toEqual([])
+    expect(memory).toEqual([])
+  })
+
+  it('countInbox 与 listInbox 同口径（分页脚数字不能和列表对不上）', async () => {
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      await seedPrivate(repo, 'E-1', '甲', [{ direction: 'in' }])
+      await seedPrivate(repo, 'E-2', '乙', [{ direction: 'in' }])
+      await seedPrivate(repo, 'E-3', '丙', [{ direction: 'out' }])
+      const list = await repo.listInbox({ limit: 50, offset: 0 })
+      const count = await repo.countInbox({})
+      return { listed: list.length, count }
+    })
+    expect(sqlite).toEqual({ listed: 2, count: 2 })
+    expect(memory).toEqual({ listed: 2, count: 2 })
+  })
+
+  it('带日期筛选时 countInbox 仍与 listInbox 一致（两处用同一套 WHERE）', async () => {
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      await seedPrivate(repo, 'E-old', '老', [{ content: '三月的', sentAt: '2026-03-01 09:00:00' }])
+      await seedPrivate(repo, 'E-new', '新', [{ content: '九月的', sentAt: '2026-09-20 09:00:00' }])
+      const query = { from: '2026-09-01 00:00:00' }
+      const list = await repo.listInbox({ ...query, limit: 50, offset: 0 })
+      return { listed: list.length, count: await repo.countInbox(query) }
+    })
+    expect(sqlite).toEqual({ listed: 1, count: 1 })
+    expect(memory).toEqual({ listed: 1, count: 1 })
+  })
+
+  it('关键词同时匹配标题与会话 ID（同一占位符复用不得错位）', async () => {
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      await seedPrivate(repo, 'E-1001', '赵敏', [{ direction: 'in' }])
+      await seedPrivate(repo, 'E-2002', '钱进', [{ direction: 'in', msgUid: 'x2' }])
+      const byTitle = (await repo.listInbox({ keyword: '钱', limit: 50, offset: 0 })).map((row) => row.convId)
+      const byId = (await repo.listInbox({ keyword: 'E-1001', limit: 50, offset: 0 })).map((row) => row.convId)
+      return { byTitle, byId }
+    })
+    expect(sqlite).toEqual({ byTitle: ['E-2002'], byId: ['E-1001'] })
+    expect(memory).toEqual({ byTitle: ['E-2002'], byId: ['E-1001'] })
+  })
+
+  it('onlyUnreplied 只留存在未终态任务的会话', async () => {
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      await seedPrivate(repo, 'E-1', '待回复', [
+        { content: '在吗', msgUid: 'm1' },
+        { content: '在吗', msgUid: 'm2' },
+      ])
+      await seedPrivate(repo, 'E-2', '已处理', [{ direction: 'in', msgUid: 'm3' }])
+      // 只给 E-1 建一个 pending 任务
+      await repo.createJob({
+        triggerMsgUid: 'm1',
+        triggerMsgPk: 1,
+        triggerType: 'private',
+        targetType: 'private',
+        targetId: 'E-1',
+        sendModeUsed: 'auto',
+        contextSnapshot: '',
+      })
+      return (await repo.listInbox({ onlyUnreplied: true, limit: 50, offset: 0 })).map((row) => row.convId)
+    })
+    expect(sqlite).toEqual(['E-1'])
+    expect(memory).toEqual(['E-1'])
+  })
+
+  it('分页参数生效（limit / offset 是真参数，不是拼接）', async () => {
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      await seedPrivate(repo, 'E-1', '甲', [{ content: '一', sentAt: '2026-09-01 09:00:00' }])
+      await seedPrivate(repo, 'E-2', '乙', [{ content: '二', sentAt: '2026-09-02 09:00:00' }])
+      await seedPrivate(repo, 'E-3', '丙', [{ content: '三', sentAt: '2026-09-03 09:00:00' }])
+      const first = (await repo.listInbox({ limit: 2, offset: 0 })).map((row) => row.convId)
+      const second = (await repo.listInbox({ limit: 2, offset: 2 })).map((row) => row.convId)
+      return { first, second }
+    })
+    // 按 last_msg_at DESC：丙(09-03) → 乙(09-02) → 甲(09-01)
+    expect(sqlite).toEqual({ first: ['E-3', 'E-2'], second: ['E-1'] })
+    expect(memory).toEqual({ first: ['E-3', 'E-2'], second: ['E-1'] })
+  })
+})
+
+/**
+ * 保留期清理的语义（P1/S-4）。
+ *
+ * 这一组**只在内存实现上跑**：契约测试的 SQLite 仿真器刻意只仿真三张表
+ * （会话/消息/任务），`welink_agent_logs` 不在其中 —— 硬塞一张表进去会让仿真器
+ * 偏离「只仿真本文件用到的语句形态」这条自我约束。SQLite 侧的 SQL 文本已由
+ * `welink.spec.ts` 断言，这里补的是**行为**：分批、上限、不越界删 job。
+ */
+describe('welink_agent_logs 保留期清理（内存实现：分批 / 上限 / 不越界）', () => {
+  it('批量上限：一次最多删 batch 条（由调度器循环，避免单次长事务）', async () => {
+    resetWelinkMemory()
+    storage.clear()
+    const repo = memoryWelinkRepository
+    // 插 5 条语料（jobPk 各自不同即可，清理只看 created_at）
+    for (let index = 1; index <= 5; index += 1) {
+      await repo.insertAgentLog({
+        jobPk: index,
+        prompt: `p${index}`,
+        response: `r${index}`,
+        status: 'ok',
+        latencyMs: 5,
+        error: '',
+      })
+    }
+
+    // 截止时刻取未来 → 全部过期
+    const future = '2999-01-01 00:00:00'
+    const first = await repo.purgeAgentLogsBefore(future, 2)
+    expect(first).toBe(2)
+    const second = await repo.purgeAgentLogsBefore(future, 2)
+    expect(second).toBe(2)
+    const third = await repo.purgeAgentLogsBefore(future, 2)
+    expect(third).toBe(1)
+    // 删干净后再删返回 0（调度器靠这个信号收敛）
+    expect(await repo.purgeAgentLogsBefore(future, 2)).toBe(0)
+  })
+
+  it('保留期边界：截止时刻之前的删、之后的留（按 created_at 字符串比较）', async () => {
+    resetWelinkMemory()
+    storage.clear()
+    const repo = memoryWelinkRepository
+    await repo.insertAgentLog({ jobPk: 1, prompt: 'p', response: 'r', status: 'ok', latencyMs: 5, error: '' })
+
+    // 截止时刻取过去 → 一条都不该删（内存实现的时间戳是 nowStamp()，晚于过去）
+    expect(await repo.purgeAgentLogsBefore('2000-01-01 00:00:00', 500)).toBe(0)
+    // 未来 → 删掉
+    expect(await repo.purgeAgentLogsBefore('2999-01-01 00:00:00', 500)).toBe(1)
+  })
+
+  it('只删语料留痕，不动 job（job 是回复历史主体，统计口径不能凭空缩水）', async () => {
+    resetWelinkMemory()
+    storage.clear()
+    const repo = memoryWelinkRepository
+    await repo.upsertConversation({ convType: 'group', convId: 'G-1', title: '群', watching: true })
+    await repo.applyPollResult('G-1', messagesFor('G-1', [{ content: '@我 看下' }]), 'c1', {
+      triggers: { 'uid-1': 'group_at_me' },
+      sendMode: 'auto',
+    })
+    const job = (await repo.listJobs({ limit: 10, offset: 0 }))[0]
+    await repo.insertAgentLog({ jobPk: job.pk, prompt: 'p', response: 'r', status: 'ok', latencyMs: 5, error: '' })
+
+    await repo.purgeAgentLogsBefore('2999-01-01 00:00:00', 500)
+
+    // 语料清空，但 job 与消息都还在
+    expect(await repo.listAgentLogs(job.pk)).toHaveLength(0)
+    const jobs = await repo.listJobs({ limit: 10, offset: 0 })
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].pk).toBe(job.pk)
+    expect(await repo.countMessages(1)).toBe(1)
   })
 })

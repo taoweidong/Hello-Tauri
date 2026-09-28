@@ -88,7 +88,19 @@ const libRs = join(root, 'src-tauri', 'src', 'lib.rs')
   utimesSync(libRs, now, now)
 }
 
-run('cargo', ['build', '--release', '--features', 'tauri/custom-protocol', '--offline', '--manifest-path', join('src-tauri', 'Cargo.toml')], '桌面编译 (cargo build · 生产模式)')
+run(
+  'cargo',
+  [
+    'build',
+    '--release',
+    '--features',
+    'tauri/custom-protocol',
+    '--offline',
+    '--manifest-path',
+    join('src-tauri', 'Cargo.toml'),
+  ],
+  '桌面编译 (cargo build · 生产模式)',
+)
 
 const releaseDir = join(root, 'target', 'release')
 const binary = ['Hello-Tauri.exe', 'hello-tauri.exe']

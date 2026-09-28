@@ -75,21 +75,21 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 ### 3.1 编译产物迁移
 
-| 项 | 改动 |
-| --- | --- |
-| 新建 `.cargo/config.toml` | `[build] target-dir = "target"` |
-| 移动目录 | `src-tauri/target/` → `target/`（1.7 GB 原地重命名） |
-| `.gitignore` | 增加 `target/`（原规则只写了 `src-tauri/target/`，新目录会漏进版本库） |
-| `scripts/build.mjs` | 产物路径 `src-tauri/target/release` → `target/release` |
+| 项                        | 改动                                                                   |
+| ------------------------- | ---------------------------------------------------------------------- |
+| 新建 `.cargo/config.toml` | `[build] target-dir = "target"`                                        |
+| 移动目录                  | `src-tauri/target/` → `target/`（1.7 GB 原地重命名）                   |
+| `.gitignore`              | 增加 `target/`（原规则只写了 `src-tauri/target/`，新目录会漏进版本库） |
+| `scripts/build.mjs`       | 产物路径 `src-tauri/target/release` → `target/release`                 |
 
 ### 3.2 单文件保证固化
 
 单文件需要**两层**保证，缺一不可：
 
-| 层 | 消除的依赖 | 手段 |
-| --- | --- | --- |
-| MSVC 工具链 | `WebView2Loader.dll` | `webview2-com-sys` 的 `cfg(target_env="msvc")` 分支 |
-| 静态 C 运行时 | `VCRUNTIME140.dll`、`api-ms-win-crt-*.dll` | `-C target-feature=+crt-static` |
+| 层            | 消除的依赖                                 | 手段                                                |
+| ------------- | ------------------------------------------ | --------------------------------------------------- |
+| MSVC 工具链   | `WebView2Loader.dll`                       | `webview2-com-sys` 的 `cfg(target_env="msvc")` 分支 |
+| 静态 C 运行时 | `VCRUNTIME140.dll`、`api-ms-win-crt-*.dll` | `-C target-feature=+crt-static`                     |
 
 `.cargo/config.toml` 写入：
 
@@ -105,10 +105,10 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 实测发现同一份配置下两条路径结果不同：
 
-| 构建路径 | 外部 DLL 数 | crt-static |
-| --- | --- | --- |
-| `cargo build --release --features tauri/custom-protocol` | **13** | 生效 |
-| `tauri build` | **20**（含 `api-ms-win-crt-*`） | **失效** |
+| 构建路径                                                 | 外部 DLL 数                     | crt-static |
+| -------------------------------------------------------- | ------------------------------- | ---------- |
+| `cargo build --release --features tauri/custom-protocol` | **13**                          | 生效       |
+| `tauri build`                                            | **20**（含 `api-ms-win-crt-*`） | **失效**   |
 
 排查：在 Tauri CLI 原生模块 `cli.win32-x64-msvc.node` 中检索字符串，确认它给 Rust
 子进程注入 `CARGO_TARGET_<TRIPLE>_RUSTFLAGS`。Cargo 优先级里**环境变量高于
@@ -119,8 +119,19 @@ tauri CLI 在更内层重设了它。结论：**只要走 `tauri build`，就无
 #### 最终方案：桌面编译绕开 `tauri build`，直接 `cargo build`
 
 ```js
-run('cargo', ['build', '--release', '--features', 'tauri/custom-protocol', '--offline',
-              '--manifest-path', join('src-tauri', 'Cargo.toml')], '桌面编译 (cargo build · 生产模式)')
+run(
+  'cargo',
+  [
+    'build',
+    '--release',
+    '--features',
+    'tauri/custom-protocol',
+    '--offline',
+    '--manifest-path',
+    join('src-tauri', 'Cargo.toml'),
+  ],
+  '桌面编译 (cargo build · 生产模式)',
+)
 ```
 
 三条理由，都与单文件直接相关：
@@ -175,14 +186,14 @@ npm run typecheck → npm run build:web → npm run tauri -- build
 
 **Rust 侧**（`src-tauri/src/commands.rs`）新增存储布局解析与 8 个命令：
 
-| 命令 | 作用 |
-| --- | --- |
-| `storage_info` | 返回实际生效的存储布局 |
-| `load_config` / `save_config` | 读写 `config/config.json` |
-| `read_table` / `write_table` | 读写 `data/table.json` |
-| `append_log` | 追加日志到 `logs/app-YYYY-MM-DD.log` |
-| `open_storage_dir` | 用 explorer 打开数据目录（不引入插件） |
-| `app_info` | 应用信息 + 存储布局 |
+| 命令                          | 作用                                   |
+| ----------------------------- | -------------------------------------- |
+| `storage_info`                | 返回实际生效的存储布局                 |
+| `load_config` / `save_config` | 读写 `config/config.json`              |
+| `read_table` / `write_table`  | 读写 `data/table.json`                 |
+| `append_log`                  | 追加日志到 `logs/app-YYYY-MM-DD.log`   |
+| `open_storage_dir`            | 用 explorer 打开数据目录（不引入插件） |
+| `app_info`                    | 应用信息 + 存储布局                    |
 
 目录结构（分子子目录，用户选定）：
 
@@ -212,16 +223,16 @@ fs::remove_file(&probe)?;
 
 ### 3.4 前端改造
 
-| 文件 | 改动 |
-| --- | --- |
-| `src/types/index.ts` | 新增 `StorageLayout`、`LogLevel`；`AppInfo` 增加 `storage` |
-| `src/api/types.ts` | Bridge 从 3 方法扩到 8 方法 |
-| `src/api/tauri.ts` / `web.ts` | 两侧同步实现新方法（契约一致） |
-| `src/utils/logger.ts` | **新增**：统一日志出口，控制台 + 落盘，失败静默 |
-| `src/stores/app.ts` | 加载存储布局、暴露 `storageWarning`、日志改用 logger |
-| `src/stores/table.ts` | 表格数据加载/持久化；自增 ID 计数器 |
-| `src/views/SettingsView.vue` | 新增「数据存储」面板、打开目录按钮、降级警告条 |
-| `src/App.vue` | 启动时加载表格数据；`pageSize` 单向同步 |
+| 文件                          | 改动                                                       |
+| ----------------------------- | ---------------------------------------------------------- |
+| `src/types/index.ts`          | 新增 `StorageLayout`、`LogLevel`；`AppInfo` 增加 `storage` |
+| `src/api/types.ts`            | Bridge 从 3 方法扩到 8 方法                                |
+| `src/api/tauri.ts` / `web.ts` | 两侧同步实现新方法（契约一致）                             |
+| `src/utils/logger.ts`         | **新增**：统一日志出口，控制台 + 落盘，失败静默            |
+| `src/stores/app.ts`           | 加载存储布局、暴露 `storageWarning`、日志改用 logger       |
+| `src/stores/table.ts`         | 表格数据加载/持久化；自增 ID 计数器                        |
+| `src/views/SettingsView.vue`  | 新增「数据存储」面板、打开目录按钮、降级警告条             |
+| `src/App.vue`                 | 启动时加载表格数据；`pageSize` 单向同步                    |
 
 ### 3.5 顺带修复：P0-1 每页条数双真值
 
@@ -254,34 +265,34 @@ if defined PUSHED popd 2>nul
 
 ## 四、验证证据
 
-| 检查项 | 命令 | 结果 |
-| --- | --- | --- |
-| Rust 编译（离线） | `cargo build --release --features tauri/custom-protocol --offline` | ✅ 退出码 0，零警告 |
-| Rust 依赖离线可得 | 同上 `--offline` | ✅ 新依赖 `windows-sys` 已在缓存，无下载 |
-| 前端类型 | `npm run typecheck` | ✅ 退出码 0 |
-| 完整打包链 | `npm run pack` | ✅ 退出码 0 |
-| 单文件（WebView2） | PE 导入表解析 | ✅ **无 `WebView2Loader.dll`** |
-| 单文件（CRT） | PE 导入表解析 | ✅ **无 `VCRUNTIME140.dll` / `api-ms-win-crt-*`** |
-| 可分发 DLL 依赖总数 | PE 导入表解析 | ✅ 22 → **13**，余者皆系统自带 |
-| 前端资源内嵌 | 产物内 assets 键明文检索 | ✅ **10/10 命中**（生产模式确认） |
-| **实机运行** | 直接启动发布 exe | ✅ 进程正常启动，GUI 拉起 |
-| **`D:\TangYuan` 自动创建** | 启动前后目录对比 | ✅ 启动前不存在，启动后自动建 `logs/` 并写入 `app-2026-09-24.log` |
-| **日志内容正确性** | 读回日志 | ✅ `07:05:26.798 [INFO] 应用启动，数据目录 D:\TangYuan`（时间为本地时区，证 `GetLocalTime` 路径正确） |
-| **D 盘不可写时回退** | `icacls D:\TangYuan /deny Everyone:(W)` 后重启 | ✅ 回退到 `%APPDATA%\com.taowd.hello-tauri`，日志记 `应用启动（存储降级）：D:\TangYuan 不可用（目录不可写: 拒绝访问。 (os error 5)），已回退到 ...` |
-| `target/` 输出位置 | 编译后检查 | ✅ 落在项目根，`src-tauri/target` 未重建 |
-| `target/` 版本控制 | `git check-ignore` | ✅ 已被忽略 |
+| 检查项                     | 命令                                                               | 结果                                                                                                                                                |
+| -------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rust 编译（离线）          | `cargo build --release --features tauri/custom-protocol --offline` | ✅ 退出码 0，零警告                                                                                                                                 |
+| Rust 依赖离线可得          | 同上 `--offline`                                                   | ✅ 新依赖 `windows-sys` 已在缓存，无下载                                                                                                            |
+| 前端类型                   | `npm run typecheck`                                                | ✅ 退出码 0                                                                                                                                         |
+| 完整打包链                 | `npm run pack`                                                     | ✅ 退出码 0                                                                                                                                         |
+| 单文件（WebView2）         | PE 导入表解析                                                      | ✅ **无 `WebView2Loader.dll`**                                                                                                                      |
+| 单文件（CRT）              | PE 导入表解析                                                      | ✅ **无 `VCRUNTIME140.dll` / `api-ms-win-crt-*`**                                                                                                   |
+| 可分发 DLL 依赖总数        | PE 导入表解析                                                      | ✅ 22 → **13**，余者皆系统自带                                                                                                                      |
+| 前端资源内嵌               | 产物内 assets 键明文检索                                           | ✅ **10/10 命中**（生产模式确认）                                                                                                                   |
+| **实机运行**               | 直接启动发布 exe                                                   | ✅ 进程正常启动，GUI 拉起                                                                                                                           |
+| **`D:\TangYuan` 自动创建** | 启动前后目录对比                                                   | ✅ 启动前不存在，启动后自动建 `logs/` 并写入 `app-2026-09-24.log`                                                                                   |
+| **日志内容正确性**         | 读回日志                                                           | ✅ `07:05:26.798 [INFO] 应用启动，数据目录 D:\TangYuan`（时间为本地时区，证 `GetLocalTime` 路径正确）                                               |
+| **D 盘不可写时回退**       | `icacls D:\TangYuan /deny Everyone:(W)` 后重启                     | ✅ 回退到 `%APPDATA%\com.taowd.hello-tauri`，日志记 `应用启动（存储降级）：D:\TangYuan 不可用（目录不可写: 拒绝访问。 (os error 5)），已回退到 ...` |
+| `target/` 输出位置         | 编译后检查                                                         | ✅ 落在项目根，`src-tauri/target` 未重建                                                                                                            |
+| `target/` 版本控制         | `git check-ignore`                                                 | ✅ 已被忽略                                                                                                                                         |
 
 exe 体积：3.37 MB。回退测试完成后已用 `icacls /remove:d` 恢复 `D:\TangYuan` 权限。
 
 ## 五、遗留事项
 
-| 项 | 说明 |
-| --- | --- |
+| 项                          | 说明                                                                                                                                                                                     |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 表格数据 / 配置的 UI 级读写 | 存储降级回退（`icacls` 造不可写）实机验证通过；但「在表格里增删改后重启是否保留」这类 UI 级操作需人手点验（沙箱只能启动进程、无法点击 GUI 控件）。持久化代码路径与配置读写一致，风险低。 |
-| `data/table.json` 首次运行 | 首次无此文件时沿用内置示例数据，首次变更后才落盘 |
-| 浏览器模式的日志 | 仅存内存数组，刷新即清空——这是刻意设计，避免调试模式污染磁盘 |
-| CSP 仍为 null | `tauri.conf.json` 的 `security.csp` 未收紧，建议后续单独处理 |
-| 无自动化测试 | `stores/table.ts` 现在承载了持久化逻辑，测试优先级进一步上升 |
+| `data/table.json` 首次运行  | 首次无此文件时沿用内置示例数据，首次变更后才落盘                                                                                                                                         |
+| 浏览器模式的日志            | 仅存内存数组，刷新即清空——这是刻意设计，避免调试模式污染磁盘                                                                                                                             |
+| CSP 仍为 null               | `tauri.conf.json` 的 `security.csp` 未收紧，建议后续单独处理                                                                                                                             |
+| 无自动化测试                | `stores/table.ts` 现在承载了持久化逻辑，测试优先级进一步上升                                                                                                                             |
 
 ## 六、为什么把断言写进构建脚本
 

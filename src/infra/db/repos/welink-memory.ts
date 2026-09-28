@@ -10,23 +10,9 @@
  *  * 幂等去重、状态机并发锁、要点3 的原子性都照实现 —— 这些是被测试覆盖的语义，
  *    不能因为「反正是 mock」就省略。
  */
-import type {
-  JobRating,
-  WelinkAgentLog,
-  WelinkConversation,
-  WelinkJob,
-  WelinkMessage,
-} from '@/types/welink'
+import type { JobRating, WelinkAgentLog, WelinkConversation, WelinkJob, WelinkMessage } from '@/types/welink'
 import { nowStamp } from '@/utils/time'
-import type {
-  ApplyResult,
-  InboxQuery,
-  InboxThread,
-  JobQuery,
-  JobStats,
-  MessageQuery,
-  WelinkRepository,
-} from '../ports'
+import type { ApplyResult, InboxQuery, InboxThread, JobQuery, JobStats, MessageQuery, WelinkRepository } from '../ports'
 
 const STORAGE_KEY = 'hello-tauri:welink'
 
@@ -98,7 +84,9 @@ export const memoryWelinkRepository: WelinkRepository = {
   async listConversations(limit, offset) {
     return state.conversations
       .slice()
-      .sort((a, b) => (a.convType === b.convType ? (a.lastMsgAt < b.lastMsgAt ? 1 : -1) : a.convType.localeCompare(b.convType)))
+      .sort((a, b) =>
+        a.convType === b.convType ? (a.lastMsgAt < b.lastMsgAt ? 1 : -1) : a.convType.localeCompare(b.convType),
+      )
       .slice(offset, offset + limit)
       .map((item) => ({ ...item }))
   },
@@ -260,7 +248,10 @@ export const memoryWelinkRepository: WelinkRepository = {
         (message) => message.content.toLowerCase().includes(kw) || message.senderName.toLowerCase().includes(kw),
       )
     }
-    return descByTime(rows).slice(0, query.limit).reverse().map((item) => ({ ...item }))
+    return descByTime(rows)
+      .slice(0, query.limit)
+      .reverse()
+      .map((item) => ({ ...item }))
   },
 
   async searchMessages(keyword, from, to, limit, offset) {
@@ -268,7 +259,9 @@ export const memoryWelinkRepository: WelinkRepository = {
     let rows = state.messages.filter((message) => !kw || message.content.toLowerCase().includes(kw))
     if (from) rows = rows.filter((message) => message.sentAt >= from)
     if (to) rows = rows.filter((message) => message.sentAt <= to)
-    return descByTime(rows).slice(offset, offset + limit).map((item) => ({ ...item }))
+    return descByTime(rows)
+      .slice(offset, offset + limit)
+      .map((item) => ({ ...item }))
   },
 
   async markRead(convPk) {
@@ -372,7 +365,7 @@ export const memoryWelinkRepository: WelinkRepository = {
     const failed = all.filter((job) => job.status === 'failed')
     const attempted = sent.length + failed.length
     const latencies = sent
-      .map((job) => ((new Date(job.finishedAt ?? '').getTime() - new Date(job.createdAt).getTime()) / 1000) || 0)
+      .map((job) => (new Date(job.finishedAt ?? '').getTime() - new Date(job.createdAt).getTime()) / 1000 || 0)
       .filter((value) => Number.isFinite(value))
     void hourStart
     return {
@@ -541,7 +534,10 @@ export const memoryWelinkRepository: WelinkRepository = {
   },
 
   async listAgentLogs(jobPk) {
-    return state.logs.filter((item) => item.jobPk === jobPk).sort((a, b) => a.seq - b.seq).map((item) => ({ ...item }))
+    return state.logs
+      .filter((item) => item.jobPk === jobPk)
+      .sort((a, b) => a.seq - b.seq)
+      .map((item) => ({ ...item }))
   },
 
   async listJobsWithLogs(limit, offset, onlyDownRated) {
@@ -565,8 +561,24 @@ export const memoryWelinkRepository: WelinkRepository = {
   // ---------------- 维护 ----------------
 
   async purgeMessagesBefore(cutoff, batch) {
-    const doomed = state.messages.filter((message) => message.sentAt < cutoff).slice(0, batch).map((m) => m.pk)
+    const doomed = state.messages
+      .filter((message) => message.sentAt < cutoff)
+      .slice(0, batch)
+      .map((m) => m.pk)
     state.messages = state.messages.filter((message) => !doomed.includes(message.pk))
+    flush()
+    return doomed.length
+  },
+
+  async purgeAgentLogsBefore(cutoff, batch) {
+    // 与 SQLite 侧同口径：按 created_at 升序取一批，删满 batch 即返回，
+    // 由调度器循环调用直到返回 0，避免一次删太多把持久化拖长。
+    const doomed = state.logs
+      .filter((log) => log.createdAt < cutoff)
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.pk - b.pk))
+      .slice(0, batch)
+      .map((log) => log.pk)
+    state.logs = state.logs.filter((log) => !doomed.includes(log.pk))
     flush()
     return doomed.length
   },
@@ -599,26 +611,33 @@ function buildThreads(query: Omit<InboxQuery, 'limit' | 'offset'>): InboxThread[
       .filter((job) => ['pending', 'discussing', 'ready', 'sending', 'failed'].includes(job.status))
       .map((job) => job.targetId),
   )
-  return state.conversations
-    .filter((conv) => conv.convType === 'private')
-    .filter((conv) => !kw || conv.title.toLowerCase().includes(kw) || conv.convId.toLowerCase().includes(kw))
-    .filter((conv) => !query.onlyUnreplied || openTargets.has(conv.convId))
-    .map((conv) => {
-      const incoming = state.messages
-        .filter((message) => message.convPk === conv.pk && message.direction === 'in')
-        .filter((message) => !query.from || message.sentAt >= query.from)
-        .filter((message) => !query.to || message.sentAt <= query.to)
-      return {
+  /** 范围内（方向 + 日期）的 in 消息 —— 与 SQLite 侧 EXISTS 的口径一一对应 */
+  const incomingOf = (convPk: number) =>
+    state.messages
+      .filter((message) => message.convPk === convPk && message.direction === 'in')
+      .filter((message) => !query.from || message.sentAt >= query.from)
+      .filter((message) => !query.to || message.sentAt <= query.to)
+
+  return (
+    state.conversations
+      .filter((conv) => conv.convType === 'private')
+      // **必须**在范围内有过 in 消息才进收件箱 —— 与 SQLite 的 EXISTS 同口径。
+      // 原实现在 onlyUnreplied=false 时把这条检查关掉了（条件写反），
+      // 于是「只发出过 out」或「in 消息全在筛选区间之外」的会话也会出现，
+      // 预览却是空的 —— 桌面端（SQLite）不会出现，只有浏览器调试模式会。
+      .filter((conv) => incomingOf(conv.pk).length > 0)
+      .filter((conv) => !kw || conv.title.toLowerCase().includes(kw) || conv.convId.toLowerCase().includes(kw))
+      .filter((conv) => !query.onlyUnreplied || openTargets.has(conv.convId))
+      .map((conv) => ({
         convPk: conv.pk,
         convId: conv.convId,
         title: conv.title || conv.convId,
         unreadCount: conv.unreadCount,
         lastMsgAt: conv.lastMsgAt,
-        lastContent: descByTime(incoming)[0]?.content ?? '',
-      }
-    })
-    .filter((thread) => thread.lastContent !== '' || !query.onlyUnreplied)
-    .sort((a, b) => (a.lastMsgAt === b.lastMsgAt ? b.convPk - a.convPk : a.lastMsgAt < b.lastMsgAt ? 1 : -1))
+        lastContent: descByTime(incomingOf(conv.pk))[0]?.content ?? '',
+      }))
+      .sort((a, b) => (a.lastMsgAt === b.lastMsgAt ? b.convPk - a.convPk : a.lastMsgAt < b.lastMsgAt ? 1 : -1))
+  )
 }
 
 /** 回复历史筛选（与 SQLite 的 buildJobWhere 一一对应） */

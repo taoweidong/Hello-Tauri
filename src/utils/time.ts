@@ -30,14 +30,7 @@ export function parseStamp(value: string | null | undefined): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(value)
   if (!match) return null
   const [, year, month, day, hour, minute, second] = match
-  return new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-    Number(second),
-  )
+  return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second))
 }
 
 /** 时间戳差值（毫秒）；任一不可解析返回 fallback */

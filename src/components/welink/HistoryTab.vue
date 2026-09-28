@@ -21,12 +21,31 @@ import { useAppStore } from '@/stores/app'
 import { useWelinkStore } from '@/stores/welink'
 import { JOB_STATUS_LABEL, JOB_STATUS_TONE } from '@/infra/db/ports'
 import type { JobStatus, WelinkJob } from '@/types/welink'
+import { rowOf } from '@/utils/table'
+import { shortStamp } from '@/utils/welink-display'
 
 const props = defineProps<{ preset: { onlyHolding?: boolean; onlySkipped?: boolean; targetId?: string } | null }>()
 const emit = defineEmits<{ (e: 'preset-consumed'): void; (e: 'open-trace', jobPk: number): void }>()
 
 const store = useWelinkStore()
 const appStore = useAppStore()
+
+/**
+ * `<el-table>` 插槽行的业务类型收窄（根因见 `utils/table.ts`）。
+ * 上游 `el-table-column` 的插槽签名硬编码为 `DefaultRow`，不做泛型推断。
+ */
+const jobOf = (row: unknown): WelinkJob => rowOf<WelinkJob>(row)
+
+/**
+ * `el-tag` 的 `type` 只接受 `info | primary | success | warning | danger`，
+ * 而状态色调表里的 `muted`（已拦截）是**本项目自有的中性色**语义，
+ * 在 el-tag 中没有对应值，统一降级为 `info`（灰蓝中性，视觉意图一致）。
+ */
+type TagType = 'info' | 'primary' | 'success' | 'warning' | 'danger'
+function tagTypeOf(status: JobStatus): TagType {
+  const tone = JOB_STATUS_TONE[status]
+  return tone === 'muted' ? 'info' : tone
+}
 
 const filter = reactive({
   status: [] as JobStatus[],
@@ -101,7 +120,16 @@ function resetFilters() {
 watch(page, () => void load())
 
 watch(
-  () => [filter.status, filter.triggerType, filter.targetId, filter.onlySkipped, filter.onlyHolding, filter.onlyDownRated, filter.from, filter.to],
+  () => [
+    filter.status,
+    filter.triggerType,
+    filter.targetId,
+    filter.onlySkipped,
+    filter.onlyHolding,
+    filter.onlyDownRated,
+    filter.from,
+    filter.to,
+  ],
   () => {
     page.value = 1
     void load()
@@ -220,7 +248,7 @@ function copyDraft(text: string) {
 
 const TRIGGER_LABEL: Record<string, string> = { group_at_me: '群 @我', private: '私聊', manual: '手动' }
 
-const timeLabel = (stamp: string | null) => (stamp ? stamp.slice(5, 16) : '-')
+const timeLabel = (stamp: string | null) => shortStamp(stamp)
 
 /** 耗时（finished_at − created_at，秒） */
 function latency(job: WelinkJob): string {
@@ -267,7 +295,14 @@ function latency(job: WelinkJob): string {
       <el-select v-model="filter.status" multiple collapse-tags placeholder="状态" size="small" class="hist__sel">
         <el-option v-for="item in statusOptions" :key="item" :label="JOB_STATUS_LABEL[item]" :value="item" />
       </el-select>
-      <el-select v-model="filter.triggerType" multiple collapse-tags placeholder="触发类型" size="small" class="hist__sel">
+      <el-select
+        v-model="filter.triggerType"
+        multiple
+        collapse-tags
+        placeholder="触发类型"
+        size="small"
+        class="hist__sel"
+      >
         <el-option v-for="item in triggerOptions" :key="item.value" :label="item.label" :value="item.value" />
       </el-select>
       <!-- 目标会话筛选（§11.3）：可搜索下拉，选项来自已配置会话；clearable 便于快速回全量 -->
@@ -289,18 +324,32 @@ function latency(job: WelinkJob): string {
       <el-checkbox v-model="filter.onlySkipped" size="small">仅看被拦截</el-checkbox>
       <el-checkbox v-model="filter.onlyHolding" size="small">待我处理</el-checkbox>
       <el-checkbox v-model="filter.onlyDownRated" size="small">只看差评</el-checkbox>
-      <el-date-picker v-model="filter.from" type="date" size="small" placeholder="起始" value-format="YYYY-MM-DD" class="hist__date" />
-      <el-date-picker v-model="filter.to" type="date" size="small" placeholder="截止" value-format="YYYY-MM-DD" class="hist__date" />
+      <el-date-picker
+        v-model="filter.from"
+        type="date"
+        size="small"
+        placeholder="起始"
+        value-format="YYYY-MM-DD"
+        class="hist__date"
+      />
+      <el-date-picker
+        v-model="filter.to"
+        type="date"
+        size="small"
+        placeholder="截止"
+        value-format="YYYY-MM-DD"
+        class="hist__date"
+      />
       <el-button size="small" :icon="IconRefresh" @click="load()">刷新</el-button>
       <el-button size="small" text @click="resetFilters">重置</el-button>
     </div>
 
     <!-- 表格 -->
-    <el-table :data="rows" v-loading="loading" size="small" class="hist__table" empty-text="没有符合条件的任务">
+    <el-table v-loading="loading" :data="rows" size="small" class="hist__table" empty-text="没有符合条件的任务">
       <el-table-column label="时间" width="130">
         <template #default="{ row }">
-          <div class="cell-time">{{ timeLabel(row.createdAt) }}</div>
-          <div class="cell-dim">耗时 {{ latency(row) }}</div>
+          <div class="cell-time">{{ timeLabel(jobOf(row).createdAt) }}</div>
+          <div class="cell-dim">耗时 {{ latency(jobOf(row)) }}</div>
         </template>
       </el-table-column>
 
@@ -320,7 +369,7 @@ function latency(job: WelinkJob): string {
 
       <el-table-column label="状态" width="140">
         <template #default="{ row }">
-          <el-tag size="small" :type="JOB_STATUS_TONE[row.status as JobStatus] === 'muted' ? 'info' : JOB_STATUS_TONE[row.status as JobStatus]" effect="light">
+          <el-tag size="small" :type="tagTypeOf(row.status as JobStatus)" effect="light">
             {{ store.statusLabel(row.status) }}
           </el-tag>
           <div v-if="row.skipReason" class="cell-reason" :title="store.skipLabel(row.skipReason)">
@@ -332,12 +381,19 @@ function latency(job: WelinkJob): string {
 
       <el-table-column label="草稿" min-width="220">
         <template #default="{ row }">
-          <div v-if="row.draft" class="cell-draft" :class="{ 'is-open': expandedDraft.includes(row.pk) }" @click="toggleDraft(row.pk)">
+          <div
+            v-if="row.draft"
+            class="cell-draft"
+            :class="{ 'is-open': expandedDraft.includes(row.pk) }"
+            @click="toggleDraft(row.pk)"
+          >
             {{ row.draft }}
           </div>
           <span v-else class="cell-dim">（无草稿）</span>
           <div v-if="row.draft" class="cell-actions">
-            <button class="link" @click="toggleDraft(row.pk)">{{ expandedDraft.includes(row.pk) ? '收起' : '展开全文' }}</button>
+            <button class="link" @click="toggleDraft(row.pk)">
+              {{ expandedDraft.includes(row.pk) ? '收起' : '展开全文' }}
+            </button>
             <button class="link" @click="copyDraft(row.draft)">复制</button>
           </div>
         </template>
@@ -352,8 +408,22 @@ function latency(job: WelinkJob): string {
 
       <el-table-column label="评价" width="80" align="center">
         <template #default="{ row }">
-          <button class="rate pressable" :class="{ 'is-on': row.rating === 'up' }" title="回复可采纳" @click="rate(row, 'up')">👍</button>
-          <button class="rate pressable" :class="{ 'is-on': row.rating === 'down' }" title="回复需改进（差评对是改进语料）" @click="rate(row, 'down')">👎</button>
+          <button
+            class="rate pressable"
+            :class="{ 'is-on': row.rating === 'up' }"
+            title="回复可采纳"
+            @click="rate(jobOf(row), 'up')"
+          >
+            👍
+          </button>
+          <button
+            class="rate pressable"
+            :class="{ 'is-on': row.rating === 'down' }"
+            title="回复需改进（差评对是改进语料）"
+            @click="rate(jobOf(row), 'down')"
+          >
+            👎
+          </button>
         </template>
       </el-table-column>
 
@@ -374,11 +444,19 @@ function latency(job: WelinkJob): string {
 
       <el-table-column label="操作" width="170" fixed="right">
         <template #default="{ row }">
-          <el-button v-if="row.status === 'failed' || row.status === 'skipped'" size="small" text type="primary" @click="retry(row)">
+          <el-button
+            v-if="row.status === 'failed' || row.status === 'skipped'"
+            size="small"
+            text
+            type="primary"
+            @click="retry(jobOf(row))"
+          >
             重发
           </el-button>
-          <el-button v-if="row.status === 'ready'" size="small" text type="primary" @click="openEdit(row)">编辑并发送</el-button>
-          <el-button size="small" text @click="removeJob(row)">删除</el-button>
+          <el-button v-if="row.status === 'ready'" size="small" text type="primary" @click="openEdit(jobOf(row))"
+            >编辑并发送</el-button
+          >
+          <el-button size="small" text @click="removeJob(jobOf(row))">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -397,7 +475,14 @@ function latency(job: WelinkJob): string {
     <!-- 编辑并发送弹层 -->
     <el-dialog v-model="editDialog.open" title="编辑并发送" width="560px">
       <p class="dialog__hint">人工发送同样经过安全闸口（开关 / 频控 / 黑名单），命中敏感句式需显式确认。</p>
-      <el-input v-model="editDialog.text" type="textarea" :rows="7" maxlength="500" show-word-limit placeholder="确认或修改后发送" />
+      <el-input
+        v-model="editDialog.text"
+        type="textarea"
+        :rows="7"
+        maxlength="500"
+        show-word-limit
+        placeholder="确认或修改后发送"
+      />
       <el-alert
         v-if="editDialog.hit"
         class="dialog__alert"
@@ -410,7 +495,9 @@ function latency(job: WelinkJob): string {
       <el-checkbox v-if="editDialog.hit" v-model="editDialog.risk" class="dialog__risk">我确认无误发风险</el-checkbox>
       <template #footer>
         <el-button @click="editDialog.open = false">取消</el-button>
-        <el-button type="primary" :disabled="editDialog.hit && !editDialog.risk" @click="confirmEdit">确认发送</el-button>
+        <el-button type="primary" :disabled="editDialog.hit && !editDialog.risk" @click="confirmEdit"
+          >确认发送</el-button
+        >
       </template>
     </el-dialog>
   </div>

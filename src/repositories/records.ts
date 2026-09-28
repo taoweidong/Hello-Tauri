@@ -1,22 +1,119 @@
 import { bridge, platform } from '@/api'
-import type { DbRow, Migration, TableRow, TableRowDraft } from '@/types'
+import { migrationV1 } from '@/infra/db/migrations/records'
+import type { DbRow, TableRow, TableRowDraft } from '@/types'
 import { logger } from '@/utils/logger'
 
 export const CATEGORIES = ['基础设施', '数据服务', '业务应用', '安全合规']
 
 export const SEED_ROWS: TableRow[] = [
-  { id: 1, name: '日志采集网关', category: '基础设施', status: 'active', amount: 12800, owner: '张伟', createdAt: '2026-01-08' },
-  { id: 2, name: '订单查询服务', category: '业务应用', status: 'active', amount: 35600, owner: '李娜', createdAt: '2026-01-22' },
-  { id: 3, name: '离线报表任务', category: '数据服务', status: 'inactive', amount: 7400, owner: '王强', createdAt: '2026-02-03' },
-  { id: 4, name: '统一认证中心', category: '安全合规', status: 'active', amount: 52100, owner: '赵敏', createdAt: '2026-02-17' },
-  { id: 5, name: '配置中心', category: '基础设施', status: 'active', amount: 9600, owner: '陈杰', createdAt: '2026-03-05' },
-  { id: 6, name: '数据同步管道', category: '数据服务', status: 'active', amount: 28300, owner: '刘洋', createdAt: '2026-03-19' },
-  { id: 7, name: '审计日志归档', category: '安全合规', status: 'inactive', amount: 4300, owner: '孙倩', createdAt: '2026-04-02' },
-  { id: 8, name: '移动端接口层', category: '业务应用', status: 'active', amount: 41200, owner: '周琳', createdAt: '2026-04-21' },
-  { id: 9, name: '指标计算引擎', category: '数据服务', status: 'active', amount: 33800, owner: '吴昊', createdAt: '2026-05-09' },
-  { id: 10, name: '容器镜像仓库', category: '基础设施', status: 'inactive', amount: 15900, owner: '郑凯', createdAt: '2026-05-26' },
-  { id: 11, name: '风控规则服务', category: '安全合规', status: 'active', amount: 46700, owner: '冯雪', createdAt: '2026-06-11' },
-  { id: 12, name: '消息推送平台', category: '业务应用', status: 'active', amount: 21400, owner: '许阳', createdAt: '2026-06-30' },
+  {
+    id: 1,
+    name: '日志采集网关',
+    category: '基础设施',
+    status: 'active',
+    amount: 12800,
+    owner: '张伟',
+    createdAt: '2026-01-08',
+  },
+  {
+    id: 2,
+    name: '订单查询服务',
+    category: '业务应用',
+    status: 'active',
+    amount: 35600,
+    owner: '李娜',
+    createdAt: '2026-01-22',
+  },
+  {
+    id: 3,
+    name: '离线报表任务',
+    category: '数据服务',
+    status: 'inactive',
+    amount: 7400,
+    owner: '王强',
+    createdAt: '2026-02-03',
+  },
+  {
+    id: 4,
+    name: '统一认证中心',
+    category: '安全合规',
+    status: 'active',
+    amount: 52100,
+    owner: '赵敏',
+    createdAt: '2026-02-17',
+  },
+  {
+    id: 5,
+    name: '配置中心',
+    category: '基础设施',
+    status: 'active',
+    amount: 9600,
+    owner: '陈杰',
+    createdAt: '2026-03-05',
+  },
+  {
+    id: 6,
+    name: '数据同步管道',
+    category: '数据服务',
+    status: 'active',
+    amount: 28300,
+    owner: '刘洋',
+    createdAt: '2026-03-19',
+  },
+  {
+    id: 7,
+    name: '审计日志归档',
+    category: '安全合规',
+    status: 'inactive',
+    amount: 4300,
+    owner: '孙倩',
+    createdAt: '2026-04-02',
+  },
+  {
+    id: 8,
+    name: '移动端接口层',
+    category: '业务应用',
+    status: 'active',
+    amount: 41200,
+    owner: '周琳',
+    createdAt: '2026-04-21',
+  },
+  {
+    id: 9,
+    name: '指标计算引擎',
+    category: '数据服务',
+    status: 'active',
+    amount: 33800,
+    owner: '吴昊',
+    createdAt: '2026-05-09',
+  },
+  {
+    id: 10,
+    name: '容器镜像仓库',
+    category: '基础设施',
+    status: 'inactive',
+    amount: 15900,
+    owner: '郑凯',
+    createdAt: '2026-05-26',
+  },
+  {
+    id: 11,
+    name: '风控规则服务',
+    category: '安全合规',
+    status: 'active',
+    amount: 46700,
+    owner: '冯雪',
+    createdAt: '2026-06-11',
+  },
+  {
+    id: 12,
+    name: '消息推送平台',
+    category: '业务应用',
+    status: 'active',
+    amount: 21400,
+    owner: '许阳',
+    createdAt: '2026-06-30',
+  },
 ]
 
 /** 用本地时区拼日期：toISOString() 是 UTC，东八区凌晨会记成前一天 */
@@ -48,22 +145,6 @@ export interface RecordsBackend {
 
 // ---------- SQLite 实现（桌面模式） ----------
 
-const MIGRATIONS: Migration[] = [
-  {
-    version: 1,
-    description: 'create_records',
-    sql: `CREATE TABLE records (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      status TEXT NOT NULL,
-      amount REAL NOT NULL DEFAULT 0,
-      owner TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );`,
-  },
-]
-
 type RowStatus = TableRow['status']
 
 function rowFromDb(item: DbRow): TableRow {
@@ -84,12 +165,16 @@ function rowParams(row: TableRow) {
 
 export const sqlRecordsBackend: RecordsBackend = {
   async prepare() {
-    await bridge.dbMigrate(MIGRATIONS)
+    // R-4：引用唯一的迁移定义（`infra/db/migrations/records.ts`），
+    // 本仓储只负责自己那张表的迁移；WeLink 四表由 `dbMigrateAll` 统一负责。
+    await bridge.dbMigrate([migrationV1])
     const countRows = await bridge.dbSelect('SELECT COUNT(*) AS count FROM records')
     if (Number(countRows[0]?.count ?? 0) > 0) return
 
     // 表为空：优先导入旧版 table.json（P3 升级迁移），否则写内置种子
     let rows = cloneSeed()
+    // A-2：legacy 通道只此一处使用，`Bridge.readTable` 已标 @deprecated
+    // （移除条件见其 JSDoc）。此处刻意**不**索引化：这是升级路径，只跑一次。
     const legacy = await bridge.readTable().catch(() => null)
     if (legacy) {
       try {
@@ -222,5 +307,4 @@ export const memoryRecordsBackend: RecordsBackend = {
 }
 
 /** 按运行环境选择后端：桌面走 SQLite 通道，浏览器走内存实现 */
-export const recordsBackend: RecordsBackend =
-  platform === 'tauri' ? sqlRecordsBackend : memoryRecordsBackend
+export const recordsBackend: RecordsBackend = platform === 'tauri' ? sqlRecordsBackend : memoryRecordsBackend

@@ -16,6 +16,7 @@ import { ElMessage } from 'element-plus'
 import { IconSearch, IconUser } from '@/components/icons'
 import { useWelinkStore } from '@/stores/welink'
 import type { WelinkConversation, WelinkJob, WelinkMessage } from '@/types/welink'
+import { muteLabel as muteLabelOf, shortStamp } from '@/utils/welink-display'
 
 const props = defineProps<{ focusConvId: string }>()
 const emit = defineEmits<{
@@ -57,20 +58,11 @@ async function select(convId: string) {
   }
 }
 
-/** 静音剩余（O11：行置灰 + 「静音至 hh:mm」） */
-function muteLabel(conv: WelinkConversation): string {
-  if (!conv.muteUntil) return ''
-  return conv.muteUntil > nowStampText() ? `静音至 ${conv.muteUntil.slice(11, 16)}` : ''
-}
-
-function nowStampText(): string {
-  const pad = (value: number) => String(value).padStart(2, '0')
-  const date = new Date()
-  return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-  )
-}
+/**
+ * 静音剩余（O11：行置灰 + 「静音至 hh:mm」）—— 统一实现见 `utils/welink-display`。
+ * 这里只保留「只显示时刻」的偏好（消息中心是日内视图，日期冗余）。
+ */
+const muteLabel = (conv: WelinkConversation): string => muteLabelOf(conv.muteUntil, new Date(), false)
 
 function convStateDot(convId: string): string {
   const state = store.convoStates[convId]
@@ -96,7 +88,9 @@ function onMenu(command: string, conv: WelinkConversation) {
   if (command === 'history') return emit('open-history', { targetId: conv.convId })
   if (command.startsWith('mute:')) {
     const hours = Number(command.split(':')[1])
-    return void store.muteConversation(conv.convId, hours).then(() => ElMessage.success(`已静音 ${hours} 小时，到期自动恢复`))
+    return void store
+      .muteConversation(conv.convId, hours)
+      .then(() => ElMessage.success(`已静音 ${hours} 小时，到期自动恢复`))
   }
 }
 
@@ -126,7 +120,8 @@ function openJob(job: WelinkJob) {
 
 const statusLabel = (job: WelinkJob) => store.statusLabel(job.status)
 
-const timeLabel = (stamp: string) => stamp.slice(5, 16)
+/** 时间列文案（统一实现，T-4） */
+const timeLabel = (stamp: string) => shortStamp(stamp)
 </script>
 
 <template>
@@ -160,7 +155,9 @@ const timeLabel = (stamp: string) => stamp.slice(5, 16)
               <span v-if="conv.mentionCount" class="mc__badge mc__badge--at" :title="`${conv.mentionCount} 条 @我`">
                 @{{ conv.mentionCount }}
               </span>
-              <span v-if="conv.unreadCount" class="mc__badge" :title="`${conv.unreadCount} 条未读`">{{ conv.unreadCount }}</span>
+              <span v-if="conv.unreadCount" class="mc__badge" :title="`${conv.unreadCount} 条未读`">{{
+                conv.unreadCount
+              }}</span>
             </span>
 
             <!-- 行操作：暂停监控 / 静音 / 查看回复历史（§11.1） -->
@@ -243,7 +240,9 @@ const timeLabel = (stamp: string) => stamp.slice(5, 16)
       </div>
 
       <div v-else class="mc__stream">
-        <button v-if="store.hasMoreMessages" class="mc__more pressable" @click="store.loadEarlierMessages()">加载更早的消息</button>
+        <button v-if="store.hasMoreMessages" class="mc__more pressable" @click="store.loadEarlierMessages()">
+          加载更早的消息
+        </button>
         <p v-else class="mc__stream-head">— 已到最早 —</p>
 
         <div
@@ -254,7 +253,9 @@ const timeLabel = (stamp: string) => stamp.slice(5, 16)
         >
           <div class="bubble__head">
             <span v-if="message.atMe" class="bubble__at">@我</span>
-            <span class="bubble__who">{{ message.direction === 'out' ? '我' : message.senderName || message.senderId }}</span>
+            <span class="bubble__who">{{
+              message.direction === 'out' ? '我' : message.senderName || message.senderId
+            }}</span>
             <span class="bubble__time">{{ timeLabel(message.sentAt) }}</span>
             <span v-if="message.msgType !== 'text'" class="bubble__type">[{{ message.msgType }}]</span>
           </div>
@@ -268,8 +269,12 @@ const timeLabel = (stamp: string) => stamp.slice(5, 16)
             @click="$emit('open-history', { targetId: jobOfMessage(message)!.targetId })"
           >
             回复状态：{{ statusLabel(jobOfMessage(message)!) }}
-            <span v-if="jobOfMessage(message)!.attempts" class="bubble__job-attempts">（重试 {{ jobOfMessage(message)!.attempts }} 次）</span>
-            <span v-if="jobOfMessage(message)!.skipReason" class="bubble__job-skip">· {{ store.skipLabel(jobOfMessage(message)!.skipReason) }}</span>
+            <span v-if="jobOfMessage(message)!.attempts" class="bubble__job-attempts"
+              >（重试 {{ jobOfMessage(message)!.attempts }} 次）</span
+            >
+            <span v-if="jobOfMessage(message)!.skipReason" class="bubble__job-skip"
+              >· {{ store.skipLabel(jobOfMessage(message)!.skipReason) }}</span
+            >
           </button>
         </div>
 
@@ -292,7 +297,9 @@ const timeLabel = (stamp: string) => stamp.slice(5, 16)
           <p class="jobcard__summary">{{ job.triggerSummary || '（无摘要）' }}</p>
           <p v-if="job.draft" class="jobcard__draft">{{ job.draft }}</p>
           <div class="jobcard__foot">
-            <el-tag v-if="job.holdReason" size="small" type="warning" effect="light">{{ store.holdLabel(job.holdReason) }}</el-tag>
+            <el-tag v-if="job.holdReason" size="small" type="warning" effect="light">{{
+              store.holdLabel(job.holdReason)
+            }}</el-tag>
             <el-tag v-if="job.attempts" size="small" type="danger" effect="plain">重试 {{ job.attempts }}</el-tag>
             <span class="spacer" />
             <!-- failed → 直接重试（回 ready 入队，重发同样过 Gate）；ready(manual) → 查看草稿 -->
@@ -305,7 +312,13 @@ const timeLabel = (stamp: string) => stamp.slice(5, 16)
             >
               重试
             </el-button>
-            <el-button v-else-if="job.status === 'ready' && job.holdReason" size="small" text type="primary" @click="openJob(job)">
+            <el-button
+              v-else-if="job.status === 'ready' && job.holdReason"
+              size="small"
+              text
+              type="primary"
+              @click="openJob(job)"
+            >
               查看草稿
             </el-button>
             <el-button size="small" text @click="openJob(job)">查看</el-button>

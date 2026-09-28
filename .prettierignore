@@ -1,0 +1,28 @@
+# Prettier 忽略清单
+# 构建产物与生成物不参与格式化（会被下次构建覆盖，格式化纯属噪音）
+dist/
+release/
+target/
+src-tauri/target/
+src-tauri/gen/
+node_modules/
+coverage/
+
+# unplugin 生成的类型声明：**格式不受我们控制**。
+#
+# unplugin-auto-import / unplugin-vue-components 写 dts 时恒定输出单行长语句
+# （实测 auto-imports.d.ts 里那个 18 个名字的 `export type { ... } from 'vue'`
+# 永远占一行，连续三次构建 md5 都是 b83474d3），而 Prettier 要求折行。
+# 于是形成死循环：格式化 → 下次构建覆盖回长行 → `prettier --check` 再失败。
+#
+# 这两个文件由 verify 的「阶段 0　生成物新鲜度」负责校验存在性与条目完整性，
+# 职责已覆盖，不再让 Prettier 管它们的排版。
+auto-imports.d.ts
+components.d.ts
+
+# 工作区数据（AI 会话记忆，属本机状态不是源码）
+.workbuddy/
+
+vibe_images/
+package-lock.json
+*.min.js

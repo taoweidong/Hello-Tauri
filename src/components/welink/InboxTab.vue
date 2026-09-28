@@ -14,12 +14,15 @@ import { ElMessage } from 'element-plus'
 import { IconSearch } from '@/components/icons'
 import { useWelinkStore } from '@/stores/welink'
 import type { WelinkMessage } from '@/types/welink'
+import { shortStamp } from '@/utils/welink-display'
 
 const emit = defineEmits<{ (e: 'open-conversation', convId: string): void }>()
 const store = useWelinkStore()
 
 const filter = reactive({ keyword: '', from: daysAgo(30), to: '', onlyUnreplied: false })
-const threads = ref<Array<{ convPk: number; convId: string; title: string; unreadCount: number; lastMsgAt: string; lastContent: string }>>([])
+const threads = ref<
+  Array<{ convPk: number; convId: string; title: string; unreadCount: number; lastMsgAt: string; lastContent: string }>
+>([])
 const loading = ref(false)
 const selectedConvId = ref('')
 const detail = ref<WelinkMessage[]>([])
@@ -142,7 +145,7 @@ async function openHit(message: WelinkMessage) {
   await selectThread(conv.convId)
 }
 
-const timeLabel = (stamp: string) => stamp.slice(5, 16)
+const timeLabel = (stamp: string) => shortStamp(stamp)
 
 onMounted(load)
 </script>
@@ -155,9 +158,23 @@ onMounted(load)
         <IconSearch class="inbox__search-icon" />
         <input v-model="filter.keyword" class="inbox__input" placeholder="按昵称 / 工号搜索" @keyup.enter="load()" />
       </div>
-      <el-date-picker v-model="filter.from" type="date" size="small" placeholder="开始日期" value-format="YYYY-MM-DD" class="inbox__date" />
+      <el-date-picker
+        v-model="filter.from"
+        type="date"
+        size="small"
+        placeholder="开始日期"
+        value-format="YYYY-MM-DD"
+        class="inbox__date"
+      />
       <span class="inbox__tilde">→</span>
-      <el-date-picker v-model="filter.to" type="date" size="small" placeholder="结束日期" value-format="YYYY-MM-DD" class="inbox__date" />
+      <el-date-picker
+        v-model="filter.to"
+        type="date"
+        size="small"
+        placeholder="结束日期"
+        value-format="YYYY-MM-DD"
+        class="inbox__date"
+      />
       <el-checkbox v-model="filter.onlyUnreplied" size="small">只看未回复</el-checkbox>
       <el-button size="small" type="primary" plain @click="load()">筛选联系人</el-button>
       <!-- O12：切到「搜消息正文」模式，结果跨会话平铺 -->
@@ -166,18 +183,15 @@ onMounted(load)
     </div>
 
     <!-- O12 搜索结果面板：定位「谁提到过这句话」，点行跳到该会话时间线 -->
-    <div v-if="msgSearch.active" class="inbox__hits" v-loading="msgSearch.loading">
+    <div v-if="msgSearch.active" v-loading="msgSearch.loading" class="inbox__hits">
       <header class="inbox__hits-head">
-        <span>正文命中 <b class="num">{{ msgSearch.rows.length }}</b> 条</span>
+        <span
+          >正文命中 <b class="num">{{ msgSearch.rows.length }}</b> 条</span
+        >
         <span class="spacer" />
         <el-button size="small" text @click="msgSearch.active = false">返回联系人</el-button>
       </header>
-      <div
-        v-for="hit in msgSearch.rows"
-        :key="hit.msgUid"
-        class="hit pressable"
-        @click="openHit(hit)"
-      >
+      <div v-for="hit in msgSearch.rows" :key="hit.msgUid" class="hit pressable" @click="openHit(hit)">
         <span class="hit__conv">{{ convTitleOf(hit.convPk) }}</span>
         <span class="hit__who">{{ hit.direction === 'out' ? '我' : hit.senderName || hit.senderId }}</span>
         <span class="hit__text">{{ hit.content }}</span>
@@ -191,7 +205,7 @@ onMounted(load)
 
     <div v-else class="inbox__body">
       <!-- 左：联系人列表 -->
-      <aside class="inbox__list" v-loading="loading">
+      <aside v-loading="loading" class="inbox__list">
         <button
           v-for="thread in threads"
           :key="thread.convId"
@@ -235,7 +249,9 @@ onMounted(load)
             :class="message.direction === 'out' ? 'bubble--out' : 'bubble--in'"
           >
             <div class="bubble__head">
-              <span class="bubble__who">{{ message.direction === 'out' ? '我' : message.senderName || message.senderId }}</span>
+              <span class="bubble__who">{{
+                message.direction === 'out' ? '我' : message.senderName || message.senderId
+              }}</span>
               <span class="bubble__time">{{ timeLabel(message.sentAt) }}</span>
             </div>
             <p class="bubble__text">{{ message.content }}</p>

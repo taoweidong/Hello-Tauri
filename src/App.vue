@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
 
 import MainLayout from '@/layouts/MainLayout.vue'
 import { useAppStore } from '@/stores/app'
@@ -10,6 +11,20 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const tableStore = useTableStore()
+
+/**
+ * Element Plus 区域语言（P-1）。
+ *
+ * 为什么从 `main.ts` 搬到这里：原先挂在 `app.use(ElementPlus, { locale: zhCn })`
+ * 上，而全量注册已被按需引入取代（见 `main.ts` 注释）。`ConfigProvider` 是
+ * Element Plus 官方在按需引入场景下的 locale 注入方式 —— 少了它，分页
+ * （`el-pagination`）与日期/时间选择器会显示英文。
+ *
+ * 作用域用 `ConfigProvider` 包住 `MainLayout`：`ElMessage` / `ElMessageBox`
+ * 这类命令式 API 的 locale 由组件内的 `ConfigProvider` 上下文决定，
+ * 因此必须在应用根部提供。
+ */
+const locale = zhCn
 
 onMounted(async () => {
   await appStore.load()
@@ -34,5 +49,7 @@ watch(
 </script>
 
 <template>
-  <MainLayout />
+  <el-config-provider :locale="locale">
+    <MainLayout />
+  </el-config-provider>
 </template>

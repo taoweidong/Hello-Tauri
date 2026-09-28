@@ -45,11 +45,7 @@ export const useAppStore = defineStore('app', () => {
       const [appInfo, layout] = await Promise.all([bridge.appInfo(), bridge.storageInfo()])
       info.value = appInfo
       storage.value = layout
-      logger.info(
-        layout.fallback
-          ? `应用启动（存储降级）：${layout.note}`
-          : `应用启动，数据目录 ${layout.root}`,
-      )
+      logger.info(layout.fallback ? `应用启动（存储降级）：${layout.note}` : `应用启动，数据目录 ${layout.root}`)
     } catch (error) {
       logger.error('初始化失败，使用默认配置', error)
     }

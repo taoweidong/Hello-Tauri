@@ -316,7 +316,10 @@ describe('infra/agent —— HTTP 客户端（真实实现的形状，用假 fet
       { data: { content: 'r5' } },
       { choices: [{ message: { content: 'r6' } }] },
     ]) {
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(body)))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(body)),
+      )
       const agent = createHttpAgent({ baseUrl: 'http://x', endpoint: '/c', timeoutMs: 1000 })
       await expect(agent.complete('p')).resolves.toBeTruthy()
       vi.unstubAllGlobals()
@@ -324,7 +327,10 @@ describe('infra/agent —— HTTP 客户端（真实实现的形状，用假 fet
   })
 
   it('HTTP 非 2xx → error 类（含状态码）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'bad' }, 500)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ error: 'bad' }, 500)),
+    )
     const agent = createHttpAgent({ baseUrl: 'http://x', endpoint: '/c', timeoutMs: 1000 })
     await expect(agent.complete('p')).rejects.toMatchObject({ kind: 'error' })
     await expect(agent.complete('p')).rejects.toThrow(/HTTP 500/)
@@ -332,7 +338,10 @@ describe('infra/agent —— HTTP 客户端（真实实现的形状，用假 fet
   })
 
   it('响应里找不到正文字段 → error 类（不静默返回空串）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ unrelated: 1 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ unrelated: 1 })),
+    )
     const agent = createHttpAgent({ baseUrl: 'http://x', endpoint: '/c', timeoutMs: 1000 })
     await expect(agent.complete('p')).rejects.toThrow(/未找到回复正文字段/)
     vi.unstubAllGlobals()
@@ -355,7 +364,10 @@ describe('infra/agent —— HTTP 客户端（真实实现的形状，用假 fet
   })
 
   it('并发的两次调用各自留痕（1:N 语料的前提）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ reply: 'ok' })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ reply: 'ok' })),
+    )
     const agent = createHttpAgent({ baseUrl: 'http://x', endpoint: '/c', timeoutMs: 1000 })
     const seen: AgentCallRecord[] = []
     agent.onCall((record) => seen.push(record))
@@ -366,7 +378,10 @@ describe('infra/agent —— HTTP 客户端（真实实现的形状，用假 fet
   })
 
   it('probeAgent 返回耗时与回复摘要（Settings 连通性按钮）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ reply: 'ok' })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ reply: 'ok' })),
+    )
     const result = await probeAgent({ baseUrl: 'http://x', endpoint: '/c', timeoutMs: 1000 })
     expect(result.preview).toBe('ok')
     expect(result.latencyMs).toBeGreaterThanOrEqual(0)

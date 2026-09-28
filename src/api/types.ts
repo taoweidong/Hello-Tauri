@@ -1,4 +1,14 @@
-import type { AppInfo, CliResult, DbParam, DbRow, ExecResult, LogLevel, Migration, MigrateReport, StorageLayout } from '@/types'
+import type {
+  AppInfo,
+  CliResult,
+  DbParam,
+  DbRow,
+  ExecResult,
+  LogLevel,
+  Migration,
+  MigrateReport,
+  StorageLayout,
+} from '@/types'
 
 export type Platform = 'tauri' | 'web'
 
@@ -12,7 +22,17 @@ export interface Bridge {
   readonly platform: Platform
   loadConfig(): Promise<string | null>
   saveConfig(content: string): Promise<void>
+  /**
+   * 读旧版 `table.json`（A-2）。
+   *
+   * @deprecated 只作为 v1 数据升级的数据源保留，新代码一律走 `fsRead` /
+   * SQLite 仓储。**移除条件**：确认现场实例的 `records` 表已全部由
+   * `migrationV1` 建起、且 `records.ts` 的 `prepare()` 不再需要从
+   * `table.json` 导入历史数据后，连同 `writeTable` 与 `tauri.rs` 的
+   * `read_table` / `write_table` 一起删除。
+   */
   readTable(): Promise<string | null>
+  /** @deprecated 见 `readTable` 的移除条件；旧版 `table.json` 已不再写入 */
   writeTable(content: string): Promise<void>
   /** 追加一行日志，返回写入的日志文件绝对路径 */
   appendLog(level: LogLevel, message: string): Promise<string>

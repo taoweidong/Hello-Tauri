@@ -115,7 +115,13 @@ export function createBootstrap(options: BootstrapOptions): Bootstrap {
               const fixed = await repo.markStatus(job.pk, 'sent', 'sending')
               if (fixed) {
                 result.recoveredSent += 1
-                options.emit({ type: 'jobStatusChanged', jobPk: job.pk, from: 'sending', to: 'sent', reason: '启动恢复：凭回执补记已发送' })
+                options.emit({
+                  type: 'jobStatusChanged',
+                  jobPk: job.pk,
+                  from: 'sending',
+                  to: 'sent',
+                  reason: '启动恢复：凭回执补记已发送',
+                })
                 logger.warn(`启动恢复：job ${job.pk} 凭回执补记为 sent（崩溃在回执前）`)
               }
             } else {
@@ -123,7 +129,13 @@ export function createBootstrap(options: BootstrapOptions): Bootstrap {
               void fixed
               result.requeued += 1
               enqueue.push(job.pk)
-              options.emit({ type: 'jobStatusChanged', jobPk: job.pk, from: 'sending', to: 'ready', reason: '启动恢复：无回执，回落待重发' })
+              options.emit({
+                type: 'jobStatusChanged',
+                jobPk: job.pk,
+                from: 'sending',
+                to: 'ready',
+                reason: '启动恢复：无回执，回落待重发',
+              })
             }
           } catch (error) {
             result.warnings.push(`job ${job.pk} 恢复失败：${String(error)}`)

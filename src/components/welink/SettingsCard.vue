@@ -30,6 +30,7 @@ import {
   type WelinkSettings,
 } from '@/types/welink'
 import { decodeBase64Text } from '@/utils/b64'
+import { formatMs, formatSec } from '@/utils/welink-display'
 
 const props = defineProps<{ modelValue: Partial<WelinkSettings> }>()
 const emit = defineEmits<{
@@ -76,6 +77,37 @@ watch(valid, (value) => emit('update:valid', value), { immediate: true })
 const missingPlaceholders = computed(() =>
   PROMPT_PLACEHOLDERS.filter((token) => !draft.value.agent.promptTemplate.includes(token)),
 )
+
+/**
+ * 轮询节奏预估（D-6）。
+ *
+ * 传草稿里的 `pollIntervalSec`（而非已生效配置），这样用户拖动数字时提示会
+ * 立刻跟着变 —— 设置页的价值就在于「改之前先看清后果」。
+ */
+const plan = computed(() => welinkStore.pollPlan(draft.value.pollIntervalSec))
+
+/** 毫秒的可读格式化（1.5s / 300ms）—— 统一实现见 `utils/welink-display`（T-4） */
+
+/** 秒的可读格式化（保留一位小数即可，避免出现 40.0000001 这种数） */
+
+/**
+ * 非回环 + 明文 HTTP 告警（S-3）。
+ *
+ * 为什么只警告不回环：回环地址（127.0.0.1 / localhost / ::1）的流量不出本机，
+ * 明文并不构成额外暴露 —— 对一个「内网离线可用」的桌面应用来说，本地模型
+ * 走 http://127.0.0.1:8080 是正常用法，把它也标红只会让告警变成噪音。
+ * 判据是「**离开本机**且明文」才提示。
+ */
+const agentUrlInsecure = computed(() => {
+  const url = draft.value.agent.baseUrl.trim()
+  if (!url || draft.value.agent.agentSource !== 'http') return false
+  if (!/^http:\/\//i.test(url)) return false
+  const host = url
+    .replace(/^https?:\/\//i, '')
+    .split(/[/:?#]/)[0]
+    .toLowerCase()
+  return !['localhost', '127.0.0.1', '[::1]', '::1', '0.0.0.0'].includes(host)
+})
 
 // ---------------- O9 预设三档 ----------------
 
@@ -137,7 +169,9 @@ const previewResult = computed(() => {
   if (preview.perConv > safety.perConvHourlyCap) hits.push(`S2 单会话小时上限（${safety.perConvHourlyCap}）会先命中`)
   if (preview.global > safety.globalHourlyCap) hits.push(`S3 全局小时上限（${safety.globalHourlyCap}）会先命中`)
   if (safety.perConvMinIntervalSec > 0) {
-    hits.push(`S1 每条之间至少间隔 ${safety.perConvMinIntervalSec}s，1 分钟内最多 ${Math.floor(60 / safety.perConvMinIntervalSec) || 1} 条`)
+    hits.push(
+      `S1 每条之间至少间隔 ${safety.perConvMinIntervalSec}s，1 分钟内最多 ${Math.floor(60 / safety.perConvMinIntervalSec) || 1} 条`,
+    )
   }
   if (safety.quietHours.enabled) hits.push(`S4 静默时段 ${safety.quietHours.from}–${safety.quietHours.to} 期间不外发`)
   if (safety.mergeWindowSec > 0) hits.push(`S5 ${safety.mergeWindowSec}s 内同会话重复内容会合并`)
@@ -200,7 +234,11 @@ async function testAgent() {
     const settings = draft.value.agent
     const probe =
       draft.value.agent.agentSource === 'http' && settings.baseUrl.trim()
-        ? createHttpAgent({ baseUrl: settings.baseUrl.trim(), endpoint: settings.endpoint, timeoutMs: Math.min(settings.timeoutMs, 15_000) })
+        ? createHttpAgent({
+            baseUrl: settings.baseUrl.trim(),
+            endpoint: settings.endpoint,
+            timeoutMs: Math.min(settings.timeoutMs, 15_000),
+          })
         : createMockAgent()
     const started = Date.now()
     const reply = await probe.complete('连通性测试：请只回复「ok」两个字符。')
@@ -307,7 +345,12 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
         <el-collapse-item name="safety" title="防滥发（SafetyGate 闸口）">
           <div class="wc__presets">
             <el-radio-group v-model="presetId">
-              <el-radio-button v-for="preset in presetOptions" :key="preset.id" :value="preset.id" :title="preset.description">
+              <el-radio-button
+                v-for="preset in presetOptions"
+                :key="preset.id"
+                :value="preset.id"
+                :title="preset.description"
+              >
                 {{ preset.label }}
               </el-radio-button>
             </el-radio-group>
@@ -318,7 +361,13 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
 
           <el-form :model="draft.safety" label-width="120px" class="wc__form" @submit.prevent>
             <el-form-item label="S1 最小间隔">
-              <el-input-number v-model="draft.safety.perConvMinIntervalSec" :min="0" :max="600" :step="1" size="small" />
+              <el-input-number
+                v-model="draft.safety.perConvMinIntervalSec"
+                :min="0"
+                :max="600"
+                :step="1"
+                size="small"
+              />
               <span class="wc__unit">秒 / 每会话</span>
               <span class="wc__hint">同一会话两次回复的最小间隔，跨重启仍然生效</span>
             </el-form-item>
@@ -378,12 +427,12 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
               <div class="wc__patterns">
                 <div v-for="(_, index) in draft.safety.blacklistPatterns" :key="index" class="wc__pattern">
                   <el-input v-model="draft.safety.blacklistPatterns[index]" size="small" placeholder="正则表达式" />
-                  <el-button size="small" text type="danger" @click="draft.safety.blacklistPatterns.splice(index, 1)">删除</el-button>
+                  <el-button size="small" text type="danger" @click="draft.safety.blacklistPatterns.splice(index, 1)"
+                    >删除</el-button
+                  >
                 </div>
                 <el-button size="small" text @click="draft.safety.blacklistPatterns.push('')">+ 添加一条</el-button>
-                <p class="wc__hint">
-                  命中后转「人工待审」而不是丢弃：保留草稿让人判断，避免误伤正常回复
-                </p>
+                <p class="wc__hint">命中后转「人工待审」而不是丢弃：保留草稿让人判断，避免误伤正常回复</p>
               </div>
             </el-form-item>
             <el-form-item label="S8 熔断">
@@ -400,9 +449,23 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
             <span class="wc__preview-title">预览拦截效果</span>
             <div class="wc__preview-row">
               <span>某会话 1 小时内触发</span>
-              <el-input-number v-model="preview.perConv" :min="1" :max="200" size="small" controls-position="right" class="wc__preview-num" />
+              <el-input-number
+                v-model="preview.perConv"
+                :min="1"
+                :max="200"
+                size="small"
+                controls-position="right"
+                class="wc__preview-num"
+              />
               <span>条，全局触发</span>
-              <el-input-number v-model="preview.global" :min="1" :max="500" size="small" controls-position="right" class="wc__preview-num" />
+              <el-input-number
+                v-model="preview.global"
+                :min="1"
+                :max="500"
+                size="small"
+                controls-position="right"
+                class="wc__preview-num"
+              />
               <span>条</span>
             </div>
             <ul class="wc__preview-list">
@@ -418,6 +481,16 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
               <el-input-number v-model="draft.pollIntervalSec" :min="3" :max="60" size="small" />
               <span class="wc__unit">秒</span>
               <span class="wc__hint">下一轮生效（热点会话会自动加密，冷会话自动降频）</span>
+              <!-- D-6：如实显示实际周期 —— 用户此前会把「间隔 3s」理解成「3s 拉一轮」，
+                   而 20 个会话时每会话 2s 错峰就会让单轮变成 40s+ -->
+              <span class="wc__plan" :class="{ 'wc__plan--warn': plan.converged }">
+                <template v-if="plan.known">
+                  当前 {{ plan.conversationCount }} 个监控会话，每会话错峰 {{ formatMs(plan.staggerMs) }}， 单轮实际约
+                  {{ formatSec(plan.periodMs) }}（不含拉取本身耗时）
+                  <template v-if="plan.converged"> —— 已按会话数自动收敛错峰，避免「间隔」被错峰淹没 </template>
+                </template>
+                <template v-else> 单轮实际 = 间隔 + 各会话错峰；监控会话数需打开助手页后可知（此处不猜） </template>
+              </span>
             </el-form-item>
             <el-form-item label="单批拉取上限">
               <el-input-number v-model="draft.pullBatchLimit" :min="20" :max="200" size="small" />
@@ -458,8 +531,8 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
               <el-button size="small" :icon="IconCheck" :loading="cliTesting" @click="testCli">试跑 --help</el-button>
             </el-form-item>
             <p class="wc__hint wc__hint--block">
-              仅允许运行白名单内名为 <span class="mono">welink-cli</span> 的程序；输出经 base64 回传，
-              优先按 UTF-8 解码，失败回退 GBK（适配中文版 Windows 命令行）。
+              仅允许运行白名单内名为 <span class="mono">welink-cli</span> 的程序；输出经 base64 回传， 优先按 UTF-8
+              解码，失败回退 GBK（适配中文版 Windows 命令行）。
             </p>
           </el-form>
         </el-collapse-item>
@@ -469,6 +542,10 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
           <el-form :model="draft.agent" label-width="140px" class="wc__form" @submit.prevent>
             <el-form-item label="服务地址">
               <el-input v-model="draft.agent.baseUrl" class="wc__control" placeholder="http://10.0.0.5:8080" />
+              <!-- S-3：请求体含完整聊天上下文，明文 HTTP 出内网即等于聊天记录裸奔 -->
+              <span v-if="agentUrlInsecure" class="wc__warn">
+                非回环地址 + 明文 HTTP：提示词（含聊天原文）会以明文离开本机，请确认在内网可信链路上
+              </span>
             </el-form-item>
             <el-form-item label="接口路径">
               <el-input v-model="draft.agent.endpoint" class="wc__control" placeholder="/chat" />
@@ -483,7 +560,9 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
               <span class="wc__hint">取该会话最近 N 条消息拼进提示词（客户端组装）</span>
             </el-form-item>
             <el-form-item label="">
-              <el-button size="small" :icon="IconRefresh" :loading="agentTesting" @click="testAgent">连通性测试</el-button>
+              <el-button size="small" :icon="IconRefresh" :loading="agentTesting" @click="testAgent"
+                >连通性测试</el-button
+              >
               <span class="wc__hint">发送固定探测提示词，显示耗时与返回摘要</span>
             </el-form-item>
           </el-form>
@@ -597,6 +676,22 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
 .wc__hint--block {
   display: block;
   margin: 0 0 6px;
+}
+
+/**
+ * 实际周期提示（D-6）：与 `.wc__hint` 同色系但**换行独占一行** ——
+ * 它是一句「结论」而不是字段注解，跟在输入框后面会被读成下一段说明。
+ */
+.wc__plan {
+  display: block;
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--ht-text-3);
+  line-height: 1.7;
+}
+
+.wc__plan--warn {
+  color: var(--ht-primary);
 }
 
 .wc__warn {

@@ -26,7 +26,9 @@ const results = []
 
 function record(name, ok, detail = '') {
   results.push({ name, ok, detail })
-  process.stdout.write(`  ${ok ? '\x1b[32m✔\x1b[0m' : '\x1b[31m✖\x1b[0m'} ${name}${detail ? ` \x1b[90m— ${detail}\x1b[0m` : ''}\n`)
+  process.stdout.write(
+    `  ${ok ? '\x1b[32m✔\x1b[0m' : '\x1b[31m✖\x1b[0m'} ${name}${detail ? ` \x1b[90m— ${detail}\x1b[0m` : ''}\n`,
+  )
 }
 
 async function check(name, fn) {
@@ -204,7 +206,9 @@ async function main() {
   const failed = results.filter((r) => !r.ok)
   const elapsed = ((Date.now() - started) / 1000).toFixed(1)
 
-  process.stdout.write(`\n结果：${failed.length ? `失败 ${failed.length}/${results.length}` : `全部通过 ${passed}/${results.length}`}（${elapsed}s）\n`)
+  process.stdout.write(
+    `\n结果：${failed.length ? `失败 ${failed.length}/${results.length}` : `全部通过 ${passed}/${results.length}`}（${elapsed}s）\n`,
+  )
   if (failed.length) {
     for (const f of failed) process.stdout.write(`  · ${f.name}：${f.detail}\n`)
     process.exit(1)

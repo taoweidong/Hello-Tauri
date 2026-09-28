@@ -65,7 +65,8 @@ export const webBridge: Bridge = {
   async appInfo() {
     return {
       name: 'Hello-Tauri',
-      version: '0.1.0',
+      // R-3：版本取构建期注入的常量（真值在 package.json），不再手工同步
+      version: __APP_VERSION__,
       tauriVersion: '-',
       platform: 'web',
       arch: '-',

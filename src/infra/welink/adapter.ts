@@ -42,11 +42,7 @@ export function parseJson<T>(raw: string, context: string): T {
   try {
     return JSON.parse(text) as T
   } catch (error) {
-    throw new WelinkError(
-      `${context}：输出不是合法 JSON（前 160 字符：${text.slice(0, 160)}）`,
-      'parse',
-      error,
-    )
+    throw new WelinkError(`${context}：输出不是合法 JSON（前 160 字符：${text.slice(0, 160)}）`, 'parse', error)
   }
 }
 
@@ -107,9 +103,7 @@ export function normalizeMessage(raw: Record<string, unknown>, context: ParseCon
     typeof item === 'string' ? item : pickString(item as Record<string, unknown>, ['id', 'userId', 'empNo']),
   )
   const atMe =
-    direction === 'in' &&
-    !atAll &&
-    (explicitAtMe === true || (!!context.myUserId && atList.includes(context.myUserId)))
+    direction === 'in' && !atAll && (explicitAtMe === true || (!!context.myUserId && atList.includes(context.myUserId)))
 
   const msgUid = pickString(raw, ['msgUid', 'msg_uid', 'msgId', 'msg_id', 'id', 'uuid'])
   if (!msgUid) {
@@ -158,9 +152,9 @@ export function parseListOutput(raw: string): WelinkConversation[] {
     : pickArray(parsed as Record<string, unknown>, ['conversations', 'groups', 'contacts', 'items', 'list'])
   return items.map((item, index) => {
     const raw = item as Record<string, unknown>
-    const convType = (pickString(raw, ['convType', 'conv_type', 'type'], 'group').toLowerCase() === 'private'
-      ? 'private'
-      : 'group') as WelinkConvType
+    const convType = (
+      pickString(raw, ['convType', 'conv_type', 'type'], 'group').toLowerCase() === 'private' ? 'private' : 'group'
+    ) as WelinkConvType
     return {
       pk: index + 1,
       convType,

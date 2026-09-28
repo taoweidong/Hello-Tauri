@@ -342,10 +342,18 @@ body {
   flex-shrink: 0;
 }
 
-.dot--0 { background: var(--ht-cat-1); }
-.dot--1 { background: var(--ht-cat-2); }
-.dot--2 { background: var(--ht-cat-3); }
-.dot--3 { background: var(--ht-cat-4); }
+.dot--0 {
+  background: var(--ht-cat-1);
+}
+.dot--1 {
+  background: var(--ht-cat-2);
+}
+.dot--2 {
+  background: var(--ht-cat-3);
+}
+.dot--3 {
+  background: var(--ht-cat-4);
+}
 
 /* 代码/路径字体 */
 .mono {
@@ -358,7 +366,8 @@ body {
 /* ============ 路由过渡（只动 opacity/transform） ============ */
 
 .route-enter-active {
-  transition: opacity 0.22s cubic-bezier(0.22, 0.61, 0.36, 1),
+  transition:
+    opacity 0.22s cubic-bezier(0.22, 0.61, 0.36, 1),
     transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
@@ -376,8 +385,11 @@ body {
 /* ============ 微交互 ============ */
 
 .pressable {
-  transition: transform 0.15s cubic-bezier(0.22, 0.61, 0.36, 1),
-    background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition:
+    transform 0.15s cubic-bezier(0.22, 0.61, 0.36, 1),
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .pressable:active {
@@ -386,7 +398,9 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .pressable {
-    transition: background-color 0.15s ease, color 0.15s ease;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease;
   }
 
   .pressable:active {
@@ -396,8 +410,13 @@ body {
 
 /* 骨架闪烁（只动 opacity） */
 @keyframes ht-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
 
 .skeleton {

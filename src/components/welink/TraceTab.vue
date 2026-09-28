@@ -16,6 +16,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { IconDownload, IconRefresh, IconTrash } from '@/components/icons'
 import { useWelinkStore } from '@/stores/welink'
 import type { AgentLogStatus, WelinkAgentLog, WelinkJob } from '@/types/welink'
+import { shortStamp } from '@/utils/welink-display'
 
 const props = defineProps<{ focusJobPk?: number | null }>()
 const emit = defineEmits<{ (e: 'focus-consumed'): void }>()
@@ -36,7 +37,9 @@ const filter = reactive({ onlyDownRated: false, status: [] as AgentLogStatus[], 
 /** 展开全文的 prompt/response 卡片（seq 集合） */
 const expanded = ref<number[]>([])
 function toggleExpand(seq: number) {
-  expanded.value = expanded.value.includes(seq) ? expanded.value.filter((item) => item !== seq) : [...expanded.value, seq]
+  expanded.value = expanded.value.includes(seq)
+    ? expanded.value.filter((item) => item !== seq)
+    : [...expanded.value, seq]
 }
 
 const selectedJob = computed(() => jobs.value.find((item) => item.pk === selectedJobPk.value) ?? null)
@@ -165,7 +168,7 @@ const STATUS_TONE: Record<AgentLogStatus, 'success' | 'danger' | 'warning'> = {
 }
 const TRIGGER_LABEL: Record<string, string> = { group_at_me: '群 @我', private: '私聊', manual: '手动' }
 
-const timeLabel = (stamp: string | null) => (stamp ? stamp.slice(5, 16) : '-')
+const timeLabel = (stamp: string | null) => shortStamp(stamp)
 /** prompt 折叠时只显示前 5 行（§11.4） */
 const previewOf = (text: string, lines = 5) => text.split('\n').slice(0, lines).join('\n')
 
@@ -185,8 +188,22 @@ onMounted(loadJobs)
       <el-select v-model="filter.status" multiple collapse-tags placeholder="调用状态" size="small" class="trace__sel">
         <el-option v-for="(label, key) in STATUS_LABEL" :key="key" :label="label" :value="key" />
       </el-select>
-      <el-date-picker v-model="filter.from" type="date" size="small" placeholder="起始" value-format="YYYY-MM-DD" class="trace__date" />
-      <el-date-picker v-model="filter.to" type="date" size="small" placeholder="截止" value-format="YYYY-MM-DD" class="trace__date" />
+      <el-date-picker
+        v-model="filter.from"
+        type="date"
+        size="small"
+        placeholder="起始"
+        value-format="YYYY-MM-DD"
+        class="trace__date"
+      />
+      <el-date-picker
+        v-model="filter.to"
+        type="date"
+        size="small"
+        placeholder="截止"
+        value-format="YYYY-MM-DD"
+        class="trace__date"
+      />
       <el-button size="small" :icon="IconRefresh" @click="loadJobs()">刷新</el-button>
       <el-button size="small" text @click="resetFilters">重置</el-button>
       <span class="spacer" />
@@ -195,7 +212,7 @@ onMounted(loadJobs)
 
     <div class="trace__body">
       <!-- 左：job 列表 -->
-      <aside class="trace__list" v-loading="loading">
+      <aside v-loading="loading" class="trace__list">
         <button
           v-for="job in jobs"
           :key="job.pk"
@@ -213,21 +230,41 @@ onMounted(loadJobs)
         </button>
         <p v-if="!jobs.length && !loading" class="trace__empty">暂无可回溯的调用记录</p>
         <div v-if="total > pageSize" class="trace__pager">
-          <el-pagination v-model:current-page="page" :page-size="pageSize" :total="total" layout="prev, pager, next" small background @current-change="loadJobs()" />
+          <el-pagination
+            v-model:current-page="page"
+            :page-size="pageSize"
+            :total="total"
+            layout="prev, pager, next"
+            small
+            background
+            @current-change="loadJobs()"
+          />
         </div>
       </aside>
 
       <!-- 右：调用明细 -->
-      <section class="trace__detail" v-loading="logsLoading">
+      <section v-loading="logsLoading" class="trace__detail">
         <header class="trace__detail-head">
           <template v-if="selectedJob">
-            <span class="trace__detail-title">job {{ selectedJob.pk }} · {{ selectedJob.targetTitle || selectedJob.targetId }}</span>
+            <span class="trace__detail-title"
+              >job {{ selectedJob.pk }} · {{ selectedJob.targetTitle || selectedJob.targetId }}</span
+            >
             <el-tag size="small" effect="plain">{{ visibleLogs.length }} 次调用</el-tag>
           </template>
           <span v-else class="trace__hint">请选择左侧任务</span>
           <span class="spacer" />
-          <el-button v-if="selectedJob" size="small" :icon="IconDownload" :disabled="!logs.length" @click="exportJob">导出 JSON</el-button>
-          <el-button v-if="selectedJob" size="small" text type="danger" :icon="IconTrash" :disabled="!logs.length" @click="clearLogs">
+          <el-button v-if="selectedJob" size="small" :icon="IconDownload" :disabled="!logs.length" @click="exportJob"
+            >导出 JSON</el-button
+          >
+          <el-button
+            v-if="selectedJob"
+            size="small"
+            text
+            type="danger"
+            :icon="IconTrash"
+            :disabled="!logs.length"
+            @click="clearLogs"
+          >
             清理记录
           </el-button>
         </header>
@@ -237,7 +274,10 @@ onMounted(loadJobs)
           <div v-if="selectedJob.draft" class="final">
             <span class="final__label">最终发出的草稿</span>
             <p class="final__text">{{ selectedJob.draft }}</p>
-            <span v-if="logs.length && logs[logs.length - 1].response.trim() !== selectedJob.draft.trim()" class="final__edited">
+            <span
+              v-if="logs.length && logs[logs.length - 1].response.trim() !== selectedJob.draft.trim()"
+              class="final__edited"
+            >
               已人工编辑（模型输出与最终草稿不一致）
             </span>
           </div>
@@ -245,7 +285,9 @@ onMounted(loadJobs)
           <article v-for="log in visibleLogs" :key="log.seq" class="call">
             <header class="call__head">
               <span class="call__seq">#{{ log.seq }}</span>
-              <el-tag size="small" :type="STATUS_TONE[log.status]" effect="light">{{ STATUS_LABEL[log.status] }}</el-tag>
+              <el-tag size="small" :type="STATUS_TONE[log.status]" effect="light">{{
+                STATUS_LABEL[log.status]
+              }}</el-tag>
               <span class="call__meta num">{{ log.latencyMs }} ms</span>
               <span class="call__meta">{{ timeLabel(log.createdAt) }}</span>
             </header>
@@ -275,13 +317,22 @@ onMounted(loadJobs)
                 <span class="spacer" />
                 <button v-if="log.response" class="link" @click="copy(log.response)">复制</button>
               </div>
-              <pre v-if="log.response" class="call__code is-response" :class="{ 'is-open': expanded.includes(log.seq) }">{{
-                expanded.includes(log.seq) ? log.response : previewOf(log.response)
-              }}</pre>
+              <pre
+                v-if="log.response"
+                class="call__code is-response"
+                :class="{ 'is-open': expanded.includes(log.seq) }"
+                >{{ expanded.includes(log.seq) ? log.response : previewOf(log.response) }}</pre>
               <p v-else class="call__none">（本次调用没有返回内容）</p>
             </div>
 
-            <el-alert v-if="log.error" type="error" :closable="false" show-icon :title="log.error" class="call__error" />
+            <el-alert
+              v-if="log.error"
+              type="error"
+              :closable="false"
+              show-icon
+              :title="log.error"
+              class="call__error"
+            />
           </article>
 
           <p v-if="!visibleLogs.length" class="trace__empty">该任务暂无符合条件的调用记录</p>

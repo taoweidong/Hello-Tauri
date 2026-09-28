@@ -14,13 +14,13 @@ Tauri 2 + Vue 3 + Element Plus 的 Windows 桌面应用模板，一次打包产�
 
 ## 技术栈
 
-| 层次 | 选型 |
-| --- | --- |
+| 层次     | 选型                          |
+| -------- | ----------------------------- |
 | 桌面容器 | Tauri 2（Rust，仅窗口与桥接） |
-| 前端框架 | Vue 3 + TypeScript + Vite |
-| UI 组件 | Element Plus（中文语言包） |
-| 状态管理 | Pinia |
-| 业务逻辑 | 100% TypeScript |
+| 前端框架 | Vue 3 + TypeScript + Vite     |
+| UI 组件  | Element Plus（中文语言包）    |
+| 状态管理 | Pinia                         |
+| 业务逻辑 | 100% TypeScript               |
 
 ## 目录结构
 
@@ -64,13 +64,13 @@ Tauri 2 + Vue 3 + Element Plus 的 Windows 桌面应用模板，一次打包产�
 
 运行时**所有**持久化数据都在数据根目录（默认 `D:\TangYuan`，可改，见下）：
 
-| 用途 | 路径 | 说明 |
-| --- | --- | --- |
-| 数据根目录 | `D:\TangYuan\`（默认） | 可直接复制备份 |
-| 系统配置 | `D:\TangYuan\config\config.json` | 标题/描述、主题、每页条数、默认页、自动保存、侧栏折叠 |
-| SQLite 库 | `D:\TangYuan\data\app.db` | 二维业务数据（WAL 模式），经通用 SQL 通道读写 |
-| 数据导出 | `D:\TangYuan\data\table.json` | 表格数据落盘副本（重启保留） |
-| 日志 | `D:\TangYuan\logs\app-YYYY-MM-DD.log` | 按天滚动，保留最近 30 份 |
+| 用途       | 路径                                  | 说明                                                  |
+| ---------- | ------------------------------------- | ----------------------------------------------------- |
+| 数据根目录 | `D:\TangYuan\`（默认）                | 可直接复制备份                                        |
+| 系统配置   | `D:\TangYuan\config\config.json`      | 标题/描述、主题、每页条数、默认页、自动保存、侧栏折叠 |
+| SQLite 库  | `D:\TangYuan\data\app.db`             | 二维业务数据（WAL 模式），经通用 SQL 通道读写         |
+| 数据导出   | `D:\TangYuan\data\table.json`         | 表格数据落盘副本（重启保留）                          |
+| 日志       | `D:\TangYuan\logs\app-YYYY-MM-DD.log` | 按天滚动，保留最近 30 份                              |
 
 以上子目录与文件由程序**自动创建**，不需要手工建目录，也不需要预先授予权限（普通用户对非系统盘根目录可写）。
 
@@ -114,10 +114,10 @@ npm run pack
 
 exe 不依赖任何随附 DLL，由两项构建配置共同保证（均写在 `.cargo/config.toml`，随仓库可复现）：
 
-| 依赖项 | 消除方式 |
-| --- | --- |
-| `WebView2Loader.dll` | MSVC 工具链下 `webview2-com-sys` 静态链接 `WebView2LoaderStatic.lib` |
-| `VCRUNTIME140.dll` / `VCRUNTIME140_1.dll` | `-C target-feature=+crt-static`，C 运行时静态链接 |
+| 依赖项                                    | 消除方式                                                             |
+| ----------------------------------------- | -------------------------------------------------------------------- |
+| `WebView2Loader.dll`                      | MSVC 工具链下 `webview2-com-sys` 静态链接 `WebView2LoaderStatic.lib` |
+| `VCRUNTIME140.dll` / `VCRUNTIME140_1.dll` | `-C target-feature=+crt-static`，C 运行时静态链接                    |
 
 `npm run pack` 的桌面编译**不走 `tauri build`，而是直接 `cargo build --release --features tauri/custom-protocol`**，
 并把产物拷到 `release/`。原因有两点，都与「单文件」直接相关：
@@ -147,13 +147,13 @@ dumpbin /dependents release\Hello-Tauri-0.1.0-x64.exe
 
 打包机（而非运行机）需要以下环境，**全部可离线预置，打包过程不访问公网**：
 
-| 依赖 | 位置 | 体积 |
-| --- | --- | --- |
-| Node.js ≥ 20 | 系统安装 | — |
-| 前端依赖 | 项目内 `node_modules/`，或内网 npm 缓存（`npm install --offline` 还原） | 178 MB |
-| Rust 工具链 | `%USERPROFILE%\.rustup\toolchains\stable-x86_64-pc-windows-msvc` | 577 MB |
-| Crate 缓存 | `%USERPROFILE%\.cargo\registry`（258 个 crate） | 367 MB |
-| MSVC + Windows SDK | Visual Studio 2022「使用 C++ 的桌面开发」+ SDK 10.0.22000 / 10.0.22621 | 数 GB |
+| 依赖               | 位置                                                                    | 体积   |
+| ------------------ | ----------------------------------------------------------------------- | ------ |
+| Node.js ≥ 20       | 系统安装                                                                | —      |
+| 前端依赖           | 项目内 `node_modules/`，或内网 npm 缓存（`npm install --offline` 还原） | 178 MB |
+| Rust 工具链        | `%USERPROFILE%\.rustup\toolchains\stable-x86_64-pc-windows-msvc`        | 577 MB |
+| Crate 缓存         | `%USERPROFILE%\.cargo\registry`（258 个 crate）                         | 367 MB |
+| MSVC + Windows SDK | Visual Studio 2022「使用 C++ 的桌面开发」+ SDK 10.0.22000 / 10.0.22621  | 数 GB  |
 
 不产生网络请求的三处关键点：
 
@@ -172,13 +172,13 @@ dumpbin /dependents release\Hello-Tauri-0.1.0-x64.exe
 
 ## 常用命令
 
-| 命令 | 说明 |
-| --- | --- |
-| `npm run dev` | 浏览器开发模式 |
-| `npm run tauri:dev` | 桌面开发模式 |
-| `npm run typecheck` | TypeScript 类型检查 |
-| `npm run build:web` | 仅构建前端静态资源 |
-| `npm run pack` | 一键打包单文件 exe |
+| 命令                  | 说明                            |
+| --------------------- | ------------------------------- |
+| `npm run dev`         | 浏览器开发模式                  |
+| `npm run tauri:dev`   | 桌面开发模式                    |
+| `npm run typecheck`   | TypeScript 类型检查             |
+| `npm run build:web`   | 仅构建前端静态资源              |
+| `npm run pack`        | 一键打包单文件 exe              |
 | `npm run tauri:build` | 仅执行 Tauri 编译（不拷贝产物） |
 
 Rust 编译产物统一输出到项目根的 `target/`（由 `.cargo/config.toml` 指定），不再是 `src-tauri/target/`。

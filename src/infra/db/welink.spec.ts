@@ -102,12 +102,7 @@ describe('infra/db/welink —— 迁移 v2', () => {
   })
 
   it('四张表齐备', () => {
-    for (const table of [
-      'welink_conversations',
-      'welink_messages',
-      'welink_reply_jobs',
-      'welink_agent_logs',
-    ]) {
+    for (const table of ['welink_conversations', 'welink_messages', 'welink_reply_jobs', 'welink_agent_logs']) {
       expect(migrationV2.sql).toContain(`CREATE TABLE ${table}`)
     }
   })
@@ -117,9 +112,7 @@ describe('infra/db/welink —— 迁移 v2', () => {
   })
 
   it('agent 留痕对 job 级联删除（删任务不留孤儿日志）', () => {
-    expect(migrationV2.sql).toMatch(
-      /job_pk\s+INTEGER NOT NULL REFERENCES welink_reply_jobs\(id\) ON DELETE CASCADE/,
-    )
+    expect(migrationV2.sql).toMatch(/job_pk\s+INTEGER NOT NULL REFERENCES welink_reply_jobs\(id\) ON DELETE CASCADE/)
   })
 
   it('status 的 CHECK 枚举与 TS 的 JobStatus 完全一致', () => {
@@ -196,16 +189,7 @@ describe('infra/db/welink —— 分页强制（P7）', () => {
     expect(sql).toContain('j.created_at >= ?5')
     expect(sql).toContain('j.created_at <= ?6')
     expect(sql).toContain('LIMIT ?7 OFFSET ?8')
-    expect(params).toEqual([
-      'ready',
-      'sending',
-      'group_at_me',
-      'G-1001',
-      '2026-09-01',
-      '2026-09-30',
-      25,
-      5,
-    ])
+    expect(params).toEqual(['ready', 'sending', 'group_at_me', 'G-1001', '2026-09-01', '2026-09-30', 25, 5])
   })
 
   it('searchMessages 关键词与时间段都参数化（LIKE 不拼接）', async () => {
@@ -230,6 +214,19 @@ describe('infra/db/welink —— 分页强制（P7）', () => {
     expect(sql).toContain('DELETE FROM welink_messages WHERE id IN')
     expect(sql).toContain('ORDER BY id LIMIT ?2')
     expect(params).toEqual(['2026-01-01', 500])
+  })
+
+  it('purgeAgentLogsBefore 与消息清理同构（按 created_at 过期，P1/S-4）', async () => {
+    db.dbExecute.mockResolvedValue({ changes: 42, lastInsertId: 0 })
+    const removed = await repo.purgeAgentLogsBefore('2026-07-01', 500)
+    expect(removed).toBe(42)
+    const { sql, params } = lastExec()
+    expect(sql).toContain('DELETE FROM welink_agent_logs WHERE id IN')
+    expect(sql).toContain('created_at < ?1')
+    expect(sql).toContain('ORDER BY id LIMIT ?2')
+    expect(params).toEqual(['2026-07-01', 500])
+    // 语义边界：只删语料留痕，**不能**顺带动 job（job 是回复历史的主体）
+    expect(sql).not.toContain('welink_reply_jobs')
   })
 })
 
@@ -258,7 +255,7 @@ describe('infra/db/welink —— 要点3 原子性（draft 与 ready 同条 UPDA
     await repo.commitDraft(9, '草稿', '上下文快照')
     const { sql, params } = lastExec()
     expect(sql).toContain('context_snapshot = ?3')
-    expect(sql).toContain("WHERE id = ?4")
+    expect(sql).toContain('WHERE id = ?4')
     expect(params.slice(0, 3)).toEqual(['草稿', expect.any(String), '上下文快照'])
   })
 
@@ -298,9 +295,7 @@ describe('infra/db/welink —— 防双发（markSent / hasOutgoingReceipt）', 
 
   it('markSent 在并发下已被写成 sent 时返回 false（不重复记账）', async () => {
     db.dbTransaction.mockResolvedValue([0, 1, 1])
-    await expect(
-      repo.markSent(5, { msgUid: 'out-1', sentAt: 't', convPk: 3, content: 'x' }),
-    ).resolves.toBe(false)
+    await expect(repo.markSent(5, { msgUid: 'out-1', sentAt: 't', convPk: 3, content: 'x' })).resolves.toBe(false)
   })
 
   it('hasOutgoingReceipt 比对的是「同会话同内容的 out 消息」', async () => {
@@ -416,15 +411,41 @@ describe('infra/db/welink —— 列表与计数同口径', () => {
     db.dbSelect.mockResolvedValue([{ count: 4 }])
     await expect(repo.countJobs({ status: ['skipped'], onlySkipped: true })).resolves.toBe(4)
     const { sql, params } = lastSelect()
-    expect(sql).toContain("j.status IN (?1)")
+    expect(sql).toContain('j.status IN (?1)')
     expect(sql).toContain("j.skip_reason <> ''")
     expect(params).toEqual(['skipped'])
   })
 
-  it('countInbox 用 COUNT(DISTINCT c.id)，与 listInbox 的 GROUP BY c.id 对齐', async () => {
+  it('countInbox 与 listInbox 共用 buildInboxWhere（筛选口径不会漂移）', async () => {
     db.dbSelect.mockResolvedValue([{ count: 2 }])
     await expect(repo.countInbox({})).resolves.toBe(2)
-    expect(lastSelect().sql).toContain('COUNT(DISTINCT c.id)')
+    const { sql } = lastSelect()
+    // P-4 重构后不再需要 COUNT(DISTINCT) —— 已去掉 JOIN 造成的行放大，
+    // 也就没有 GROUP BY 需要对齐；改为断言「两处共用同一套 WHERE」这一真正的约束。
+    expect(sql).toContain('COUNT(*) AS count')
+    expect(sql).toContain("c.conv_type = 'private'")
+    expect(sql).toContain('EXISTS (SELECT 1 FROM welink_messages x')
+    expect(sql).not.toContain('JOIN')
+  })
+
+  it('listInbox 用 EXISTS 判存在性，不再 JOIN + GROUP BY（P-4 的退化根源）', async () => {
+    await repo.listInbox({ limit: 10, offset: 0 })
+    const { sql, params } = lastSelect()
+    expect(sql).toContain('EXISTS (SELECT 1 FROM welink_messages x')
+    expect(sql).not.toContain('JOIN welink_messages')
+    expect(sql).not.toContain('GROUP BY')
+    expect(sql).toContain('LIMIT ?1 OFFSET ?2')
+    expect(params).toEqual([10, 0])
+  })
+
+  it('**日期条件同时作用于「存在 in 消息」与 last_content 子查询**（原双实现分歧点）', async () => {
+    await repo.listInbox({ from: '2026-09-01 00:00:00', limit: 10, offset: 0 })
+    const { sql, params } = lastSelect()
+    // 同一占位符 ?1 复用两遍：EXISTS 与 last_content 各一次 —— 保证两处条件一致
+    expect(sql).toContain(`x.sent_at >= ?1`)
+    expect(sql.match(/x\.sent_at >= \?1/g)).toHaveLength(2)
+    // 参数只收集一次（复用占位符，不重复绑定）
+    expect(params).toEqual(['2026-09-01 00:00:00', 10, 0])
   })
 
   it('clearAgentLogs 返回删除行数', async () => {
@@ -447,9 +468,7 @@ describe('infra/db/welink —— 会话写入', () => {
 
   it('upsertConversation 写入后仍读不到则抛错（失败要显形，不静默）', async () => {
     db.dbSelect.mockResolvedValue([])
-    await expect(repo.upsertConversation({ convType: 'private', convId: 'E-1' })).rejects.toThrow(
-      /写入后仍读取不到/,
-    )
+    await expect(repo.upsertConversation({ convType: 'private', convId: 'E-1' })).rejects.toThrow(/写入后仍读取不到/)
   })
 
   it('setAutoReply 批量 IN 参数化，占位符从 ?3 起（前两位是 bit 与时间）', async () => {
@@ -541,7 +560,7 @@ describe('infra/db/welink —— applyPollResult（一轮拉取的原子落库�
     const summary = lastTxn().at(-1)!
     expect(summary.sql).toContain('unread_count = unread_count + ?4')
     expect(summary.sql).toContain('mention_count = mention_count + ?5')
-    expect(summary.sql).toContain('last_msg_at = CASE WHEN ?6 <> \'\' THEN ?6 ELSE last_msg_at END')
+    expect(summary.sql).toContain("last_msg_at = CASE WHEN ?6 <> '' THEN ?6 ELSE last_msg_at END")
     // 未读=2 条 in（out 不计）；mention 只看 in+atMe+text = 1
     expect(summary.params?.[3]).toBe(2)
     expect(summary.params?.[4]).toBe(1)
@@ -604,21 +623,19 @@ describe('infra/db/welink —— applyPollResult（一轮拉取的原子落库�
 
 describe('infra/db/welink —— Agent 留痕（R4）', () => {
   it('insertAgentLog 的 seq 按 job 内递增（多次调用可回放顺序）', async () => {
-    db.dbSelect
-      .mockResolvedValueOnce([{ last_seq: 2 }])
-      .mockResolvedValueOnce([
-        {
-          id: 99,
-          job_pk: 5,
-          seq: 3,
-          prompt: 'p',
-          response: 'r',
-          status: 'ok',
-          latency_ms: 120,
-          error: '',
-          created_at: '2026-09-27 10:00:00',
-        },
-      ])
+    db.dbSelect.mockResolvedValueOnce([{ last_seq: 2 }]).mockResolvedValueOnce([
+      {
+        id: 99,
+        job_pk: 5,
+        seq: 3,
+        prompt: 'p',
+        response: 'r',
+        status: 'ok',
+        latency_ms: 120,
+        error: '',
+        created_at: '2026-09-27 10:00:00',
+      },
+    ])
     const stored = await repo.insertAgentLog({
       jobPk: 5,
       prompt: 'p',

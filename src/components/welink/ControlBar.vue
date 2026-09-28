@@ -25,6 +25,8 @@ const emit = defineEmits<{
   (e: 'open-review'): void
   /** 熔断横幅 → 回复历史「仅看被拦截」，审计本窗被拦下的每一条 */
   (e: 'open-skipped'): void
+  /** 工号兜底熔断 → 跳到设置页补工号（这是该熔断唯一的解除方式） */
+  (e: 'open-settings'): void
 }>()
 
 const enabled = computed({
@@ -38,7 +40,9 @@ const statusTone = computed(() => `is-${store.status}`)
 const backoffDetail = computed(() => {
   const items = Object.entries(store.convoStates).filter(([, state]) => state.state === 'backoff')
   if (!items.length) return '所有会话拉取正常'
-  return items.map(([convId, state]) => `${convId}：失败 ${state.failCount} 次，退避 ${state.backoffSec}s（${state.reason}）`).join('\n')
+  return items
+    .map(([convId, state]) => `${convId}：失败 ${state.failCount} 次，退避 ${state.backoffSec}s（${state.reason}）`)
+    .join('\n')
 })
 
 /** S2 各会话冷却明细（配额徽标 hover） */
@@ -55,9 +59,24 @@ const fuseText = computed(() => {
   return `${banner.scope}场景滥发风险已熔断暂停${blocked}（原因：${banner.reason}）`
 })
 
+/**
+ * 工号兜底熔断（S8）与「阈值类」熔断（拦截次数超阈值）**语义不同**：
+ *
+ *  * 阈值类：成因是「刚才拦得太多」，人工确认没问题后点「解除熔断」即可恢复；
+ *  * 工号兜底：成因是「工号没填」，此时自发消息过滤（filterSelf）是失效的 ——
+ *    若允许人工解除，助手会把自己的回复当成新消息回，形成**自回复死循环**
+ *    （设计 §637）。唯一解除方式是去设置页补齐工号。
+ *
+ * 因此这里不给兜底熔断渲染「解除熔断」按钮，而是给一个直达设置页的引导 ——
+ * 让用户点一个按了也没用的按钮是最差的交互。
+ */
+const isUserIdFuse = computed(() => store.fuseBanner?.scope === '全局' || store.safety.globalFuse)
+
 function liftFuse() {
   const banner = store.fuseBanner
   if (!banner) return
+  // 只解除「阈值类」；'global' 会走到工号兜底分支，那里刻意不解（见 safety-gate 的 resetFuse）
+  if (isUserIdFuse.value) return
   store.resetFuse(banner.scope === '全局' ? 'global' : undefined)
 }
 </script>
@@ -66,7 +85,13 @@ function liftFuse() {
   <div class="bar ht-card">
     <!-- 总开关 + 状态灯 -->
     <div class="bar__group">
-      <el-switch v-model="enabled" :disabled="store.status === 'panic'" inline-prompt active-text="开" inactive-text="关" />
+      <el-switch
+        v-model="enabled"
+        :disabled="store.status === 'panic'"
+        inline-prompt
+        active-text="开"
+        inactive-text="关"
+      />
       <span class="bar__status" :class="statusTone">
         <span class="bar__dot" aria-hidden="true" />
         {{ store.statusText }}
@@ -113,19 +138,26 @@ function liftFuse() {
       本轮 +{{ store.pullSummary.inserted }} 条 · {{ store.pullSummary.jobs }} 待回
     </span>
 
-    <!-- 动作 -->
-    <el-tooltip :content="backoffDetail" placement="bottom-left">
-      <el-button size="small" :icon="IconRefresh" :loading="store.pulling" @click="emit('pull-now')">立即拉取</el-button>
+    <!-- 动作。placement 必须用 popper 的合法取值 `bottom-start`（左对齐下沉）；
+         原先写的 `bottom-left` 不在 Placement 联合类型里，运行期会被忽略并回退默认定位。 -->
+    <el-tooltip :content="backoffDetail" placement="bottom-start">
+      <el-button size="small" :icon="IconRefresh" :loading="store.pulling" @click="emit('pull-now')"
+        >立即拉取</el-button
+      >
     </el-tooltip>
     <el-button size="small" text @click="emit('refresh')">刷新</el-button>
   </div>
 
-  <!-- 熔断横幅（S8） -->
+  <!-- 熔断横幅（S8）—— 两类熔断给不同的出口：
+       阈值类点「解除熔断」，工号兜底点「去填写工号」（前者按了有用，后者按了没用）。 -->
   <div v-if="store.fuseBanner || store.hasFuse" class="fuse">
     <IconAlert class="fuse__icon" />
     <span class="fuse__text">{{ fuseText || '存在熔断中的场景，自动回复已暂停' }}</span>
     <span class="fuse__spacer" />
-    <el-button size="small" type="warning" plain @click="liftFuse">解除熔断</el-button>
+    <el-button v-if="isUserIdFuse" size="small" type="danger" plain @click="emit('open-settings')">
+      去填写工号
+    </el-button>
+    <el-button v-else size="small" type="warning" plain @click="liftFuse">解除熔断</el-button>
     <el-button size="small" text @click="emit('open-skipped')">查看被拦记录</el-button>
   </div>
 </template>

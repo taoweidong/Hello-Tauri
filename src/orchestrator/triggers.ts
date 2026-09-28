@@ -51,10 +51,7 @@ export interface TriggerSettings {
 /**
  * 判定单条消息是否命中回复规则，返回触发类型；未命中返回 null。
  */
-export function matchTrigger(
-  message: NormalizedMessage,
-  settings: TriggerSettings,
-): TriggerType | null {
+export function matchTrigger(message: NormalizedMessage, settings: TriggerSettings): TriggerType | null {
   // 会话未监控：不建任务（消息也不会被拉取，双保险）
   if (!settings.watching) return null
   // 自发消息：direction=out 或发送者就是本人 → 防自回复循环（§7.1 最后一行）
@@ -115,7 +112,9 @@ export function mergeBySenderWindow(
   const seen = new Map<string, Map<string, number>>()
 
   // 按时间升序处理，保证「最早的一条」被保留，不受输入数组顺序影响
-  const ordered = [...messages].sort((a, b) => (a.sentAt === b.sentAt ? a.msgUid.localeCompare(b.msgUid) : a.sentAt < b.sentAt ? -1 : 1))
+  const ordered = [...messages].sort((a, b) =>
+    a.sentAt === b.sentAt ? a.msgUid.localeCompare(b.msgUid) : a.sentAt < b.sentAt ? -1 : 1,
+  )
   for (const message of ordered) {
     const trigger = triggers[message.msgUid]
     if (!trigger) continue

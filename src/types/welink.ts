@@ -249,10 +249,9 @@ export interface SafetyPreset {
   id: 'conservative' | 'standard' | 'aggressive'
   label: string
   description: string
-  values: Pick<
-    WelinkSafetySettings,
-    'perConvMinIntervalSec' | 'perConvHourlyCap' | 'globalHourlyCap'
-  > & { quietHoursEnabled: boolean }
+  values: Pick<WelinkSafetySettings, 'perConvMinIntervalSec' | 'perConvHourlyCap' | 'globalHourlyCap'> & {
+    quietHoursEnabled: boolean
+  }
 }
 
 export const SAFETY_PRESETS: SafetyPreset[] = [

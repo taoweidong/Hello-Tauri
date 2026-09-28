@@ -38,11 +38,7 @@ export async function runCommand(program: string, args: string[], options: RunOp
     result = await bridge.cliRun(program, args, options.timeoutMs)
   } catch (error) {
     // 通道故障（白名单拒绝、进程起不来）统一归为 transport，让编排层退避而不是直接失败
-    throw new WelinkError(
-      error instanceof Error ? error.message : String(error),
-      'transport',
-      error,
-    )
+    throw new WelinkError(error instanceof Error ? error.message : String(error), 'transport', error)
   }
 
   const stdout = decodeBase64Text(result.stdout)

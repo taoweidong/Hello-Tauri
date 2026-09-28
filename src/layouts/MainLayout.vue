@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { IconGrid, IconTable, IconActivity, IconSliders, IconInfo, IconSun, IconMoon, IconPanelLeft } from '@/components/icons'
+import { IconSun, IconMoon, IconPanelLeft } from '@/components/icons'
+import { navRoutes } from '@/router'
 
 import { platform } from '@/api'
 import { useAppStore } from '@/stores/app'
@@ -12,13 +13,22 @@ const router = useRouter()
 const appStore = useAppStore()
 const welinkStore = useWelinkStore()
 
-const navItems = [
-  { path: '/', title: '概览', icon: IconGrid },
-  { path: '/table', title: '数据管理', icon: IconTable },
-  { path: '/welink', title: 'WeLink 助手', icon: IconActivity },
-  { path: '/settings', title: '配置', icon: IconSliders },
-  { path: '/about', title: '关于', icon: IconInfo },
-]
+/**
+ * 侧栏导航由**路由表派生**（A-1）。
+ *
+ * 这里刻意不再维护一份 `navItems` 数组：标题、图标、顺序全部声明在
+ * `router/index.ts` 的 `meta` 上，新增页面只需改路由表一处，
+ * 侧栏自动出现（曾经的「双真值」会导致路由能进但侧栏没有）。
+ */
+const navItems = navRoutes()
+
+/**
+ * 兜底版本号（R-3）：真值来自构建期注入的 `__APP_VERSION__`（源自 package.json）。
+ *
+ * 必须先在 script 里赋给局部变量再给模板用 —— 模板只能访问组件作用域内的绑定，
+ * 直接写 `__APP_VERSION__` 会被当作组件属性查而报 TS2339。
+ */
+const fallbackVersion = __APP_VERSION__
 
 /** 侧栏角标：助手有未回复待办时给个提示（读 store 聚合值，不额外查询） */
 const welinkBadge = computed(() => welinkStore.unreadTotal + welinkStore.reviewCount)
@@ -47,7 +57,16 @@ function go(path: string) {
     <aside class="rail" aria-label="主导航">
       <div class="rail__brand" :title="collapsed ? 'Hello-Tauri' : undefined">
         <span class="rail__logo" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            viewBox="0 0 24 24"
+            width="15"
+            height="15"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.1"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <path d="M4 17V7l8 6 8-6v10" />
           </svg>
         </span>
@@ -79,8 +98,15 @@ function go(path: string) {
       </nav>
 
       <div class="rail__foot">
-        <span v-show="!collapsed" class="rail__env">{{ platformLabel }}模式 · v{{ appStore.info?.version ?? '0.1.0' }}</span>
-        <button class="rail__toggle pressable" :title="collapsed ? '展开侧栏' : '收起侧栏'" :aria-label="collapsed ? '展开侧栏' : '收起侧栏'" @click="toggleCollapse">
+        <span v-show="!collapsed" class="rail__env"
+          >{{ platformLabel }}模式 · v{{ appStore.info?.version ?? fallbackVersion }}</span
+        >
+        <button
+          class="rail__toggle pressable"
+          :title="collapsed ? '展开侧栏' : '收起侧栏'"
+          :aria-label="collapsed ? '展开侧栏' : '收起侧栏'"
+          @click="toggleCollapse"
+        >
           <IconPanelLeft class="rail__toggle-icon" :class="{ 'is-flipped': collapsed }" />
         </button>
       </div>
@@ -90,7 +116,19 @@ function go(path: string) {
       <header class="topbar">
         <div class="topbar__crumb">
           <span>工作台</span>
-          <svg class="topbar__sep" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+          <svg
+            class="topbar__sep"
+            viewBox="0 0 24 24"
+            width="12"
+            height="12"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <path d="M9 6l6 6-6 6" />
+          </svg>
           <span class="topbar__page">{{ currentTitle }}</span>
         </div>
         <div class="topbar__spacer" />

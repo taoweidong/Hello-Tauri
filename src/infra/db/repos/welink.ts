@@ -193,6 +193,62 @@ function countOf(select: string, where: WhereBuilder) {
   return { sql, params: where.params }
 }
 
+/**
+ * 收件箱 WHERE 构造（`listInbox` 与 `countInbox` **共用**，保证「列表与计数的筛选口径」不会漂移）。
+ *
+ * 一次处理两个易错点：
+ *
+ * 1. **日期条件必须同时作用于「是否存在 in 消息」与「最后一条 in 消息内容」**。
+ *    原实现用 `JOIN welink_messages m` 表达前者，但 `last_content` 相关子查询**没带**
+ *    日期条件 —— 于是「按最近 30 天筛选，预览却显示半年前的那句话」。内存实现一直带
+ *    日期过滤，两套实现由此漂移（契约测试现已覆盖该点）。这里改用 `EXISTS(...)`
+ *    表达「范围内有 in 消息」，并把同一份日期片段复用到子查询，使两侧语义一致；
+ *    同时**去掉 `GROUP BY`** —— 不再对消息表做聚合（P-4 的退化根源）。
+ *
+ * 2. **同一占位符可复用**：SQLite 允许一条语句里 `?N` 出现多次，因此日期参数只收集
+ *    一次、占位符写两遍即可。这是能同时保持「参数不重复」与「两处条件一致」的关键。
+ *
+ * 返回的 `dateFilter` 是供 `listInbox` 复用到 `last_content` 子查询的原始片段
+ * （形如 ` AND x.sent_at >= ?1 AND x.sent_at <= ?2`，无日期时为空串）。
+ */
+function buildInboxWhere(query: Omit<InboxQuery, 'limit' | 'offset'>): {
+  where: string
+  params: DbParam[]
+  dateFilter: string
+} {
+  const params: DbParam[] = []
+  /** 收集参数并返回其 1-based 序号（与 SQLite 的 `?N` 口径一致） */
+  const hold = (value: DbParam): number => {
+    params.push(value)
+    return params.length
+  }
+
+  const dateClauses: string[] = []
+  if (query.from) dateClauses.push(`x.sent_at >= ?${hold(query.from)}`)
+  if (query.to) dateClauses.push(`x.sent_at <= ?${hold(query.to)}`)
+  const dateFilter = dateClauses.length ? ` AND ${dateClauses.join(' AND ')}` : ''
+
+  const clauses = [
+    "c.conv_type = 'private'",
+    // 该会话在（筛选）范围内必须存在 in 消息 —— 原实现由 JOIN 隐式保证，不能丢
+    `EXISTS (SELECT 1 FROM welink_messages x WHERE x.conv_pk = c.id AND x.direction = 'in'${dateFilter})`,
+  ]
+
+  const keyword = query.keyword?.trim()
+  if (keyword) {
+    // 同一占位符复用两次：标题与工号用同一个 LIKE 值
+    const index = hold(`%${keyword}%`)
+    clauses.push(`(c.title LIKE ?${index} OR c.conv_id LIKE ?${index})`)
+  }
+  if (query.onlyUnreplied) {
+    clauses.push(`EXISTS (
+      SELECT 1 FROM welink_reply_jobs j
+       WHERE j.target_id = c.conv_id AND j.status IN ('pending','discussing','ready','sending','failed'))`)
+  }
+
+  return { where: `WHERE ${clauses.join(' AND ')}`, params, dateFilter }
+}
+
 // ---------------------------------------------------------------- 仓储实现
 
 export const sqlWelinkRepository: WelinkRepository = {
@@ -222,10 +278,7 @@ export const sqlWelinkRepository: WelinkRepository = {
   },
 
   async getConversation(convId) {
-    const rows = await bridge.dbSelect(
-      `SELECT ${CONV_COLUMNS} FROM welink_conversations WHERE conv_id = ?1`,
-      [convId],
-    )
+    const rows = await bridge.dbSelect(`SELECT ${CONV_COLUMNS} FROM welink_conversations WHERE conv_id = ?1`, [convId])
     return rows[0] ? conversationFromRow(rows[0]) : null
   },
 
@@ -264,10 +317,7 @@ export const sqlWelinkRepository: WelinkRepository = {
     if (patch.watching !== undefined) push('watching', bit(patch.watching))
     if (patch.autoReply !== undefined) push('auto_reply', bit(patch.autoReply))
     if (patch.muteUntil !== undefined) push('mute_until', patch.muteUntil)
-    await bridge.dbExecute(
-      `UPDATE welink_conversations SET ${sets.join(', ')} WHERE conv_id = ?1`,
-      params,
-    )
+    await bridge.dbExecute(`UPDATE welink_conversations SET ${sets.join(', ')} WHERE conv_id = ?1`, params)
   },
 
   async setAutoReply(convIds, enabled) {
@@ -287,7 +337,10 @@ export const sqlWelinkRepository: WelinkRepository = {
     const convPk = num(conv[0]?.id)
     if (convPk) {
       await bridge.dbTransaction([
-        { sql: 'DELETE FROM welink_agent_logs WHERE job_pk IN (SELECT id FROM welink_reply_jobs WHERE target_id = ?1)', params: [convId] },
+        {
+          sql: 'DELETE FROM welink_agent_logs WHERE job_pk IN (SELECT id FROM welink_reply_jobs WHERE target_id = ?1)',
+          params: [convId],
+        },
         { sql: 'DELETE FROM welink_reply_jobs WHERE target_id = ?1', params: [convId] },
         { sql: 'DELETE FROM welink_messages WHERE conv_pk = ?1', params: [convPk] },
         { sql: 'DELETE FROM welink_conversations WHERE id = ?1', params: [convPk] },
@@ -351,14 +404,7 @@ export const sqlWelinkRepository: WelinkRepository = {
               VALUES (
                 (SELECT id FROM welink_messages WHERE msg_uid = ?1),
                 ?2, ?3, ?4, ?5, '', '', 'pending', 0, '', '', '', ?6, ?6)`,
-        params: [
-          message.msgUid,
-          trigger,
-          message.convType,
-          message.convId,
-          rules.sendMode,
-          now,
-        ],
+        params: [message.msgUid, trigger, message.convType, message.convId, rules.sendMode, now],
       })
     }
 
@@ -393,10 +439,7 @@ export const sqlWelinkRepository: WelinkRepository = {
     }
 
     const createdJobs = createdJobUids.length
-      ? await bridge.dbSelect(
-          `${JOB_SELECT} WHERE j.target_id = ?1 AND j.created_at = ?2 ORDER BY j.id`,
-          [convId, now],
-        )
+      ? await bridge.dbSelect(`${JOB_SELECT} WHERE j.target_id = ?1 AND j.created_at = ?2 ORDER BY j.id`, [convId, now])
       : []
 
     return { inserted, createdJobs: createdJobs.map(jobFromRow), cursor } satisfies ApplyResult
@@ -412,7 +455,11 @@ export const sqlWelinkRepository: WelinkRepository = {
     if (query.before) where.add(`m.sent_at < ?${where.params.length + 1}`, query.before)
     if (query.keyword?.trim()) {
       const like = `%${query.keyword.trim()}%`
-      where.add(`(m.content LIKE ?${where.params.length + 1} OR m.sender_name LIKE ?${where.params.length + 2})`, like, like)
+      where.add(
+        `(m.content LIKE ?${where.params.length + 1} OR m.sender_name LIKE ?${where.params.length + 2})`,
+        like,
+        like,
+      )
     }
     // 倒序取最近 N 条，再翻正序展示（向上翻页语义）
     const { sql, params } = paged(MESSAGE_SELECT, where, 'ORDER BY m.sent_at DESC, m.id DESC', query.limit)
@@ -453,60 +500,34 @@ export const sqlWelinkRepository: WelinkRepository = {
   },
 
   async listInbox(query: InboxQuery) {
-    // 收件箱 = 有过私聊 in 消息的会话 + 未读数 + 最后一条内容（R2）
-    const where = new WhereBuilder()
-      .add("c.conv_type = 'private'")
-      .add('m.direction = ?1', 'in')
-    if (query.from) where.add(`m.sent_at >= ?${where.params.length + 1}`, query.from)
-    if (query.to) where.add(`m.sent_at <= ?${where.params.length + 1}`, query.to)
-    if (query.keyword?.trim()) {
-      const like = `%${query.keyword.trim()}%`
-      where.add(`(c.title LIKE ?${where.params.length + 1} OR c.conv_id LIKE ?${where.params.length + 2})`, like, like)
-    }
-    if (query.onlyUnreplied) {
-      where.add(`EXISTS (
-        SELECT 1 FROM welink_reply_jobs j
-         WHERE j.target_id = c.conv_id AND j.status IN ('pending','discussing','ready','sending','failed'))`)
-    }
+    // 收件箱 = 范围内有过私聊 in 消息的会话 + 未读数 + 范围内最后一条 in 内容（R2）。
+    // 不再是 JOIN + GROUP BY：用 EXISTS 判存在性，避免按消息量做聚合（P-4）。
+    const { where, params, dateFilter } = buildInboxWhere(query)
     const sql = `SELECT c.id AS conv_pk, c.conv_id, c.title, c.unread_count, c.last_msg_at,
-              (SELECT content FROM welink_messages x
-                WHERE x.conv_pk = c.id AND x.direction = 'in'
+              (SELECT x.content FROM welink_messages x
+                WHERE x.conv_pk = c.id AND x.direction = 'in'${dateFilter}
                 ORDER BY x.sent_at DESC, x.id DESC LIMIT 1) AS last_content
          FROM welink_conversations c
-         JOIN welink_messages m ON m.conv_pk = c.id
-        ${where.where}
-        GROUP BY c.id
+        ${where}
         ORDER BY c.last_msg_at DESC, c.id DESC
-        LIMIT ?${where.params.length + 1} OFFSET ?${where.params.length + 2}`
-    const rows = await bridge.dbSelect(sql, [...where.params, query.limit, query.offset])
-    return rows.map(
-      (row): InboxThread => ({
-        convPk: num(row.conv_pk),
-        convId: str(row.conv_id),
-        title: str(row.title) || str(row.conv_id),
-        unreadCount: num(row.unread_count),
-        lastMsgAt: str(row.last_msg_at),
-        lastContent: str(row.last_content),
-      }),
-    )
+        LIMIT ?${params.length + 1} OFFSET ?${params.length + 2}`
+    const rows = await bridge.dbSelect(sql, [...params, query.limit, query.offset])
+    return rows.map((row): InboxThread => ({
+      convPk: num(row.conv_pk),
+      convId: str(row.conv_id),
+      title: str(row.title) || str(row.conv_id),
+      unreadCount: num(row.unread_count),
+      lastMsgAt: str(row.last_msg_at),
+      lastContent: str(row.last_content),
+    }))
   },
 
   async countInbox(query) {
-    const where = new WhereBuilder().add("c.conv_type = 'private'").add('m.direction = ?1', 'in')
-    if (query.from) where.add(`m.sent_at >= ?${where.params.length + 1}`, query.from)
-    if (query.to) where.add(`m.sent_at <= ?${where.params.length + 1}`, query.to)
-    if (query.keyword?.trim()) {
-      const like = `%${query.keyword.trim()}%`
-      where.add(`(c.title LIKE ?${where.params.length + 1} OR c.conv_id LIKE ?${where.params.length + 2})`, like, like)
-    }
-    if (query.onlyUnreplied) {
-      where.add(`EXISTS (
-        SELECT 1 FROM welink_reply_jobs j
-         WHERE j.target_id = c.conv_id AND j.status IN ('pending','discussing','ready','sending','failed'))`)
-    }
-    const sql = `SELECT COUNT(DISTINCT c.id) AS count FROM welink_conversations c
-         JOIN welink_messages m ON m.conv_pk = c.id ${where.where}`
-    const rows = await bridge.dbSelect(sql, where.params)
+    // 与 listInbox 共用 buildInboxWhere：筛选口径不漂移；
+    // 也不再需要 COUNT(DISTINCT c.id) —— 已无 JOIN 造成的行放大。
+    const { where, params } = buildInboxWhere(query)
+    const sql = `SELECT COUNT(*) AS count FROM welink_conversations c ${where}`
+    const rows = await bridge.dbSelect(sql, params)
     return num(rows[0]?.count)
   },
 
@@ -525,15 +546,7 @@ export const sqlWelinkRepository: WelinkRepository = {
          (trigger_msg_pk, trigger_type, target_type, target_id, send_mode_used,
           context_snapshot, draft, status, attempts, last_error, skip_reason, hold_reason, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', 'pending', 0, '', '', '', ?7, ?7)`,
-      [
-        triggerPk,
-        draft.triggerType,
-        draft.targetType,
-        draft.targetId,
-        draft.sendModeUsed,
-        draft.contextSnapshot,
-        now,
-      ],
+      [triggerPk, draft.triggerType, draft.targetType, draft.targetId, draft.sendModeUsed, draft.contextSnapshot, now],
     )
     const job = await sqlWelinkRepository.getJob(result.lastInsertId)
     if (!job) throw new Error('回复任务写入后仍读取不到')
@@ -627,7 +640,7 @@ export const sqlWelinkRepository: WelinkRepository = {
     // 「草稿已写但状态未就绪」的中间态，而设计的前提是「库中无草稿不得外发」。
     // WHERE status='discussing' 是乐观并发：同一 job 被两个 worker 处理时只有先到者生效。
     const now = nowStamp()
-    const sets = ['draft = ?1', 'status = \'ready\'', 'updated_at = ?2', 'hold_reason = \'\'']
+    const sets = ['draft = ?1', "status = 'ready'", 'updated_at = ?2', "hold_reason = ''"]
     const params: DbParam[] = [draft, now]
     if (contextSnapshot !== undefined) {
       params.push(contextSnapshot)
@@ -688,17 +701,19 @@ export const sqlWelinkRepository: WelinkRepository = {
   },
 
   async updateDraft(pk, draft) {
-    await bridge.dbExecute(
-      `UPDATE welink_reply_jobs SET draft = ?1, updated_at = ?2, hold_reason = '' WHERE id = ?3`,
-      [draft, nowStamp(), pk],
-    )
+    await bridge.dbExecute(`UPDATE welink_reply_jobs SET draft = ?1, updated_at = ?2, hold_reason = '' WHERE id = ?3`, [
+      draft,
+      nowStamp(),
+      pk,
+    ])
   },
 
   async rateJob(pk, rating) {
-    await bridge.dbExecute(
-      'UPDATE welink_reply_jobs SET rating = ?1, updated_at = ?2 WHERE id = ?3',
-      [rating, nowStamp(), pk],
-    )
+    await bridge.dbExecute('UPDATE welink_reply_jobs SET rating = ?1, updated_at = ?2 WHERE id = ?3', [
+      rating,
+      nowStamp(),
+      pk,
+    ])
   },
 
   async removeJob(pk) {
@@ -799,10 +814,7 @@ export const sqlWelinkRepository: WelinkRepository = {
   },
 
   async listAgentLogs(jobPk) {
-    const rows = await bridge.dbSelect(
-      'SELECT * FROM welink_agent_logs WHERE job_pk = ?1 ORDER BY seq',
-      [jobPk],
-    )
+    const rows = await bridge.dbSelect('SELECT * FROM welink_agent_logs WHERE job_pk = ?1 ORDER BY seq', [jobPk])
     return rows.map(agentLogFromRow)
   },
 
@@ -836,6 +848,18 @@ export const sqlWelinkRepository: WelinkRepository = {
     const result = await bridge.dbExecute(
       `DELETE FROM welink_messages WHERE id IN (
          SELECT id FROM welink_messages WHERE sent_at < ?1 ORDER BY id LIMIT ?2)`,
+      [cutoff, batch],
+    )
+    return result.changes
+  },
+
+  async purgeAgentLogsBefore(cutoff, batch) {
+    // 与消息清理同构（子查询 + LIMIT）。注意触发消息被删后，
+    // `welink_reply_jobs.trigger_msg_pk` 会指向不存在的行 —— 这是可接受的：
+    // JOB_SELECT 用的是 LEFT JOIN，`trigger_summary` 退化为空串而不是丢行。
+    const result = await bridge.dbExecute(
+      `DELETE FROM welink_agent_logs WHERE id IN (
+         SELECT id FROM welink_agent_logs WHERE created_at < ?1 ORDER BY id LIMIT ?2)`,
       [cutoff, batch],
     )
     return result.changes

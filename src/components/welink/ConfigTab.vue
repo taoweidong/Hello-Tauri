@@ -18,9 +18,18 @@ import { IconCheck, IconFilter, IconPlus, IconRefresh } from '@/components/icons
 import { useAppStore } from '@/stores/app'
 import { useWelinkStore } from '@/stores/welink'
 import type { WelinkConversation, WelinkConvType } from '@/types/welink'
+import { asBoolean, rowOf } from '@/utils/table'
+import { isMuted as isConversationMuted, muteLabel as muteLabelOf } from '@/utils/welink-display'
 
 const store = useWelinkStore()
 const appStore = useAppStore()
+
+/**
+ * `<el-table>` 插槽行的业务类型收窄（根因见 `utils/table.ts`）。
+ * 上游 `el-table-column` 的插槽签名硬编码为 `DefaultRow`，不做泛型推断，
+ * 因此每列插槽的 `row` 都必须显式收窄后才能交给强类型函数。
+ */
+const convOf = (row: unknown): WelinkConversation => rowOf<WelinkConversation>(row)
 
 const filter = reactive({ keyword: '', type: [] as WelinkConvType[], onlyWatching: false })
 const page = ref(1)
@@ -98,7 +107,8 @@ async function confirmSync() {
     const result = await store.syncConversations(syncDialog.watchIds)
     syncDialog.open = false
     ElMessage.success(
-      `同步完成：新增 ${result.imported} 个会话（默认不回复）` + (result.watched ? `，${result.watched} 个已开启监控` : ''),
+      `同步完成：新增 ${result.imported} 个会话（默认不回复）` +
+        (result.watched ? `，${result.watched} 个已开启监控` : ''),
     )
     await load()
   } catch (error) {
@@ -232,15 +242,13 @@ function handleSelectionChange(selection: WelinkConversation[]) {
 
 const TYPE_LABEL: Record<WelinkConvType, string> = { group: '群聊', private: '私聊' }
 
-/** 静音剩余时间文案（O11） */
-function muteLabel(conv: WelinkConversation): string {
-  if (!conv.muteUntil) return ''
-  const until = new Date(conv.muteUntil.replace(' ', 'T')).getTime()
-  if (!Number.isFinite(until) || until <= Date.now()) return ''
-  return `静音至 ${conv.muteUntil.slice(5, 16)}`
-}
-
-const isMuted = (conv: WelinkConversation) => muteLabel(conv) !== ''
+/**
+ * 静音剩余文案（O11）—— 统一实现见 `utils/welink-display`。
+ * 抽取前这里与 `MessagesTab` 各有一份，格式与到期判定都不一致（T-4）。
+ * 保留这两个薄包装只是为了模板里少写 `conv.muteUntil`。
+ */
+const muteLabel = (conv: WelinkConversation): string => muteLabelOf(conv.muteUntil)
+const isMuted = (conv: WelinkConversation): boolean => isConversationMuted(conv.muteUntil)
 
 onMounted(load)
 </script>
@@ -284,8 +292,8 @@ onMounted(load)
     </div>
 
     <el-table
-      :data="pagedRows"
       v-loading="loading"
+      :data="pagedRows"
       size="small"
       class="conf__table"
       empty-text="尚无会话配置，点「同步会话」从数据源导入"
@@ -305,7 +313,7 @@ onMounted(load)
       <el-table-column label="名称" min-width="150">
         <template #default="{ row }">
           <div>{{ row.title || '（未命名）' }}</div>
-          <div v-if="isMuted(row)" class="cell-muted">{{ muteLabel(row) }}</div>
+          <div v-if="isMuted(convOf(row))" class="cell-muted">{{ muteLabel(convOf(row)) }}</div>
         </template>
       </el-table-column>
       <el-table-column label="备注" min-width="130">
@@ -316,7 +324,11 @@ onMounted(load)
       </el-table-column>
       <el-table-column label="监控" width="100" align="center">
         <template #default="{ row }">
-          <el-switch :model-value="row.watching" size="small" @update:model-value="(value: boolean) => toggleWatching(row, value)" />
+          <el-switch
+            :model-value="row.watching"
+            size="small"
+            @update:model-value="(value: string | number | boolean) => toggleWatching(convOf(row), asBoolean(value))"
+          />
         </template>
       </el-table-column>
       <el-table-column label="自动回复" width="170">
@@ -325,7 +337,7 @@ onMounted(load)
             :model-value="row.autoReply"
             size="small"
             :disabled="!row.watching"
-            @update:model-value="(value: boolean) => toggleAutoReply(row, value)"
+            @update:model-value="(value: string | number | boolean) => toggleAutoReply(convOf(row), asBoolean(value))"
           />
           <div v-if="row.autoReply" class="cell-dim num">
             本小时 {{ store.safety.convCounts[row.convId] ?? 0 }}/{{ store.settings.safety.perConvHourlyCap }}
@@ -341,8 +353,8 @@ onMounted(load)
       </el-table-column>
       <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" text type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-dropdown trigger="click" @command="(hours: number) => mute(row, hours)">
+          <el-button size="small" text type="primary" @click="openEdit(convOf(row))">编辑</el-button>
+          <el-dropdown trigger="click" @command="(hours: number) => mute(convOf(row), hours)">
             <el-button size="small" text>静音</el-button>
             <template #dropdown>
               <el-dropdown-menu>
@@ -352,7 +364,7 @@ onMounted(load)
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <el-button size="small" text type="danger" @click="remove(row)">删除</el-button>
+          <el-button size="small" text type="danger" @click="remove(convOf(row))">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -413,7 +425,10 @@ onMounted(load)
           :indeterminate="syncDialog.watchIds.length > 0 && syncDialog.watchIds.length < syncDialog.fresh.length"
           :disabled="!syncDialog.fresh.length"
           size="small"
-          @update:model-value="(value: boolean) => (syncDialog.watchIds = value ? syncDialog.fresh.map((item) => item.convId) : [])"
+          @update:model-value="
+            (value: string | number | boolean) =>
+              (syncDialog.watchIds = asBoolean(value) ? syncDialog.fresh.map((item) => item.convId) : [])
+          "
         >
           全选
         </el-checkbox>

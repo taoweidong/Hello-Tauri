@@ -89,8 +89,24 @@ describe('sqlRecordsBackend', () => {
 
     it('空表但存在旧 table.json：导入旧数据而非种子（升级路径）', async () => {
       const legacy = [
-        { id: 5, name: '旧记录A', category: '数据服务', status: 'inactive', amount: 1, owner: '甲', createdAt: '2026-01-01' },
-        { id: 9, name: '旧记录B', category: '基础设施', status: 'active', amount: 2, owner: '乙', createdAt: '2026-02-01' },
+        {
+          id: 5,
+          name: '旧记录A',
+          category: '数据服务',
+          status: 'inactive',
+          amount: 1,
+          owner: '甲',
+          createdAt: '2026-01-01',
+        },
+        {
+          id: 9,
+          name: '旧记录B',
+          category: '基础设施',
+          status: 'active',
+          amount: 2,
+          owner: '乙',
+          createdAt: '2026-02-01',
+        },
       ]
       db.readTable.mockResolvedValue(JSON.stringify(legacy))
       await sqlRecordsBackend.prepare()

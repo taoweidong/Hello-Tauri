@@ -134,8 +134,27 @@ export interface ApplyRules {
 export const WATCHING_HARD_LIMIT = 1000
 export const UNFINISHED_HARD_LIMIT = 2000
 
+/**
+ * 会话管理页一次读取的条数（D-5）。
+ *
+ * 为什么提为常量：此前是 `listConversations(500, 0)` 里的魔法数，且**超出即静默
+ * 截断** —— 用户只会看到「某个群不见了」，看不出是分页截断。现在常量在此声明、
+ * 调用方在超限时明确告警（见 `stores/welink.ts` 的 `loadConversations`）。
+ */
+export const CONVERSATION_PAGE_LIMIT = 500
+
 /** 消息保留期（天）。设计 §8：仓储层常量，清理任务按天分批删除 */
 export const RETENTION_KEEP_DAYS = 180
+
+/**
+ * Agent 语料保留期（天）。
+ *
+ * 为什么比消息短：`welink_agent_logs` 存的是**完整提示词**（含最近对话原文）
+ * 与模型回复，隐私敏感度高于消息存档本身（R4 的语料是「为了改进提示词」，
+ * 不需要长期沉淀）。设计 §10 只要求「提供清理入口」，这里进一步给出自动过期，
+ * 把「靠人记得点清理」变成默认安全。
+ */
+export const AGENT_LOG_KEEP_DAYS = 90
 
 /** 保留期清理的批大小（设计 §5-P1：大事务分批 ≤500 行，由调用方循环） */
 export const PURGE_BATCH_SIZE = 500
@@ -191,7 +210,13 @@ export interface WelinkRepository {
   /** 消息流分页（P7；`before` 向上翻页） */
   listMessages(query: MessageQuery): Promise<WelinkMessage[]>
   /** 关键词 + 时间段搜索（O12，LIKE + 分页，不引 FTS5） */
-  searchMessages(keyword: string, from: string | undefined, to: string | undefined, limit: number, offset: number): Promise<WelinkMessage[]>
+  searchMessages(
+    keyword: string,
+    from: string | undefined,
+    to: string | undefined,
+    limit: number,
+    offset: number,
+  ): Promise<WelinkMessage[]>
   /** 打开会话即批量已读：同事务置 read_flag=1 并把 unread/mention 清零（O6） */
   markRead(convPk: number): Promise<void>
   /** 该会话最近 N 条消息（组装提示词上下文用，倒序取后正序返回） */
@@ -290,6 +315,13 @@ export interface WelinkRepository {
   // —— 维护 ——
   /** 保留期清理：按批次删除过期消息（P1：每批 ≤500 行，由调用方循环） */
   purgeMessagesBefore(cutoff: string, batch: number): Promise<number>
+  /**
+   * 保留期清理：按批次删除过期 Agent 语料（与消息同构，按 `created_at` 过期）。
+   *
+   * 语义边界：**只删留痕，不动 job**。job 是回复历史的主体，语料只是它的调试
+   * 附件 —— 把 job 一起删会让「某天回复了多少条」这类统计凭空缩水。
+   */
+  purgeAgentLogsBefore(cutoff: string, batch: number): Promise<number>
   /** 该会话是否存在历史消息（删除会话时二次确认的依据） */
   countMessages(convPk: number): Promise<number>
   /** 未回复计数（收件箱筛选辅助） */
