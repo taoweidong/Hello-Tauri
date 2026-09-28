@@ -17,6 +17,11 @@ src-tauri/gen/
 
 # 工作区本地数据（AI 会话记忆等）
 .workbuddy/
+.codebuddy/
+.impeccable.md
+
+# 历史构建产物目录（误提交产物所在，防止再混入）
+build/
 
 # 图标生成的中间产物
 vibe_images/

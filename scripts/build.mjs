@@ -76,6 +76,20 @@ runNpm(['run', 'build:web'], '前端构建 (vite)')
 //      （build.rs: `let dev = !custom_protocol`）；不传 feature 的裸 cargo build 是
 //      dev 模式，资源不内嵌。这里显式传 feature 进入生产模式。
 //   3. 裸 cargo 没有 beforeBuildCommand，前端构建由上面的 build:web 显式负责，不重复。
+//   4. **保留 `--offline`** —— 这是内网离线打包的关键不变量，勿删。
+//
+//      根据 2026-09-29 的实测：本机 `~/.cargo/config.toml` 确实把 crates.io 换成了
+//      `sparse+https://rsproxy.cn/index/`，但 `--offline` **照常工作**（同日
+//      `npm run verify -- --escalated` 在阶段 6 用此参数打包成功 4 次，产物 4.46 MB）。
+//      所以「rsproxy sparse 索引在 offline 下解析不到」这条结论在本仓库不成立。
+//
+//      它来自 2026-09-25 被误提交进 main 的 `Hello-Tauri-Log-Parase` 项目
+//      （见那批提交自带的 docs/analysis-2026-09-25.md），是对**另一个仓库**的代码
+//      得出的结论。合并时已核对并保留本仓库版本。
+//
+//      保留 `--offline` 的实质意义：它让「缓存缺失」变成**构建期硬失败**，而不是
+//      悄悄联网下载 —— 后者在内网机器上会挂很久才超时，且失败点难以定位。
+//      若真的遇到 "no matching package found"，先确认 `cargo fetch` 是否已跑过。
 //
 // 强制桌面 crate 重新编译：generate_context! 只在 crate 重编译时重新读取并内嵌 dist/，
 // 而 tauri-build 的 build.rs 只 watch tauri.conf.json 与 capabilities，不含 dist/

@@ -161,7 +161,7 @@ dumpbin /dependents release\Hello-Tauri-0.1.0-x64.exe
 - 不下载 Tauri CLI 二进制（`@tauri-apps/cli-win32-x64-msvc` 预编译产物已随 `node_modules` 提供）。
 - 前端构建零 CDN/在线字体依赖，`vite build` 全部本地完成。
 
-内网迁移时携带：源码 + 上述四个目录（合计约 1.1 GB，不含 VS）。缓存齐全时 `cargo build` 与 `npm run pack` 均不触发网络请求；如需强制校验，可加 `--offline`（`cargo build --offline` / `npm install --offline`）。
+内网迁移时携带：源码 + 上述四个目录（合计约 1.1 GB，不含 VS）。缓存齐全时 `cargo build` 与 `npm run pack` 均不触发网络请求；npm 依赖可用 `npm install --offline` 强制离线还原。（注：cargo 侧走 rsproxy sparse 镜像时**不要**加 `--offline`——sparse 索引在离线模式下解析不到，会报「no matching package found」；内网机器请预先把镜像索引同步进本地缓存。）
 
 ## 内网运行说明
 
