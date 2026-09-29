@@ -18,6 +18,7 @@ const { repoMock } = vi.hoisted(() => ({
     countConversations: vi.fn(async (): Promise<number> => 0),
     listUnfinishedJobs: vi.fn(async (): Promise<unknown[]> => []),
     countHolding: vi.fn(async (): Promise<number> => 0),
+    listJobs: vi.fn(async (): Promise<unknown[]> => []),
     countSentSince: vi.fn(async (): Promise<number> => 0),
     countGlobalSentSince: vi.fn(async (): Promise<number> => 0),
     lastSentAt: vi.fn(async (): Promise<string | null> => null),
@@ -110,5 +111,36 @@ describe('stores/welink —— pollPlan（D-6：设置页显示的数字必须�
     const plan = store.pollPlan(5)
     expect(plan.converged).toBe(true)
     expect(plan.staggerMs).toBe(300)
+  })
+})
+
+// ---------------------------------------------------------------- 急停持久化（评审 P1）
+
+/**
+ * panic 原为 Gate 实例内的纯内存态：急停后重启，bootstrap 会按原 sendMode 恢复
+ * 调度、ready 任务继续自动外发——最后防线静默失效。现在标记随配置落盘，
+ * init 读到它时强制降为人工确认模式并复位。
+ */
+describe('stores/welink —— 急停跨重启不复活（评审 P1）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  it('init 读到落盘的 panicked 标记：强制 manual 并复位，返回 panicRecovered=true', async () => {
+    const store = await freshStore()
+    const report = await store.init({ panicked: true, sendMode: 'auto' })
+    expect(report.panicRecovered).toBe(true)
+    // 降级必须在恢复调度之前生效（视图拿到返回值后才 start）
+    expect(store.settings.sendMode).toBe('manual')
+    expect(store.settings.panicked).toBe(false)
+  })
+
+  it('无急停标记时正常初始化（panicRecovered=false，sendMode 不被改动）', async () => {
+    const store = await freshStore()
+    const report = await store.init({ sendMode: 'auto' })
+    expect(report.panicRecovered).toBe(false)
+    expect(store.settings.sendMode).toBe('auto')
+    expect(store.settings.panicked).toBe(false)
   })
 })

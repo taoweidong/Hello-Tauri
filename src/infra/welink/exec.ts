@@ -31,6 +31,26 @@ export interface CommandOutput {
   durationMs: number
 }
 
+/**
+ * 错误信息里的参数脱敏（质量评审 S-4）：`--text` 的值是模型生成的草稿正文
+ * （可能复述企业通信原文），原样拼进错误串会随 last_error 与日志文件扩散到
+ * 预期存储边界之外 —— 只保留长度供排障。
+ */
+function redactArgs(args: string[]): string {
+  const out: string[] = []
+  let redactNext = false
+  for (const arg of args) {
+    if (redactNext) {
+      out.push(`[文本已省略 ${arg.length} 字]`)
+      redactNext = false
+      continue
+    }
+    out.push(arg)
+    if (arg === '--text') redactNext = true
+  }
+  return out.join(' ')
+}
+
 /** 跑一个命令并解码输出 */
 export async function runCommand(program: string, args: string[], options: RunOptions = {}): Promise<CommandOutput> {
   let result: CliResult
@@ -45,7 +65,7 @@ export async function runCommand(program: string, args: string[], options: RunOp
   const stderr = decodeBase64Text(result.stderr)
 
   if (result.timedOut) {
-    throw new WelinkError(`命令超时（${result.durationMs}ms）：${program} ${args.join(' ')}`, 'transport')
+    throw new WelinkError(`命令超时（${result.durationMs}ms）：${program} ${redactArgs(args)}`, 'transport')
   }
 
   return {
@@ -63,7 +83,7 @@ export async function runForOutput(program: string, args: string[], options: Run
   const output = await runCommand(program, args, options)
   if (output.exitCode !== 0) {
     const detail = output.stderr.trim() || output.stdout.trim() || '无输出'
-    throw new WelinkError(`命令返回码 ${output.exitCode}：${args.join(' ')} :: ${detail}`, 'parse')
+    throw new WelinkError(`命令返回码 ${output.exitCode}：${redactArgs(args)} :: ${detail}`, 'parse')
   }
   return output.stdout
 }

@@ -10,13 +10,13 @@
  *  * Tab 懒加载（O4）：只有激活的 Tab 挂载并发查询，避免首屏五个 Tab 齐发。
  *  * 长文本一律「折叠 + 展开 + 复制」（§11.7）。
  */
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { IconActivity } from '@/components/icons'
 import { useAppStore } from '@/stores/app'
-import { unsubscribeWelinkLogs, useWelinkStore } from '@/stores/welink'
+import { subscribeWelinkLogs, unsubscribeWelinkLogs, useWelinkStore } from '@/stores/welink'
 import ControlBar from '@/components/welink/ControlBar.vue'
 import MessagesTab from '@/components/welink/MessagesTab.vue'
 import InboxTab from '@/components/welink/InboxTab.vue'
@@ -88,7 +88,9 @@ const needWizard = computed(
 
 async function toggleEnabled(value: boolean) {
   store.applySettings({ ...store.settings, enabled: value })
-  appStore.settings.weLink = { ...appStore.settings.weLink, enabled: value }
+  // 以热副本为基底写回持久层（评审 F-3 三副本漂移）：用 appStore 旧值做基底，
+  // 会把设置卡片已热更新但未「保存配置」的编辑覆盖回旧值，重启后静默丢失
+  appStore.settings.weLink = { ...store.settings, enabled: value }
   if (value) {
     const report = await store.start()
     ElMessage.success(report ? '助手已启动' : '助手启动异常，请查看日志')
@@ -107,12 +109,16 @@ async function onPanicStop() {
     ).catch(() => false)
     if (confirmed === false) return
     store.liftPanic()
-    // 解除后的降级必须写回配置，否则下次启动又回到 auto
-    appStore.settings.weLink = { ...appStore.settings.weLink, sendMode: 'manual' }
+    // 解除后的降级必须写回配置，否则下次启动又回到 auto；急停标记一并复位。
+    // 以热副本为基底写回，避免把持久层旧值盖回去（评审 F-3 三副本漂移）。
+    appStore.settings.weLink = { ...store.settings, sendMode: 'manual', panicked: false }
     ElMessage.warning('已解除急停：发送模式已降为「人工确认」')
     return
   }
   store.panicStop()
+  // 急停标记落盘（评审 P1）：重启后 init 读到它强制转人工，外发不会静默恢复。
+  // 以热副本为基底写回，避免把持久层旧值盖回去（评审 F-3 三副本漂移）。
+  appStore.settings.weLink = { ...store.settings, panicked: true }
   ElMessage.error('已触发一键全停：所有外发被阻断')
 }
 
@@ -143,32 +149,56 @@ async function playDemo() {
 
 // —— 生命周期 ——
 
+/**
+ * MainLayout 用**无 include 的 keep-alive** 包住所有路由组件：正常导航只触发
+ * onActivated/onDeactivated，onUnmounted 在应用整个生命周期内都不会发生。
+ * 曾把清理挂在 onUnmounted（D-9 v1）—— 在 keep-alive 下是永不执行的死代码。
+ *
+ * 因此这里的绑定/解绑必须：① 成对挂在 activated/deactivated（卸载兜底）；
+ * ② 幂等（首次进入 = mounted → activated 连发，绑一次）；③ 把日志旁路订阅
+ * 纳入绑定集 —— deactivated 退订后，复活路径必须能重建订阅。
+ */
+
 let visibilityHandler: (() => void) | null = null
 
-onMounted(async () => {
-  await store.init(appStore.settings.weLink)
-  // 上次关程序时是开着的 → 直接恢复运行（会话级 cursor 从库恢复，只拉增量）
-  if (store.settings.enabled) await store.start()
-
+function bindPageEffects(): void {
+  if (visibilityHandler) return
   // P9：窗口不可见时降载（隐藏 ×3）。此处只做「告知编排层」，
   // 真正的降载逻辑在 poller.setVisible —— 视图不持有计时器。
   visibilityHandler = () => {
     store.setPageVisible(document.visibilityState !== 'hidden')
   }
   document.addEventListener('visibilitychange', visibilityHandler)
-})
+  subscribeWelinkLogs()
+}
 
-onUnmounted(() => {
-  if (visibilityHandler) document.removeEventListener('visibilitychange', visibilityHandler)
+function unbindPageEffects(): void {
+  if (!visibilityHandler) return
+  document.removeEventListener('visibilitychange', visibilityHandler)
+  visibilityHandler = null
   /**
-   * D-9：退订编排层日志旁路。
-   *
-   * 为什么在这里退订而不是在 `store.stop()`：`stop()` 是「暂停助手」，
-   * 用户随后还会看日志；而 `onUnmounted` 才是「这个页面不存在了」。
-   * 退订后 **不** 清 `store.logs` —— 日志是诊断信息，重新进页面应还能看到。
+   * D-9：退订编排层日志旁路。退订后 **不** 清 `store.logs` ——
+   * 日志是诊断信息，回到页面应还能看到。
    */
   unsubscribeWelinkLogs()
+}
+
+onMounted(async () => {
+  const { panicRecovered } = await store.init(appStore.settings.weLink)
+  if (panicRecovered) {
+    // 急停跨重启不复活（评审 P1）：init 已强制人工确认模式并复位内存标记，
+    // 这里把降级写回持久层（autoSave 落盘）并显式告知用户。
+    appStore.settings.weLink = { ...store.settings, sendMode: 'manual', panicked: false }
+    ElMessage.error('上次会话以「一键全停」结束：已降为人工确认模式，未自动恢复外发')
+  }
+  // 上次关程序时是开着的 → 直接恢复运行（会话级 cursor 从库恢复，只拉增量）
+  if (store.settings.enabled) await store.start()
+  bindPageEffects()
 })
+
+onActivated(bindPageEffects)
+onDeactivated(unbindPageEffects)
+onUnmounted(unbindPageEffects)
 
 // Tab 懒加载：切换时才触发该 Tab 的查询（O4）
 watch(activeTab, (tab) => {

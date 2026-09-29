@@ -65,6 +65,18 @@ process.stdout.write(`\n▶ Rust 工具链：${host}（MSVC，WebView2Loader 静
 
 const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
+// 版本一致性硬校验（评审 B-3）：exe 文件名版本来自 package.json，应用元数据版本
+// 来自 tauri.conf.json —— 两处漏改会出现「文件名 0.2.0、关于页 0.1.0」且全链绿灯。
+// package.json 是唯一真值，打包入口直接拒绝不一致。
+const tauriConf = JSON.parse(readFileSync(join(root, 'src-tauri', 'tauri.conf.json'), 'utf8'))
+if (tauriConf.version !== version) {
+  process.stderr.write(
+    `\n✖ 版本不一致：package.json=${version}，src-tauri/tauri.conf.json=${tauriConf.version}。\n` +
+      '  请以 package.json 为唯一真值同步 tauri.conf.json 后再打包。\n',
+  )
+  process.exit(1)
+}
+
 runNpm(['run', 'typecheck'], '类型检查 (vue-tsc)')
 runNpm(['run', 'build:web'], '前端构建 (vite)')
 

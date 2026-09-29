@@ -29,17 +29,8 @@ pub fn open_db(app: &AppHandle) -> Result<Db, String> {
     Ok(Db(Mutex::new(conn)))
 }
 
-/// WAL 检查点：把 -wal 中未落盘的数据合并回主 .db 文件。
-/// 迁移存储目录前必须调用，否则复制走的主文件可能缺最近事务数据。
-/// 返回是否成功（非 WAL 模式下本就可能失败，仅报告、不致命）。
-pub fn checkpoint(app: &AppHandle) -> bool {
-    let Some(db) = app.try_state::<Db>() else {
-        return false;
-    };
-    let conn = db.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
-        .is_ok()
-}
+/// WAL 检查点逻辑已并入 storage::do_migrate 的独占锁窗口（评审 P1）：
+/// checkpoint 与目录复制之间绝不能放开连接，否则两者之间的写入又落回 -wal。
 
 fn with_db<R, F: FnOnce(&mut Connection) -> Result<R, String>>(
     app: &AppHandle,
@@ -52,6 +43,22 @@ fn with_db<R, F: FnOnce(&mut Connection) -> Result<R, String>>(
         .0
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    f(&mut conn)
+}
+
+/// 迁移期间独占数据库连接执行一段工作（评审 P1）。
+///
+/// 复制 app.db 时绝不能有并发读写：写命令会把新数据写进**正在被复制的旧根**
+/// （重启切到新根后这部分静默丢失），读命令也可能读到复制中途的不一致状态。
+/// 持锁窗口 = WAL checkpoint + 整个目录复制，期间所有 DB 命令在此排队。
+/// 只有 storage::migrate_data_dir 一个调用方；成功后的持续写入拒绝由
+/// storage 的 STORE_FROZEN 状态机负责，不在这里做。
+pub fn with_db_exclusive<R>(
+    app: &AppHandle,
+    f: impl FnOnce(&mut Connection) -> Result<R, String>,
+) -> Result<R, String> {
+    let db = app.state::<Db>();
+    let mut conn = db.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     f(&mut conn)
 }
 
@@ -114,7 +121,10 @@ fn column_json(value: ValueRef<'_>) -> Value {
             if int.unsigned_abs() <= 2u64.pow(53) {
                 Value::from(int)
             } else {
-                Value::from(int as f64)
+                // 超 2^53 转字符串（评审 R-3）：转 f64 会静默丢精度且调用方无从
+                // 分辨（雪花 ID 类大整数回表查询会静默错行）；字符串可原样回传，
+                // 绑定回查时 SQLite 按 INTEGER 列亲和性把数字文本转回整数，等值匹配仍成立。
+                Value::from(int.to_string())
             }
         }
         ValueRef::Real(real) => Value::from(real),
@@ -122,6 +132,11 @@ fn column_json(value: ValueRef<'_>) -> Value {
         ValueRef::Blob(_) => Value::String("[blob]".to_string()),
     }
 }
+
+/// db_select 行数硬顶（评审 R-2）：忘写 LIMIT 的失控查询会把整表拉进内存再经
+/// IPC 序列化。业务分页上限远小于此值；触顶**报错**而非静默截断——调用方必须
+/// 显式表达分页意图，截断会让「数据全量吗」永远无法从返回值判断。
+const MAX_SELECT_ROWS: usize = 10_000;
 
 fn rows_to_json(
     conn: &mut Connection,
@@ -151,6 +166,11 @@ fn rows_to_json(
         .map_err(|error| format!("查询失败: {error}"))?;
     let mut out = Vec::new();
     while let Some(row) = rows.next() {
+        if out.len() >= MAX_SELECT_ROWS {
+            return Err(format!(
+                "查询结果超过 {MAX_SELECT_ROWS} 行，请增加过滤条件或使用 LIMIT 分页"
+            ));
+        }
         out.push(row.map_err(|error| format!("读取行失败: {error}"))?);
     }
     Ok(out)
@@ -316,6 +336,8 @@ pub async fn db_execute(
     sql: String,
     params: Vec<Value>,
 ) -> Result<ExecResult, String> {
+    // 迁移窗口/迁移后拒绝写入（评审 P1，见 storage::STORE_STATE 注释）
+    crate::storage::check_db_writes_allowed()?;
     // 建议 SQL 先参与绑定再进阻塞线程，避免把大参数数组搬进闭包后又搬回来
     run_blocking_db(move || with_db(&app, |conn| exec_result(conn, &sql, &params))).await
 }
@@ -335,6 +357,7 @@ pub async fn db_transaction(
     app: AppHandle,
     statements: Vec<TxStatement>,
 ) -> Result<Vec<usize>, String> {
+    crate::storage::check_db_writes_allowed()?;
     run_blocking_db(move || {
         with_db(&app, |conn| {
             let tx = conn
@@ -364,6 +387,7 @@ pub async fn db_transaction(
 /// 返回本次新应用的版本号列表。
 #[tauri::command]
 pub async fn db_migrate(app: AppHandle, migrations: Vec<Migration>) -> Result<Vec<i64>, String> {
+    crate::storage::check_db_writes_allowed()?;
     run_blocking_db(move || {
         with_db(&app, |conn| {
             conn.execute_batch(
@@ -393,6 +417,10 @@ pub async fn db_migrate(app: AppHandle, migrations: Vec<Migration>) -> Result<Ve
 
             let mut newly = Vec::new();
             for migration in pending {
+                // S-2 补口（评审 R-1）：迁移是唯一没过闸的 SQL 入口，且
+                // execute_batch 支持多语句比 execute 更宽。迁移 SQL 来自仓库内
+                // TS 定义（可信），但「防误用」定位意味着手滑写进 ATTACH 也该拦。
+                guard_statement(&migration.sql)?;
                 let tx = conn
                     .transaction()
                     .map_err(|e| format!("开启事务失败: {e}"))?;

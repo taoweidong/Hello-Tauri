@@ -90,7 +90,7 @@ Tauri 2 + Vue 3 + Element Plus 的 Windows 桌面应用模板，一次打包产�
 ## 快速开始
 
 ```bash
-npm install            # 安装依赖（需 Node.js >= 20）
+npm install            # 安装依赖（需 Node.js >= 22.5）
 
 npm run dev            # 浏览器开发模式，无需 Rust，可直接调试全部页面
 npm run tauri:dev      # 桌面开发模式，需要 Rust 工具链
@@ -149,7 +149,7 @@ dumpbin /dependents release\Hello-Tauri-0.1.0-x64.exe
 
 | 依赖               | 位置                                                                    | 体积   |
 | ------------------ | ----------------------------------------------------------------------- | ------ |
-| Node.js ≥ 20       | 系统安装                                                                | —      |
+| Node.js ≥ 22.5      | 系统安装                                                                | —      |
 | 前端依赖           | 项目内 `node_modules/`，或内网 npm 缓存（`npm install --offline` 还原） | 178 MB |
 | Rust 工具链        | `%USERPROFILE%\.rustup\toolchains\stable-x86_64-pc-windows-msvc`        | 577 MB |
 | Crate 缓存         | `%USERPROFILE%\.cargo\registry`（258 个 crate）                         | 367 MB |

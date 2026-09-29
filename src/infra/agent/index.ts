@@ -59,6 +59,27 @@ export function resetAgentClient() {
   cachedKey = ''
 }
 
+/**
+ * 连通性探测专用工厂（评审 A-1）。
+ *
+ * SettingsCard 要按「用户配置指向的实现」发探测请求：直接 new agent-http 会
+ * 绕过环境兜底——浏览器模式下运行链路被强制 mock，探测却真实外发 fetch 并报
+ * 「Agent 连通正常」，两处对「当前实现」的判定不一致（给假信心）；走
+ * agentClient() 又会命中运行期缓存。这里共享同一份 runtime 兜底判定，
+ * 但**不进缓存、不挂 onCall**——探测请求不污染 R4 留痕语料。
+ */
+export function createAgentProbe(settings: WelinkAgentSettings): AgentClient {
+  const source = runtime === 'tauri' ? settings.agentSource : 'mock'
+  if (source === 'http' && settings.baseUrl.trim()) {
+    return createHttpAgent({
+      baseUrl: settings.baseUrl.trim(),
+      endpoint: settings.endpoint,
+      timeoutMs: settings.timeoutMs,
+    })
+  }
+  return createMockAgent()
+}
+
 /** 当前是否为 mock（UI 来源徽标用） */
 export function isMockAgent(): boolean {
   const candidate = cached as Partial<MockAgent> | null

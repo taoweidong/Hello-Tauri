@@ -41,6 +41,39 @@ function pickReply(payload: unknown): string | null {
   return null
 }
 
+/**
+ * 内网约束守卫（质量评审 S-1）：Agent 是「内网本地部署的 SDK 服务」（设计 §1）。
+ * 篡改 config.json 把 baseUrl 指向公网 literal IP，等于把含企业通信原文的
+ * prompt 外带出去 —— literal 公网 IP 一律拒绝并给出可行动的错误；主机名不做
+ * 判定（内网 DNS 无法在客户端分类），确有特殊部署场景时用域名即可通过。
+ */
+function assertIntranetHost(endpoint: string): void {
+  let host: string
+  try {
+    host = new URL(endpoint).hostname
+  } catch {
+    throw new AgentError(`Agent 地址无法解析：${endpoint}`, 'error')
+  }
+  const literal = host.replace(/^\[|\]$/g, '') // IPv6 字面量 [::1] → ::1
+  const isIpv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(literal)
+  const isIpv6 = literal.includes(':')
+  if (!isIpv4 && !isIpv6) return // 主机名：交给 DNS/内网语义
+  const isLoopback = literal === 'localhost' || /^127\./.test(literal) || literal === '::1'
+  const isPrivate =
+    /^10\./.test(literal) ||
+    /^192\.168\./.test(literal) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(literal) ||
+    /^169\.254\./.test(literal) ||
+    /^fe80:/i.test(literal) ||
+    /^fc|^fd/i.test(literal) // IPv6 unique local（fc00::/7）
+  if (!isLoopback && !isPrivate) {
+    throw new AgentError(
+      `Agent 地址指向公网（${host}）：本应用面向内网部署，拒绝把对话内容发往公网地址。请改为内网 IP 或主机名`,
+      'error',
+    )
+  }
+}
+
 export function createHttpAgent(options: HttpAgentOptions): AgentClient {
   const endpoint = `${options.baseUrl.replace(/\/+$/, '')}${options.endpoint.startsWith('/') ? '' : '/'}${options.endpoint}`
   const handlers: Array<(record: AgentCallRecord) => void> = []
@@ -57,6 +90,7 @@ export function createHttpAgent(options: HttpAgentOptions): AgentClient {
       let record: AgentCallRecord
 
       try {
+        assertIntranetHost(endpoint)
         const response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },

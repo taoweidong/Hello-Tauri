@@ -60,6 +60,36 @@ function killByName(image) {
   spawnSync('taskkill', ['/F', '/IM', image], { stdio: 'ignore', windowsHide: true })
 }
 
+/**
+ * 该镜像名当前有几个进程在跑（0 表示没有残留）。用于「先探测再动手」。
+ *
+ * ⚠️ 绝不按镜像名杀 `msedgewebview2.exe`：那个镜像名属于**所有**基于 WebView2
+ * 的应用（Edge、Outlook、其他 Tauri/Electron 应用）。本应用退出后它的 WebView2
+ * 子进程会随 killTree(pid) 的 /T 精确回收（uitest.mjs 2026-09-28 实测：仅
+ * killTree 后基线进程数精确回落，无孤儿）——按名清扫纯属误伤，还会在两个
+ * 验证流程并发时互相杀掉对方的进程（已真实发生过，表现为用例大面积假失败）。
+ */
+function countByName(image) {
+  const r = spawnSync('tasklist', ['/FI', `IMAGENAME eq ${image}`, '/FO', 'CSV', '/NH'], {
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+  const text = r.stdout ?? ''
+  // tasklist 在「没有匹配」时输出本地化的提示语而不是空，必须按行过滤掉
+  return text.split('\n').filter((line) => line.trim() && !/没有运行|No tasks|INFO:/i.test(line)).length
+}
+
+/**
+ * 清理**本应用自己的**残留实例：先探测再动手，没有残留时一个进程都不杀。
+ * 无条件调用会让「用户正开着本应用」变成「冒烟把他的应用关掉」。
+ */
+function clearStaleInstances(exeName) {
+  const count = countByName(exeName)
+  if (count === 0) return
+  process.stdout.write(`  \x1b[90m检测到 ${count} 个残留的 ${exeName} 实例（会独占数据目录），已清理\x1b[0m\n`)
+  killByName(exeName)
+}
+
 function killTree(pid) {
   if (!pid) return
   spawnSync('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore', windowsHide: true })
@@ -108,9 +138,8 @@ async function main() {
 
   let pid = null
   try {
-    // 清场后冷启动
-    killByName(image)
-    killByName('msedgewebview2.exe')
+    // 清场后冷启动：只清理本应用自己的残留，绝不按镜像名扫 msedgewebview2.exe
+    clearStaleInstances(image)
     await sleep(1200)
     pid = launch(exe)
 
@@ -179,9 +208,8 @@ async function main() {
     // 清理一律 best-effort：受限环境会拦截递归删除，那不是冒烟失败。
     // bootstrap.json 必须还原，否则会污染用户真实数据目录。
     try {
+      // /T 连带回收 WebView2 渲染/GPU/网络子进程，无需再按镜像名清扫
       killTree(pid)
-      killByName(image)
-      killByName('msedgewebview2.exe')
       await sleep(600)
     } catch {
       // 进程清理失败不影响结论

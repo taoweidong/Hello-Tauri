@@ -67,6 +67,8 @@ interface Harness {
   events: WelinkEvent[]
   startCalls: { pipeline: number; poller: number }
   statusWrites: Array<{ pk: number; status: string; expect?: string }>
+  /** build() 时注入，供预热接线断言用（评审 T-4） */
+  gate?: { primeGlobal: ReturnType<typeof vi.fn>; primeConversation: ReturnType<typeof vi.fn> }
 }
 
 function harness(seed: {
@@ -129,6 +131,8 @@ function build(h: Harness, autoStart = true) {
     primeGlobal: vi.fn(),
     primeConversation: vi.fn(),
   }
+  // 暴露给断言用（评审 T-4：预热接线「只建桩不断言」的缺口）
+  h.gate = gate
 
   return createBootstrap({
     repo: h.repo,
@@ -275,5 +279,49 @@ describe('orchestrator/bootstrap —— 迁移、预热与调度', () => {
     expect(bootstrap.lastReport()).toBeNull()
     const report = await bootstrap.run()
     expect(bootstrap.lastReport()).toBe(report)
+  })
+})
+
+// ---------------------------------------------------------------- Gate 预热接线（O5，评审 T-4）
+
+/**
+ * 「重启后配额从库里预热」此前只有 Gate 单元级测试（safety-gate.spec 直接调
+ * prime），组合根漏传/传错小时桶起点不会被抓——事实上 hourStart 曾算成
+ * 「当日零点」（评审 P3-1），重启后预热计数被膨胀、助手哑到下一个整点。
+ * 本节把接线参数钉住。
+ */
+describe('orchestrator/bootstrap —— SafetyGate 预热接线（O5）', () => {
+  beforeEach(() => {
+    db.migrateAll.mockReset()
+    db.migrateAll.mockResolvedValue([2])
+  })
+
+  it('primeGlobal 收到 countGlobalSentSince 的返回值，小时桶起点与本小时对齐', async () => {
+    const h = harness({})
+    await build(h).run()
+
+    expect(h.gate?.primeGlobal).toHaveBeenCalledTimes(1)
+    expect(h.gate?.primeGlobal).toHaveBeenCalledWith(3)
+    // 回归闸：起点必须是 "YYYY-MM-DD HH:00:00"（本小时），不是当日零点
+    const hourStart = (h.repo.countGlobalSentSince as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+    expect(hourStart).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:00:00$/)
+  })
+
+  it('watching 会话逐个 primeConversation（会话小时数 + 最近发送时刻）', async () => {
+    const h = harness({ watching: [{ convId: 'G-1' }, { convId: 'G-2' }] })
+    await build(h).run()
+
+    expect(h.gate?.primeConversation).toHaveBeenCalledTimes(2)
+    expect(h.gate?.primeConversation).toHaveBeenCalledWith('G-1', 0, null)
+    expect(h.gate?.primeConversation).toHaveBeenCalledWith('G-2', 0, null)
+  })
+
+  it('预热失败不阻断启动（计入 warnings，调度照常起，配额从 0 起算）', async () => {
+    const h = harness({ watching: [{ convId: 'G-1' }] })
+    ;(h.repo.countGlobalSentSince as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('库挂了'))
+    const report = await build(h).run()
+
+    expect(report.warnings.join()).toContain('安全闸口预热失败')
+    expect(h.startCalls).toEqual({ pipeline: 1, poller: 1 })
   })
 })

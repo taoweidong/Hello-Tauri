@@ -42,16 +42,27 @@ export type RuntimeStatus = 'idle' | 'init' | 'running' | 'backoff' | 'stopped' 
 
 /** 日志旁路只订阅一次（模块级，避免 store 重建时重复叠加订阅） */
 let logUnsubscribe: (() => void) | null = null
+/** init() 装配的订阅执行器：让退订后的重新进入页面能重建订阅（keep-alive 复活路径） */
+let logSubscribe: (() => void) | null = null
+
+/**
+ * 订阅日志旁路（幂等；未 init 前调用是安全的 no-op）。
+ */
+export function subscribeWelinkLogs(): void {
+  logSubscribe?.()
+}
 
 /**
  * 退订日志旁路（D-9）。
  *
- * 为什么需要：模块级单例 + `if (!logUnsubscribe)` 守卫使得**重复订阅不会发生**，
- * 但「声明了退订函数却永不调用」是一句没兑现的承诺 —— 将来若把 store 改成
- * 非单例（如多实例/热重载场景），它会立刻变成一个真实的引用泄漏。
+ * 为什么需要：模块级单例 + 守卫使得**重复订阅不会发生**，但「声明了退订函数
+ * 却永不调用」是一句没兑现的承诺 —— 将来若把 store 改成非单例（如多实例/热重载
+ * 场景），它会立刻变成一个真实的引用泄漏。
  *
- * 调用时机：页面卸载（`WeLinkView.onUnmounted`）与测试的 `afterEach`。
- * 注意退订后**不能**清 `logs`：日志是用户的诊断信息，卸载页面不该抹掉它。
+ * 调用时机：页面失活（`WeLinkView.onDeactivated` —— MainLayout 对所有路由组件套了
+ * keep-alive，正常导航不触发 onUnmounted）与测试的 `afterEach`。
+ * 复活路径：`onActivated` → `subscribeWelinkLogs()` 重建订阅。
+ * 注意退订后**不能**清 `logs`：日志是用户的诊断信息，离开页面不该抹掉它。
  */
 export function unsubscribeWelinkLogs(): void {
   logUnsubscribe?.()
@@ -271,19 +282,40 @@ export const useWelinkStore = defineStore('welink', () => {
     }
   }
 
-  /** 载入页面时调用：只做只读装载，不启动调度（不点开关不该跑轮询） */
-  async function init(next?: Partial<WelinkSettings>) {
-    // P10：把编排层的 warn/error 接进 UI 内存环形缓冲（只接一次）
-    if (!logUnsubscribe) {
-      logUnsubscribe = onLog((level, text) => pushLog(level, text))
+  /**
+   * 载入页面时调用：只做只读装载，不启动调度（不点开关不该跑轮询）。
+   * 返回 `panicRecovered`：上次会话以急停结束时为 true —— 降级已在本 store
+   * 生效，调用方需把它写回持久层并显式告知用户（appStore 归视图持有）。
+   */
+  async function init(next?: Partial<WelinkSettings>): Promise<{ panicRecovered: boolean }> {
+    // P10：把编排层的 warn/error 接进 UI 内存环形缓冲（幂等）。装配成执行器而非
+    // 直接订阅：D-9 的退订现在挂在 onDeactivated（keep-alive），复活时
+    // onActivated → subscribeWelinkLogs 要能重建订阅。
+    if (!logSubscribe) {
+      logSubscribe = () => {
+        if (!logUnsubscribe) {
+          logUnsubscribe = onLog((level, text) => pushLog(level, text))
+        }
+      }
     }
+    logSubscribe()
     applySettings(next)
+    // 急停跨重启不复活（评审 P1）：读到落盘的 panicked 标记 → 强制人工确认模式，
+    // bootstrap 恢复的 ready 任务就不会继续自动外发。标记在此复位（内存态），
+    // 持久层的复位由调用方写回。
+    let panicRecovered = false
+    if (settings.value.panicked) {
+      settings.value = { ...settings.value, sendMode: 'manual', panicked: false }
+      panicRecovered = true
+      pushLog('warn', '上次会话以「一键全停」结束：已降为人工确认模式，未自动恢复外发')
+    }
     status.value = 'init'
     await ensureSchema()
     await loadConversations()
     await refreshReviewCount()
     await refreshSafety()
     status.value = settingsReady() && runtimeRunning() ? 'running' : 'stopped'
+    return { panicRecovered }
   }
 
   function applySettings(next?: Partial<WelinkSettings>) {
@@ -344,6 +376,10 @@ export const useWelinkStore = defineStore('welink', () => {
   function panicStop() {
     runtime?.gate.setPanic(true)
     runtime?.stop()
+    // 急停标记落盘（评审 P1）：panic 原为纯内存态，重启后 ready 任务会按原
+    // sendMode 恢复自动外发。持久化由调用方（视图写 appStore）完成——
+    // 本 store 不反向依赖 appStore（防环依赖）。
+    settings.value = { ...settings.value, panicked: true }
     status.value = 'panic'
     pushLog('warn', '已触发一键全停：所有外发被阻断，解除后默认转人工缓冲')
   }
@@ -356,7 +392,7 @@ export const useWelinkStore = defineStore('welink', () => {
    */
   function liftPanic(): { sendMode: 'manual' } {
     runtime?.gate.setPanic(false)
-    settings.value = { ...settings.value, sendMode: 'manual' }
+    settings.value = { ...settings.value, sendMode: 'manual', panicked: false }
     runtime?.reload(settings.value)
     status.value = runtimeRunning() ? 'running' : 'stopped'
     pushLog('warn', '已解除急停：发送模式自动降为「人工确认」，确认无异常后可改回自动')
@@ -464,35 +500,59 @@ export const useWelinkStore = defineStore('welink', () => {
     jobIndex.value = new Map(jobIndex.value)
   }
 
+  // ---------------- 会话选择与时间线（消息中心 / 收件箱共用） ----------------
+
+  /** 加载代次号（评审 F-4 竞态守卫）：selectConversation 每次进入递增 */
+  let timelineSeq = 0
+
   /** 选中会话：清未读 + 拉时间线 + 取该会话待办（§6.4 markRead O6） */
   async function selectConversation(convId: string, limit = 100) {
     selectedConvId.value = convId
+    // 时间线加载竞态守卫（评审 F-4）：快速连点会话 A→B 时，A 的后返回会把
+    // messages/convJobs 覆盖成 A 的内容（selectedConvId 已是 B）——每次加载
+    // 取一个代次号，await 后代次不符即丢弃本次结果。
+    const seq = ++timelineSeq
     const conv = conversations.value.find((item) => item.convId === convId)
     if (!conv) return
     await repo().markRead(conv.pk)
+    if (seq !== timelineSeq) return
     conv.unreadCount = 0
     conv.mentionCount = 0
     conversations.value = [...conversations.value]
-    messages.value = await repo().listMessages({ convPk: conv.pk, limit })
-    hasMoreMessages.value = messages.value.length >= limit
-    convJobs.value = (
+    const page = await repo().listMessages({ convPk: conv.pk, limit })
+    if (seq !== timelineSeq) return
+    messages.value = page
+    hasMoreMessages.value = page.length >= limit
+    const jobs = (
       await repo().listJobsByStatus(['pending', 'discussing', 'ready', 'sending', 'failed'], 200)
     ).filter((job) => job.targetId === convId)
+    if (seq !== timelineSeq) return
+    convJobs.value = jobs
     for (const job of convJobs.value) jobIndex.value.set(job.pk, job)
     jobIndex.value = new Map(jobIndex.value)
   }
 
-  /** 向上翻页（P7：一次 100 条） */
+  /** 向上翻页（P7：一次 100 条）。in-flight 锁防连点：重复请求同一 before 会把
+   * 同一批消息拼两次，msg_uid 作 v-for key 时直接渲染重复行（评审 F-4）。 */
+  let loadingEarlier = false
   async function loadEarlierMessages(limit = 100) {
-    const conv = conversations.value.find((item) => item.convId === selectedConvId.value)
-    if (!conv || !messages.value.length) return
-    const before = messages.value[0].sentAt
-    const older = await repo().listMessages({ convPk: conv.pk, before, limit })
-    if (older.length) {
-      messages.value = [...older, ...messages.value]
-      hasMoreMessages.value = older.length >= limit
-    } else {
-      hasMoreMessages.value = false
+    if (loadingEarlier) return
+    loadingEarlier = true
+    try {
+      const seq = timelineSeq
+      const conv = conversations.value.find((item) => item.convId === selectedConvId.value)
+      if (!conv || !messages.value.length) return
+      const before = messages.value[0].sentAt
+      const older = await repo().listMessages({ convPk: conv.pk, before, limit })
+      if (seq !== timelineSeq) return
+      if (older.length) {
+        messages.value = [...older, ...messages.value]
+        hasMoreMessages.value = older.length >= limit
+      } else {
+        hasMoreMessages.value = false
+      }
+    } finally {
+      loadingEarlier = false
     }
   }
 

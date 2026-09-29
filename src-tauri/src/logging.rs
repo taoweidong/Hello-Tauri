@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::Serialize;
 
@@ -9,6 +10,13 @@ const LOG_KEEP: usize = 30;
 
 /// 单条日志的最大长度，防止前端异常把整个堆栈灌进来。
 const LOG_LINE_MAX: usize = 4000;
+
+/// 合法的日志级别（评审 P3：level 来自前端任意字符串，白名单防伪造日志头）。
+const LOG_LEVELS: &[&str] = &["DEBUG", "INFO", "WARN", "ERROR"];
+
+/// 最近一次清理日志的日期（评审 P2：每条日志都全量扫描目录纯属浪费，
+/// 跨天第一条日志时清一次即可）。
+static PRUNED_ON: Mutex<Option<String>> = Mutex::new(None);
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -97,12 +105,41 @@ fn prune_logs(logs_dir: &Path) {
     }
 }
 
+/// 每天最多清一次：文件数超限是「30 天前」级别的低频事件，
+/// 没必要每条日志都 read_dir + sort 一遍（评审 P2）。
+fn prune_logs_daily(logs_dir: &Path) {
+    let today = now_local().date;
+    let mut guard = match PRUNED_ON.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if guard.as_deref() == Some(today.as_str()) {
+        return;
+    }
+    *guard = Some(today);
+    drop(guard);
+    prune_logs(logs_dir);
+}
+
 /// 追加一行到日志文件（文件为运维留痕，人类可读，崩溃也留痕）。
 pub fn append_line(logs_dir: &Path, level: &str, message: &str) -> Result<PathBuf, String> {
     fs::create_dir_all(logs_dir).map_err(|error| format!("创建日志目录失败: {error}"))?;
 
     let now = now_local();
-    let mut text = message.replace(['\r', '\n'], " ");
+    // level 白名单（评审 P3）：level 拼在行首 `[LEVEL]`，任意字符串可伪造
+    // 假日志头（如 "INFO 2026-01-01 [ERROR] fake"）；未知级别归入 INFO。
+    let level_upper = level.to_uppercase();
+    let level_tag = if LOG_LEVELS.contains(&level_upper.as_str()) {
+        level_upper
+    } else {
+        "INFO".to_string()
+    };
+    // 控制字符统一压成空格（评审 P3：除 \r\n 外，ANSI 转义等序列在终端
+    // type/Get-Content 查看时可清屏/变色/伪造行结构）；\t 保留供表格对齐。
+    let mut text: String = message
+        .chars()
+        .map(|c| if c == '\t' { c } else if c.is_control() { ' ' } else { c })
+        .collect();
     if text.len() > LOG_LINE_MAX {
         // 按字符边界截断，避免切坏 UTF-8
         let mut cut = LOG_LINE_MAX;
@@ -114,7 +151,7 @@ pub fn append_line(logs_dir: &Path, level: &str, message: &str) -> Result<PathBu
     }
 
     let file = logs_dir.join(format!("app-{}.log", now.date));
-    let line = format!("{} [{}] {}\n", now.clock, level.to_uppercase(), text);
+    let line = format!("{} [{}] {}\n", now.clock, level_tag, text);
     let mut handle = fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -124,6 +161,6 @@ pub fn append_line(logs_dir: &Path, level: &str, message: &str) -> Result<PathBu
         .write_all(line.as_bytes())
         .map_err(|error| format!("写入日志失败: {error}"))?;
 
-    prune_logs(logs_dir);
+    prune_logs_daily(logs_dir);
     Ok(file)
 }

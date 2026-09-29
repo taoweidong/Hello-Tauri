@@ -52,8 +52,10 @@ jobs:
 
       # verify.mjs 一条命令跑完七个阶段，且各阶段可独立失败 ——
       # 失败时仍能拿到全局视图（哪些阶段受影响），比逐个 step 跑更好判读。
+      # --escalated：runner 是无沙箱的授权环境，coverage/dist/target 的删除与写入不受限；
+      # 不加该旗标时打包阶段按 argv 硬判定直接失败（见 verify.mjs 阶段 6）。
       - name: 全量验证（verify.mjs）
-        run: npm run verify
+        run: npm run verify -- --escalated
 
       - name: 上传验证报告
         if: always()

@@ -905,3 +905,38 @@ describe('SafetyGate —— 关键立场（改代码前必读）', () => {
     expect(gate.snapshot().panic).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------- 时钟回拨语义（评审 T-5/P3-2）
+
+/**
+ * Gate 的时间判定全部依赖注入时钟，小时桶（本地时间 `slice(0,13)`）变化即清零
+ * 全局与会话配额——**含回拨**。这是一个已知取舍（与「重启清零」同级）：本机用户
+ * 改时钟本就可为，S1/S4 走绝对时间戳不受影响，方向上是「宁多放行不误伤」。
+ * 此前没有任何用例固定这个语义，改动 rollHour 时可能无意翻转——本节把它写死。
+ */
+describe('SafetyGate —— 时钟回拨/前拨（已知取舍，防无意翻转）', () => {
+  it('回拨到上一小时桶：配额随桶重置（放行方向）', () => {
+    const { gate, clock } = setup({ safety: { globalHourlyCap: 6 } }, '2026-09-27 15:30:00')
+    gate.primeGlobal(6)
+    // 本桶（15 点）已达全局上限 → S3 是「挂起」（defer），任务不丢、等下个整点
+    expect(check(gate).action).toBe('defer')
+    // 回拨到 14 点桶 → rollHour 视为桶变化 → 配额清零 → 放行
+    clock.to('2026-09-27 14:30:00')
+    expect(check(gate).action).toBe('send')
+  })
+
+  it('前拨到下一小时桶：同样重置（桶变化语义与方向无关）', () => {
+    const { gate, clock } = setup({ safety: { globalHourlyCap: 6 } }, '2026-09-27 15:30:00')
+    gate.primeGlobal(6)
+    expect(check(gate).action).toBe('defer')
+    clock.to('2026-09-27 16:30:00')
+    expect(check(gate).action).toBe('send')
+  })
+
+  it('S1 最小间隔用绝对时间戳：回拨反而更保守（回拨后 now < lastSent → 拦）', () => {
+    const { gate, clock } = setup({ safety: { perConvMinIntervalSec: 30 } }, '2026-09-27 15:30:00')
+    gate.onSent('G-1001', 'E-9001')
+    clock.to('2026-09-27 15:30:10') // 仅过 10s（< 30s）
+    expect(check(gate).action).toBe('skip')
+  })
+})

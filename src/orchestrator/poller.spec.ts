@@ -816,6 +816,30 @@ describe('orchestrator/poller —— 单会话拉取与入库', () => {
     expect(submitted.map((item) => item.msgUid)).toEqual(['m-1', 'm-2', 'm-3'])
   })
 
+  it('续批边界重复上一批末条 msgUid 时收敛为一条（防同一条消息建出两个 job）', async () => {
+    // poller.ts 跨续批去重注释所言的场景：CLI 分页边界可能重复上一批最后一条
+    // （cursor 不透明、真实接口未定型）。仓储的「已入库过滤」只查库中已知 uid，
+    // 拦不住**同一轮内**的重复 —— 若删掉 poller 级去重，同一条 m-1 会在一个事务里
+    // 提交两行，消息幂等即被击穿。本用例钉住的契约：applyPollResult 收到的
+    // 每条 msg_uid 恰好一次。triggers 只有 m-1 是 S5 同人合并的预期行为
+    // （同发送者短窗内收敛为一次回复，m-2 照常入库不建 job）。
+    let batch = 0
+    const h = harness({
+      pull: async () => {
+        batch += 1
+        if (batch === 1) return { messages: [message({ msgUid: 'm-1' })], cursor: 'c-1', hasMore: true }
+        return { messages: [message({ msgUid: 'm-1' }), message({ msgUid: 'm-2' })], cursor: 'c-2', hasMore: false }
+      },
+    })
+    await h.poller.pullNow()
+
+    expect(h.repo.applyPollResult).toHaveBeenCalledTimes(1)
+    const submitted = h.repo.applyPollResult.mock.calls[0][1] as Array<{ msgUid: string }>
+    expect(submitted.map((item) => item.msgUid)).toEqual(['m-1', 'm-2'])
+    const rules = h.repo.applyPollResult.mock.calls[0][3]
+    expect(Object.keys(rules.triggers)).toEqual(['m-1'])
+  })
+
   it('hasMore=false 时立刻停止续批', async () => {
     let batch = 0
     const h = harness({

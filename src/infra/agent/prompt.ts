@@ -25,27 +25,63 @@ export interface PromptInput {
   targetFallback?: string
 }
 
-/** 单条消息渲染成上下文行：`[09-27 14:03] 李明：内容` */
+/**
+ * 单条不可信文本进入提示词前的最大长度。
+ *
+ * 为什么是常量而不是配置：这是防注入的**结构**约束，不是可调偏好 —— 用户把它
+ * 调大等于关掉这道闸。400 字远大于正常聊天单条，足够模型理解语义。
+ */
+export const MAX_UNTRUSTED_CHARS = 400
+
+/**
+ * 不可信文本消毒（质量评审 P1：消息正文原样进 prompt，可伪造对话行/指令结构）。
+ *
+ * 三道处理，全部保守 —— 只降风险、不改正文语义：
+ *  1. 剥控制字符（保留换行/制表）：提示词里的行结构只能由本端生成；
+ *  2. 拍平换行：`[时间] 昵称：` 行格式无法被正文伪造出独立成行的假上下文；
+ *  3. 超长截断并留痕：截断标记对模型可见，不是静默丢弃。
+ *
+ * 注意 `{{xxx}}` 占位符注入已由 renderPrompt 的单遍替换根治：替换值不会被
+ * 再次扫描，正文里写 `{{target}}` 只是普通文本（有单测钉住）。
+ */
+export function sanitizeUntrusted(text: string, maxChars: number = MAX_UNTRUSTED_CHARS): string {
+  // C0 控制字符 + DEL，保留 \n（\t）由下一步拍平
+  // eslint-disable-next-line no-control-regex -- 剥控制字符正是本函数的功能（与 scripts 里 stripAnsi 的豁免同理）
+  let out = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+  out = out.replace(/\s*\n+\s*/g, ' ').trim()
+  if (out.length > maxChars) out = `${out.slice(0, maxChars)}…[消息过长已截断]`
+  return out
+}
+
+/** 单条消息渲染成上下文行：`[09-27 14:03] 李明：内容`（正文经不可信消毒） */
 export function formatContextLine(message: WelinkMessage): string {
   const clock = message.sentAt.slice(5, 16).replace('T', ' ')
   const who = message.direction === 'out' ? '我' : message.senderName || message.senderId || '对方'
-  return `[${clock}] ${who}：${message.content}`
+  return `[${clock}] ${who}：${sanitizeUntrusted(message.content)}`
 }
 
 /** 渲染完整提示词（纯函数，便于单测逐项断言） */
 export function renderPrompt(input: PromptInput): string {
   const context = input.context.length ? input.context.map(formatContextLine).join('\n') : '（暂无历史消息）'
-  const question = input.trigger ? input.trigger.content : '（未取到触发消息，请基于最近对话给出回应）'
+  // 触发消息同样经不可信消毒：它是注入收益最高的位置（模型被告知「要回复这条」）
+  const question = input.trigger
+    ? sanitizeUntrusted(input.trigger.content)
+    : '（未取到触发消息，请基于最近对话给出回应）'
   const sender = input.trigger?.senderName || input.trigger?.senderId || '对方'
   const target = input.target?.remark
     ? `${input.target.title}（${input.target.remark}）`
     : input.target?.title || input.targetFallback || input.trigger?.convId || '未知会话'
 
-  return input.template
-    .replaceAll('{{context}}', context)
-    .replaceAll('{{question}}', question)
-    .replaceAll('{{sender}}', sender)
-    .replaceAll('{{target}}', target)
+  // **单遍**替换（有单测钉住）：不能用链式 replaceAll —— 链式时先替换进来的
+  // 值会被后面的替换再次扫描，消息正文里写一句 {{target}} 就能注入占位符
+  // （prompt.spec 的这条用例当初就是红的，抓到了这个真实漏洞）。
+  const values: Record<string, string> = {
+    context,
+    question,
+    sender,
+    target,
+  }
+  return input.template.replace(/\{\{(context|question|sender|target)\}\}/g, (_match, key: string) => values[key])
 }
 
 /** 模板里缺失的变量（UI 保存时警告 + 单测断言用） */

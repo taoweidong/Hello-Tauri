@@ -442,10 +442,27 @@ describe('M3 全链路：mock 端口 → 内存库 → mock Agent → SafetyGate
   })
 
   it('熔断触发时向外发出 fuseTripped 事件（S8，控制条横幅的唯一数据源）', async () => {
-    const h = await harness({ safety: { ...DEFAULT_WELINK_SETTINGS.safety, fuseThreshold: 1, fuseWindowMin: 10 } })
+    // 确定性熔断构造（评审 T-3：原用例断言 `every` 于可能为空的数组，恒真——
+    // 漏注册 onFuse 也绿）。配额拦截计入熔断（FUSE_REASONS）且命中数**超过**
+    // 阈值才熔断（safety-gate registerSkip），因此：cap=1 + threshold=1 时，
+    // 第 1 个 job 正常发出（配额扣到 1），第 2 个被 S2 拦（hit #1，未到），
+    // 第 3 个再被拦（hit #2 > 1）→ 熔断。三个不同发送者避免 S5 合并干扰。
+    const h = await harness({
+      safety: {
+        ...DEFAULT_WELINK_SETTINGS.safety,
+        // 显式关掉 S1/S5：harness 默认值会被本覆盖对象的 DEFAULT 展开顶掉，
+        // 不写回去熔断会被 S1 最小间隔抢先触发（实测 reason 变成 rate_conv）
+        perConvMinIntervalSec: 0,
+        mergeWindowSec: 0,
+        perConvHourlyCap: 1,
+        fuseThreshold: 1,
+        fuseWindowMin: 10,
+      },
+    })
     h.port.push('G-1001', [
-      { msgUid: 'f1', content: '@我 触发熔断 1', sentAt: '2026-09-27 14:00:00' },
-      { msgUid: 'f2', content: '@我 触发熔断 2', senderId: 'E-9002', sentAt: '2026-09-27 14:00:01' },
+      { msgUid: 'f1', senderId: 'E-9001', content: '@我 第一条正常发出', sentAt: '2026-09-27 14:00:00' },
+      { msgUid: 'f2', senderId: 'E-9002', content: '@我 第二条触发配额拦截', sentAt: '2026-09-27 14:00:01' },
+      { msgUid: 'f3', senderId: 'E-9003', content: '@我 第三条越过熔断阈值', sentAt: '2026-09-27 14:00:02' },
     ])
 
     h.runtime.pipeline.start()
@@ -453,11 +470,12 @@ describe('M3 全链路：mock 端口 → 内存库 → mock Agent → SafetyGate
     await h.runtime.pipeline.drain()
     await settle()
 
-    // 熔断通知必须在组合根注册（漏注册则事件永远发不出去）
+    // 组合根必须把 gate.onFuse 接到 emit —— 漏注册时这里立刻变红
     const fuseEvents = h.events.filter((event) => event.type === 'fuseTripped')
-    // 是否真的熔断取决于阈值语义；无论如何，事件通道本身必须存在且可达
-    expect(h.events.some((event) => event.type === 'safetyChanged')).toBe(true)
-    expect(fuseEvents.every((event) => event.type === 'fuseTripped')).toBe(true)
+    expect(fuseEvents.length).toBeGreaterThanOrEqual(1)
+    const first = fuseEvents[0] as { scope: string; reason: string }
+    expect(first.scope).toBe('group_at_me')
+    expect(first.reason).toBe('rate_conv_hourly')
   })
 
   it('总开关 OFF 时恢复数据但不启动调度（autoStart=false：不轮询、不外发）', async () => {

@@ -19,7 +19,9 @@ const devHost = process.env.TAURI_DEV_HOST
  * 现在以 `package.json` 为唯一真值，构建期注入常量：
  *  * 前端：`__APP_VERSION__`（见 `src/vite-env.d.ts` 的声明）
  *  * Rust 侧：`tauri.conf.json` 的 version 由 tauri 自身读取，无法共享同一份
- *    文件，因此保留在那里，并在 `scripts/verify.mjs` 里加了一致性断言兜底。
+ *    文件，因此保留在那里，由 `scripts/build.mjs` 打包入口做一致性硬校验
+ *    （评审 B-3：此处注释曾声称 verify.mjs 有该断言，实际不存在——不实注释
+ *    制造的兜底假象比没有兜底更危险，现已在 build.mjs 落地）。
  */
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
 

@@ -164,7 +164,11 @@ export function createBootstrap(options: BootstrapOptions): Bootstrap {
 
       // —— 3. SafetyGate 预热（O5：让 check 保持零 SELECT） ——
       try {
-        const hourStart = nowStamp().slice(0, 11) + '00:00'
+        // 小时桶起点必须与本小时对齐（slice(0,13)+':00:00' → "YYYY-MM-DD HH:00:00"）。
+        // 曾误写成 slice(0,11)+'00:00'（当日零点）：预热计数被膨胀成「今天已发总数」，
+        // 重启后助手会哑到下一个整点——方向保守但体验错误，且与 stores/welink.ts 的
+        // 正确写法不一致（两处各算一份必然漂移）。
+        const hourStart = nowStamp().slice(0, 13) + ':00:00'
         const globalCount = await repo.countGlobalSentSince(hourStart)
         options.gate.primeGlobal(globalCount)
         // 会话级：只预热「本轮可能用到」的会话（watching + autoReply），避免 N 次查询

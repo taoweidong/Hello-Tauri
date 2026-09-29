@@ -11,7 +11,7 @@
  *
  * 删除会话会级联删掉该会话的全部消息与任务，因此必须二次确认并如实告知条数。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { IconCheck, IconFilter, IconPlus, IconRefresh } from '@/components/icons'
@@ -33,7 +33,6 @@ const convOf = (row: unknown): WelinkConversation => rowOf<WelinkConversation>(r
 
 const filter = reactive({ keyword: '', type: [] as WelinkConvType[], onlyWatching: false })
 const page = ref(1)
-const total = ref(0)
 const loading = ref(false)
 const selected = ref<WelinkConversation[]>([])
 
@@ -55,12 +54,22 @@ const filtered = computed(() => {
 /** 客户端筛选 + 分页：会话量级小（几十~几百），不下推 SQL 以简化仓储 */
 const pagedRows = computed(() => filtered.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
 
+/**
+ * 分页脚总数必须与筛选实时联动（曾用 ref 只在 load() 赋值：筛选后仍显示全量条数，
+ * 翻页还会落到空表——数据「看起来丢了」）。computed 保证口径唯一。
+ */
+const total = computed(() => filtered.value.length)
+
+// 筛选变化时回到第一页：否则「第 3 页 + 筛选只剩 5 条」直接显示空表
+watch(filter, () => {
+  page.value = 1
+})
+
 async function load() {
   loading.value = true
   try {
     // 拉全量（上限 500），筛选在内存做 —— 分页脚用筛选后的长度
     rows.value = await store.fetchConversations(500)
-    total.value = filtered.value.length
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '加载会话配置失败')
   } finally {

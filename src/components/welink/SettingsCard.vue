@@ -12,13 +12,12 @@
  *  * 选内网 Agent 但 baseUrl 为空 → 提示会回退 mock（不拦截，但要说清）；
  *  * S2/S3 调到默认 2 倍以上 → 二次确认（放宽防滥发是最危险的一类改动）。
  */
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { IconAlert, IconCheck, IconRefresh, IconRestore } from '@/components/icons'
 import { bridge } from '@/api'
-import { createHttpAgent } from '@/infra/agent/agent-http'
-import { createMockAgent } from '@/infra/agent/mock'
+import { createAgentProbe } from '@/infra/agent'
 import { useWelinkStore } from '@/stores/welink'
 import {
   applySafetyPreset,
@@ -45,24 +44,48 @@ const welinkStore = useWelinkStore()
 const draft = ref<WelinkSettings>(normalizeWelinkSettings(props.modelValue))
 const activeGroup = ref<string[]>(['overview'])
 
+/** 最近一次 push 出去的归一化结果（JSON）：父组件回写的同值不再重置草稿（评审 F-2） */
+let lastPushedJson = ''
+
 watch(
   () => props.modelValue,
   (value) => {
-    // 内部改动回写时不能再触发一次归一化重置，否则滑块会跳回去
     const next = normalizeWelinkSettings(value)
-    if (JSON.stringify(next) !== JSON.stringify(draft.value)) draft.value = next
+    const nextJson = JSON.stringify(next)
+    // 自己 push 出去的 normalize 回环不重置草稿：否则「清空提示词模板」会被
+    // normalize 的默认值兜底顶回出厂文案、数字清空被 clamp 钉回默认值——
+    // 用户永远无法清空重写，输入中还会丢光标（评审 F-2）。
+    // 外部真变更（父级加载配置 / 恢复默认）仍照常同步。
+    if (nextJson === lastPushedJson) return
+    if (nextJson !== JSON.stringify(draft.value)) draft.value = next
   },
   { deep: true },
 )
 
 watch(draft, push, { deep: true })
 
+// 逐键热更新的代价（评审 F-1）：push → applySettings → runtime.reload + 日志落盘，
+// 在多行提示词 textarea 里输入一段模板 = 数百次 IPC 写与数百条日志。300ms
+// debounce 保住「改完即生效」的体验，把 reload/日志压到停顿后只发生一次。
+let pushTimer: ReturnType<typeof setTimeout> | null = null
+
 function push() {
+  if (pushTimer) clearTimeout(pushTimer)
+  pushTimer = setTimeout(flushPush, 300)
+}
+
+function flushPush() {
+  pushTimer = null
   const normalized = normalizeWelinkSettings(draft.value)
+  lastPushedJson = JSON.stringify(normalized)
   emit('update:modelValue', normalized)
   // 热更新到运行中的编排层（未启动时是空操作）：改完参数不必重启就生效
   welinkStore.applySettings(normalized)
 }
+
+onBeforeUnmount(() => {
+  if (pushTimer) clearTimeout(pushTimer)
+})
 
 // ---------------- 校验 ----------------
 
@@ -224,22 +247,16 @@ async function testCli() {
 /**
  * 连通性测试：发固定探测 prompt，看耗时与返回摘要。
  *
- * 刻意用**新建实例**而不是全局缓存的客户端 —— 全局实例挂着管线的 onCall 录音钩子，
- * 探测请求会污染 R4 留痕语料。
+ * 走 `createAgentProbe`（评审 A-1）：共享运行期同一份环境兜底（浏览器强制 mock，
+ * 探测结论与真实运行链路一致），但用独立实例——不命中全局缓存、不挂管线
+ * onCall 录音钩子，探测请求不污染 R4 留痕语料。
  */
 async function testAgent() {
   agentTesting.value = true
   testResult.value = null
   try {
     const settings = draft.value.agent
-    const probe =
-      draft.value.agent.agentSource === 'http' && settings.baseUrl.trim()
-        ? createHttpAgent({
-            baseUrl: settings.baseUrl.trim(),
-            endpoint: settings.endpoint,
-            timeoutMs: Math.min(settings.timeoutMs, 15_000),
-          })
-        : createMockAgent()
+    const probe = createAgentProbe({ ...settings, timeoutMs: Math.min(settings.timeoutMs, 15_000) })
     const started = Date.now()
     const reply = await probe.complete('连通性测试：请只回复「ok」两个字符。')
     const elapsed = Date.now() - started
