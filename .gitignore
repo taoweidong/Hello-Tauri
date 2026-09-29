@@ -16,7 +16,9 @@ src-tauri/gen/
 **/mutants.out*/
 
 # 工作区本地数据（AI 会话记忆等）
-.workbuddy/
+# 例外：.workbuddy/skills/ 为项目级共享技能，纳入版本管理
+.workbuddy/*
+!.workbuddy/skills/
 .codebuddy/
 .impeccable.md
 
