@@ -9,17 +9,8 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import {
-  DEFAULT_BLACKLIST_PATTERNS,
-  DEFAULT_PROMPT_TEMPLATE,
-  type WelinkMessage,
-} from '@/types/welink'
-import {
-  MAX_UNTRUSTED_CHARS,
-  formatContextLine,
-  renderPrompt,
-  sanitizeUntrusted,
-} from './prompt'
+import { DEFAULT_BLACKLIST_PATTERNS, DEFAULT_PROMPT_TEMPLATE, type WelinkMessage } from '@/types/welink'
+import { MAX_UNTRUSTED_CHARS, formatContextLine, renderPrompt, sanitizeUntrusted } from './prompt'
 
 function message(overrides: Partial<WelinkMessage> = {}): WelinkMessage {
   return {

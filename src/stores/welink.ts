@@ -523,9 +523,9 @@ export const useWelinkStore = defineStore('welink', () => {
     if (seq !== timelineSeq) return
     messages.value = page
     hasMoreMessages.value = page.length >= limit
-    const jobs = (
-      await repo().listJobsByStatus(['pending', 'discussing', 'ready', 'sending', 'failed'], 200)
-    ).filter((job) => job.targetId === convId)
+    const jobs = (await repo().listJobsByStatus(['pending', 'discussing', 'ready', 'sending', 'failed'], 200)).filter(
+      (job) => job.targetId === convId,
+    )
     if (seq !== timelineSeq) return
     convJobs.value = jobs
     for (const job of convJobs.value) jobIndex.value.set(job.pk, job)

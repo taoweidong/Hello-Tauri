@@ -8,15 +8,15 @@
 
 ## 1. 总体结论
 
-| 评估域 | 评分 | 一句话结论 |
-| --- | --- | --- |
-| 架构 | **90 / 100** | 声明铁律逐条真实成立，组合根/事件管道/Port-mock 一致性优于设计文档；仅 5 条越层边且无自动化闸 |
-| 前端代码质量 | **82 / 100** | 类型纪律近乎满分、展示口径单一真值；扣分在 welink 大组件、配置三副本漂移与若干竞态 |
-| Rust 层 | **84 / 100** | 命令面零 panic、SQL 闸口有真实解析深度；扣分集中在**存储迁移链路**（同步重 IO + 写入丢失窗口） |
-| 测试 | **88 / 100** | 542 用例、安全铁律三层纵深防护、手写假时钟控制并发；扣分在真实适配器零覆盖与一个承重去重逻辑未测 |
-| 构建 / 工具链 | **80 / 100** | 自研 PE 校验 + 阶段化验证链防回归意识强；但 CI 配置错、smoke 保留危险杀进程行为 |
-| 安全 | **78 / 100** | 外发单出口收敛、SQL 全参数化、宿主通道克制；残余风险集中在急停不持久化与内容级防护薄弱 |
-| **总体** | **≈ 84 / 100** | **无 P0**。整体是同类项目中防回归意识最强的梯队；主要债务集中在「安全防线生命周期」与「迁移链路」两处 |
+| 评估域        | 评分           | 一句话结论                                                                                            |
+| ------------- | -------------- | ----------------------------------------------------------------------------------------------------- |
+| 架构          | **90 / 100**   | 声明铁律逐条真实成立，组合根/事件管道/Port-mock 一致性优于设计文档；仅 5 条越层边且无自动化闸         |
+| 前端代码质量  | **82 / 100**   | 类型纪律近乎满分、展示口径单一真值；扣分在 welink 大组件、配置三副本漂移与若干竞态                    |
+| Rust 层       | **84 / 100**   | 命令面零 panic、SQL 闸口有真实解析深度；扣分集中在**存储迁移链路**（同步重 IO + 写入丢失窗口）        |
+| 测试          | **88 / 100**   | 542 用例、安全铁律三层纵深防护、手写假时钟控制并发；扣分在真实适配器零覆盖与一个承重去重逻辑未测      |
+| 构建 / 工具链 | **80 / 100**   | 自研 PE 校验 + 阶段化验证链防回归意识强；但 CI 配置错、smoke 保留危险杀进程行为                       |
+| 安全          | **78 / 100**   | 外发单出口收敛、SQL 全参数化、宿主通道克制；残余风险集中在急停不持久化与内容级防护薄弱                |
+| **总体**      | **≈ 84 / 100** | **无 P0**。整体是同类项目中防回归意识最强的梯队；主要债务集中在「安全防线生命周期」与「迁移链路」两处 |
 
 **硬指标（实测）**：`eslint` 通过 ✅ · `vue-tsc --noEmit` 通过 ✅ · Vitest **21 文件 / 542 用例全部通过**（12.4s）✅
 **代码规模**：生产 TS/Vue 16,556 行 · 测试 7,978 行 · Rust 1,211 行 · 脚本 2,906 行。
@@ -53,14 +53,14 @@ Rust 16 命令（commands 9 / fs 2 / db 4 / cli 1，lib.rs:20-37 实测一致）
 
 ### 2.2 铁律逐条验证
 
-| # | 铁律 | 结论 | 关键证据 |
-| --- | --- | --- | --- |
-| 1 | 前端禁止直接 import @tauri-apps/api | ✅ 成立 | 全 src 仅 `src/api/tauri.ts:1`；ESLint paths+patterns 双闸（eslint.config.mjs:112-127） |
-| 2 | Rust 无业务逻辑（16 命令） | ✅ 成立 | lib.rs:20-37 与文档一致；db.rs 无任何业务表名 |
-| 3 | 表结构归 TS | ✅ 成立 | 迁移唯一真值 `infra/db/index.ts:26`；业务 SQL 全在 repos/migrations |
-| 4 | TS 分层单向 | ⚠️ 基本成立 | 主链干净、零循环；共 **5 条越层边**（V1/V2/V3/S1/R1），均为跳层或反向，无一条越过 Bridge |
-| 5 | 外部世界一律 Port+mock | ✅ 成立 | 三模块同构；mock 与真实适配器共享 Port 类型，**非测试代码 0 处 any / @ts-ignore** |
-| 6 | 运行时零外部请求 | ✅ 成立 | fetch 仅存在于 agent-http.ts（默认 127.0.0.1，用户自配内网）；无 CDN/在线字体 |
+| #   | 铁律                                | 结论        | 关键证据                                                                                 |
+| --- | ----------------------------------- | ----------- | ---------------------------------------------------------------------------------------- |
+| 1   | 前端禁止直接 import @tauri-apps/api | ✅ 成立     | 全 src 仅 `src/api/tauri.ts:1`；ESLint paths+patterns 双闸（eslint.config.mjs:112-127）  |
+| 2   | Rust 无业务逻辑（16 命令）          | ✅ 成立     | lib.rs:20-37 与文档一致；db.rs 无任何业务表名                                            |
+| 3   | 表结构归 TS                         | ✅ 成立     | 迁移唯一真值 `infra/db/index.ts:26`；业务 SQL 全在 repos/migrations                      |
+| 4   | TS 分层单向                         | ⚠️ 基本成立 | 主链干净、零循环；共 **5 条越层边**（V1/V2/V3/S1/R1），均为跳层或反向，无一条越过 Bridge |
+| 5   | 外部世界一律 Port+mock              | ✅ 成立     | 三模块同构；mock 与真实适配器共享 Port 类型，**非测试代码 0 处 any / @ts-ignore**        |
+| 6   | 运行时零外部请求                    | ✅ 成立     | fetch 仅存在于 agent-http.ts（默认 127.0.0.1，用户自配内网）；无 CDN/在线字体            |
 
 **Bridge 对齐性**：`types.ts` 16 方法 ↔ `tauri.ts` 1:1 映射 Rust 命令 ↔ `web.ts` 全实现。web 侧语义是**诚实抛错**而非假数据（web.ts:52-97），契约测试 `api/index.spec.ts` 逐方法对齐。唯一非对称：`web.ts:88-90 dbMigrate` 返回 `[]` 而非抛错，与相邻注释措辞不符（无害）。
 
@@ -141,64 +141,64 @@ Rust 16 命令（commands 9 / fs 2 / db 4 / cli 1，lib.rs:20-37 实测一致）
 
 ### 4.1 前端（welink 界面与状态）
 
-| # | 位置 | 问题 |
-| --- | --- | --- |
-| F-1 | SettingsCard.vue:58 + welink.ts:289-294 + runtime.ts:212-216 | 提示词 textarea 深度 watch 逐键触发 `runtime.reload` + 日志落盘（一段模板=数百次 IPC 写），需 300-500ms debounce |
-| F-2 | SettingsCard.vue:45-56 + types/welink.ts:346 | 「清空即回填」：normalize 回环把空串钉回默认模板，用户无法清空重写、输入中丢光标 |
-| F-3 | WeLinkView.vue:90-91,111 + stores/app.ts:74-83 | 配置三副本漂移：助手页开关/liftPanic 以**持久层旧值**为基底整体覆盖，卡片未保存的逐键热更新编辑在重启后静默丢失 |
-| F-4 | stores/welink.ts:468-497 | `selectConversation` 无竞态守卫（快速切 A→B 可能显示 A 的消息）；`loadEarlierMessages` 无 in-flight 锁，双击拼重 |
-| F-5 | WeLinkView.vue:119-137 等 12+ 处 | 用户动作 Promise 未 catch（pullNow/pauseMonitor/retryJob/clearLogs/toggle 系），失败=控制台 unhandled rejection + 界面无反应；同项目 HistoryTab/TableCrud 已有 catch+ElMessage 惯例未贯彻 |
-| F-6 | ControlBar.vue:55-81 + safety-gate.ts:444-452 | 熔断横幅泄漏原始枚举（"group_at_me场景…"）；「解除」传 `undefined` 清掉**所有**场景熔断；safety-gate.ts:457 注释声称的「全局」路径实际不可达 |
-| F-7 | **【回归】** MainLayout.vue:143-145 + WeLinkView.vue:161-171 | keep-alive 未设 `include`，所有路由组件常驻 → `onUnmounted` 永不触发，D-9 的日志退订与 visibilitychange 移除是死代码。修：改 `onDeactivated/onActivated` 配对或 keep-alive 白名单 |
+| #   | 位置                                                         | 问题                                                                                                                                                                                      |
+| --- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F-1 | SettingsCard.vue:58 + welink.ts:289-294 + runtime.ts:212-216 | 提示词 textarea 深度 watch 逐键触发 `runtime.reload` + 日志落盘（一段模板=数百次 IPC 写），需 300-500ms debounce                                                                          |
+| F-2 | SettingsCard.vue:45-56 + types/welink.ts:346                 | 「清空即回填」：normalize 回环把空串钉回默认模板，用户无法清空重写、输入中丢光标                                                                                                          |
+| F-3 | WeLinkView.vue:90-91,111 + stores/app.ts:74-83               | 配置三副本漂移：助手页开关/liftPanic 以**持久层旧值**为基底整体覆盖，卡片未保存的逐键热更新编辑在重启后静默丢失                                                                           |
+| F-4 | stores/welink.ts:468-497                                     | `selectConversation` 无竞态守卫（快速切 A→B 可能显示 A 的消息）；`loadEarlierMessages` 无 in-flight 锁，双击拼重                                                                          |
+| F-5 | WeLinkView.vue:119-137 等 12+ 处                             | 用户动作 Promise 未 catch（pullNow/pauseMonitor/retryJob/clearLogs/toggle 系），失败=控制台 unhandled rejection + 界面无反应；同项目 HistoryTab/TableCrud 已有 catch+ElMessage 惯例未贯彻 |
+| F-6 | ControlBar.vue:55-81 + safety-gate.ts:444-452                | 熔断横幅泄漏原始枚举（"group_at_me场景…"）；「解除」传 `undefined` 清掉**所有**场景熔断；safety-gate.ts:457 注释声称的「全局」路径实际不可达                                              |
+| F-7 | **【回归】** MainLayout.vue:143-145 + WeLinkView.vue:161-171 | keep-alive 未设 `include`，所有路由组件常驻 → `onUnmounted` 永不触发，D-9 的日志退订与 visibilitychange 移除是死代码。修：改 `onDeactivated/onActivated` 配对或 keep-alive 白名单         |
 
 ### 4.2 Rust 层
 
-| # | 位置 | 问题 |
-| --- | --- | --- |
-| R-1 | db.rs:399 vs :345-346 | `db_migrate` 不过语句闸口（事务路径专门加了闸防绕过，迁移路径 `execute_batch` 直接放行）——S-2 修复的绕过路径 |
-| R-2 | db.rs:152-156 | `db_select` 无行数上限，忘写 LIMIT 的查询整表转 JSON 拖垮内存与 IPC |
-| R-3 | db.rs:113-119 | 超 2^53 整数静默转 f64（雪花 ID 类丢精度且无标记；BLOB 有 `[blob]` 占位、大整数伪装成正常数字） |
-| R-4 | storage.rs:143-148 vs :53-67 | `write_file` 非原子写（config.json/table.json 断电即截断损坏）；tmp+rename 正确写法同文件 bootstrap 已有现成实现未复用 |
-| R-5 | storage.rs:47-51,91-96 | bootstrap.json 损坏静默回退默认根，已迁移用户视角「数据全没了」且无日志无提示；`dataDir` 无绝对路径校验 |
+| #   | 位置                                                  | 问题                                                                                                                                                 |
+| --- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R-1 | db.rs:399 vs :345-346                                 | `db_migrate` 不过语句闸口（事务路径专门加了闸防绕过，迁移路径 `execute_batch` 直接放行）——S-2 修复的绕过路径                                         |
+| R-2 | db.rs:152-156                                         | `db_select` 无行数上限，忘写 LIMIT 的查询整表转 JSON 拖垮内存与 IPC                                                                                  |
+| R-3 | db.rs:113-119                                         | 超 2^53 整数静默转 f64（雪花 ID 类丢精度且无标记；BLOB 有 `[blob]` 占位、大整数伪装成正常数字）                                                      |
+| R-4 | storage.rs:143-148 vs :53-67                          | `write_file` 非原子写（config.json/table.json 断电即截断损坏）；tmp+rename 正确写法同文件 bootstrap 已有现成实现未复用                               |
+| R-5 | storage.rs:47-51,91-96                                | bootstrap.json 损坏静默回退默认根，已迁移用户视角「数据全没了」且无日志无提示；`dataDir` 无绝对路径校验                                              |
 | R-6 | commands.rs:57-62 + storage.rs:24-29 + logging.rs:127 | `append_log` 每条日志主线程 ~7 次 fs 操作（探针三连+全目录扫描）；`resolve_storage` 12 个调用点每次重做探针——应缓存到 State，`prune_logs` 改跨天一次 |
 
 ### 4.3 架构与分层
 
-| # | 位置 | 问题 |
-| --- | --- | --- |
+| #   | 位置                           | 问题                                                                                                                               |
+| --- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | A-1 | SettingsCard.vue:20-21,236-242 | 组件直构 `createHttpAgent/createMockAgent` 绕过工厂环境兜底——浏览器模式连通性测试给「Agent 连通正常」假信心而运行链路实际强制 mock |
-| A-2 | repositories/records.ts:2 | repositories→infra **反向边**（migrationV1 住错层），R-4 修复引入的第一个合法化反例 |
-| A-3 | eslint.config.mjs:112-127 | 分层约束纯靠约定，5 条越层边全是「溜进来无人拦」——建议 dependency-cruiser 或按目录 patterns 建闸 |
+| A-2 | repositories/records.ts:2      | repositories→infra **反向边**（migrationV1 住错层），R-4 修复引入的第一个合法化反例                                                |
+| A-3 | eslint.config.mjs:112-127      | 分层约束纯靠约定，5 条越层边全是「溜进来无人拦」——建议 dependency-cruiser 或按目录 patterns 建闸                                   |
 
 ### 4.4 测试
 
-| # | 位置 | 问题 |
-| --- | --- | --- |
-| T-1 | welink-cli.ts / exec.ts | 真实 CLI 适配器整体零覆盖（错误分类驱动退避 vs 重试分流，恰是真实接口接入时最易改坏处） |
-| T-2 | ports.spec.ts:280-403 | HTTP 客户端超时路径（AbortController → timeout 分类）未测，现有 fetch 全部立即返回 |
-| T-3 | runtime.spec.ts:444-461 | 「熔断触发 fuseTripped」断言恒真（`every` 于可能为空的数组），漏注册 onFuse 仍绿 |
+| #   | 位置                      | 问题                                                                                       |
+| --- | ------------------------- | ------------------------------------------------------------------------------------------ |
+| T-1 | welink-cli.ts / exec.ts   | 真实 CLI 适配器整体零覆盖（错误分类驱动退避 vs 重试分流，恰是真实接口接入时最易改坏处）    |
+| T-2 | ports.spec.ts:280-403     | HTTP 客户端超时路径（AbortController → timeout 分类）未测，现有 fetch 全部立即返回         |
+| T-3 | runtime.spec.ts:444-461   | 「熔断触发 fuseTripped」断言恒真（`every` 于可能为空的数组），漏注册 onFuse 仍绿           |
 | T-4 | bootstrap.spec.ts:128-131 | Gate 预热（重启后配额恢复）只建桩不断言，`hourStart` 传错不会被抓（且确实传错了，见 P3-1） |
-| T-5 | safety-gate.spec.ts | 时钟回拨语义未钉住（rollHour 回拨到上一小时桶会清零配额，行为方向未被任何测试固定） |
+| T-5 | safety-gate.spec.ts       | 时钟回拨语义未钉住（rollHour 回拨到上一小时桶会清零配额，行为方向未被任何测试固定）        |
 
 ### 4.5 构建与工具链
 
-| # | 位置 | 问题 |
-| --- | --- | --- |
+| #   | 位置                               | 问题                                                                                                                                                |
+| --- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | B-1 | package.json:8 vs uitest.mjs:24 等 | engines `>=20` 低报：uitest 依赖 `node:sqlite`（Node 22 内置）+ WebSocket（22.4+ 免 flag）；Node 20/21 能装包能打包，verify 阶段 4/8/9 以晦涩报错崩 |
-| B-2 | package-lock.json | 双 Vite 大版本并存（根 8.3.0 rolldown + vitest 嵌套 7.3.6 rollup），单测与生产构建跑在不同 bundler major；define/alias 双份手工同步 |
-| B-3 | vite.config.ts:21-22 | 注释声称 verify 有 tauri.conf↔package.json 版本一致性断言——**实际不存在**（grep 零命中），不实注释制造兜底假象 |
-| B-4 | scripts/lib/cdp.mjs:53-101 | 无 close/error 后置监听：WebView2 崩溃后 40+ 用例逐个 15s 超时磨完（最坏拖长 ~10 分钟），失败原因被系统性误导 |
-| B-5 | build.mjs / uitest / smoke | 全链无重入防护：并发 pack 可交错读半成品；uitest/smoke 并发互写 bootstrap.json（事故已有文字记录，修复只做了进程层） |
+| B-2 | package-lock.json                  | 双 Vite 大版本并存（根 8.3.0 rolldown + vitest 嵌套 7.3.6 rollup），单测与生产构建跑在不同 bundler major；define/alias 双份手工同步                 |
+| B-3 | vite.config.ts:21-22               | 注释声称 verify 有 tauri.conf↔package.json 版本一致性断言——**实际不存在**（grep 零命中），不实注释制造兜底假象                                      |
+| B-4 | scripts/lib/cdp.mjs:53-101         | 无 close/error 后置监听：WebView2 崩溃后 40+ 用例逐个 15s 超时磨完（最坏拖长 ~10 分钟），失败原因被系统性误导                                       |
+| B-5 | build.mjs / uitest / smoke         | 全链无重入防护：并发 pack 可交错读半成品；uitest/smoke 并发互写 bootstrap.json（事故已有文字记录，修复只做了进程层）                                |
 
 ### 4.6 安全
 
-| # | 位置 | 问题 |
-| --- | --- | --- |
+| #   | 位置                                     | 问题                                                                                                                                        |
+| --- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | S-1 | agent-http.ts:44-45 + tauri.conf.json:26 | Agent baseUrl 完全来自配置无 scheme/host 校验 + CSP `connect-src http: https:` 过宽——篡改 config 即可把含企业通信原文的 prompt 外带任意地址 |
-| S-2 | storage.rs:90-124,180-211 | bootstrap/storage_migrate 无目标路径约束（C:\Windows、UNC 网络共享均可），企业通信数据可被重定位到攻击者可读路径 |
-| S-3 | adapter.ts:96 + triggers.ts:59 | 自发消息判定完全依赖 `myUserId` 配置，填错工号 → 自回复循环仅靠限流压到 ~1 条/30s，不会停；CLI 若有权威 direction 字段未被采信 |
-| S-4 | exec.ts:48,66 + repos/welink.ts:658-666 | 发送失败错误串带完整 `--text <草稿>` 进日志文件与 last_error——模型生成的草稿（可能复述企业通信）超出预期存储边界，且普通日志无 90 天过期 |
-| S-5 | pipeline.ts:129-143 + ports.ts:149-157 | agent_logs 全量 prompt/response 明文落库 90 天，Trace 页一键复制，无「含对话原文」的界面明示 |
+| S-2 | storage.rs:90-124,180-211                | bootstrap/storage_migrate 无目标路径约束（C:\Windows、UNC 网络共享均可），企业通信数据可被重定位到攻击者可读路径                            |
+| S-3 | adapter.ts:96 + triggers.ts:59           | 自发消息判定完全依赖 `myUserId` 配置，填错工号 → 自回复循环仅靠限流压到 ~1 条/30s，不会停；CLI 若有权威 direction 字段未被采信              |
+| S-4 | exec.ts:48,66 + repos/welink.ts:658-666  | 发送失败错误串带完整 `--text <草稿>` 进日志文件与 last_error——模型生成的草稿（可能复述企业通信）超出预期存储边界，且普通日志无 90 天过期    |
+| S-5 | pipeline.ts:129-143 + ports.ts:149-157   | agent_logs 全量 prompt/response 明文落库 90 天，Trace 页一键复制，无「含对话原文」的界面明示                                                |
 
 ---
 
@@ -281,4 +281,4 @@ Rust 16 命令（commands 9 / fs 2 / db 4 / cli 1，lib.rs:20-37 实测一致）
 
 ---
 
-*评估执行：主线程 + 6 个并行专项评审 agent（前端 / 架构 / Rust / 测试 / 构建 / 安全），全部 P1 与【回归】发现经主线程逐条读码复核后才收录本报告。*
+_评估执行：主线程 + 6 个并行专项评审 agent（前端 / 架构 / Rust / 测试 / 构建 / 安全），全部 P1 与【回归】发现经主线程逐条读码复核后才收录本报告。_

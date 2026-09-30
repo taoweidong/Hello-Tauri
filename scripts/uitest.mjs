@@ -460,13 +460,14 @@ async function runFunctional(client, sandboxRoot) {
     return title
   })
 
-  await check('导航项结构契约：必含五个页面、顺序为声明顺序', async () => {
+  await check('导航项结构契约：必含核心页面、顺序为声明顺序', async () => {
     const items = await query(client, `return $$('.rail__item').map((el) => norm(el));`)
     // 断言「结构契约」而不是「全等字符串」（D-11）：
     //  * 全等断言要求每次新增/调序都回改脚本，漏改就误报失败（历史上发生过）；
-    //  * 这里改为断言**必含集合**（五个核心页面必须在）+ **顺序单调**
-    //    （清单必须是声明顺序的子序列），新增页面无需改脚本。
-    const required = ['概览', '数据管理', 'WeLink 助手', '配置', '关于']
+    //  * 这里改为断言**必含集合**（下列核心页面必须在）+ **顺序单调**
+    //    （清单必须是声明顺序的子序列），新增页面无需改脚本 ——
+    //    但核心页面（有独立功能与路由的）应主动加进 required，别让契约退化成空壳。
+    const required = ['概览', '数据管理', 'WeLink 助手', '快速建群', '配置', '关于']
     for (const name of required) {
       assert(items.includes(name), `导航缺项：${name}（实际：${items.join(',')}）`)
     }

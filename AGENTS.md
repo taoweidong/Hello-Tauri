@@ -2,21 +2,22 @@
 
 Tauri 2 + Vue 3 + Element Plus 的 Windows 桌面应用，打包为**单文件离线 exe**（面向内网环境）。
 三大技术域：桌面壳（Rust，薄桥接）、前端业务（100% TypeScript）、WeLink × Agent 自动回复（轮询
-welink-cli → SQLite → 本地大模型 Agent → 安全外发）。仅支持 Windows。
+welink-cli → SQLite → 本地大模型 Agent → 安全外发）；WeLink 域另含「快速建群」（建群模板 →
+welink-cli create-group → 全程留痕，migration v3）。仅支持 Windows。
 
 ## 常用命令
 
-| 命令                    | 说明                                                       |
-| ----------------------- | ---------------------------------------------------------- |
-| `npm run dev`           | 浏览器开发模式，**无需 Rust**，可调试全部页面（web Bridge） |
-| `npm run tauri:dev`     | 桌面开发模式（需 Rust 工具链）                             |
-| `npm run typecheck`     | `vue-tsc --noEmit` 类型检查                                |
-| `npm run lint`          | ESLint（风格归 Prettier，lint 只抓真问题）                 |
-| `npm test`              | Vitest 单测（happy-dom，`src/**/*.spec.ts`）               |
-| `npm run check`         | lint + typecheck + test 一条龙                             |
-| `npm run pack`          | **产出可分发单文件 exe 的唯一正道**（含产物硬校验）        |
-| `npm run verify`        | 全量验证：静态检查→单测→UI 测试→构建→打包→产物校验         |
-| `npm run verify:fast`   | 跳过打包的快速验证                                         |
+| 命令                  | 说明                                                        |
+| --------------------- | ----------------------------------------------------------- |
+| `npm run dev`         | 浏览器开发模式，**无需 Rust**，可调试全部页面（web Bridge） |
+| `npm run tauri:dev`   | 桌面开发模式（需 Rust 工具链）                              |
+| `npm run typecheck`   | `vue-tsc --noEmit` 类型检查                                 |
+| `npm run lint`        | ESLint（风格归 Prettier，lint 只抓真问题）                  |
+| `npm test`            | Vitest 单测（happy-dom，`src/**/*.spec.ts`）                |
+| `npm run check`       | lint + typecheck + test 一条龙                              |
+| `npm run pack`        | **产出可分发单文件 exe 的唯一正道**（含产物硬校验）         |
+| `npm run verify`      | 全量验证：静态检查→单测→UI 测试→构建→打包→产物校验          |
+| `npm run verify:fast` | 跳过打包的快速验证                                          |
 
 需要 Node.js ≥ 22.5（uitest/smoke 依赖 Node 22 内置的 `node:sqlite` 与稳定的 WebSocket）。Rust 产物统一输出到根 `target/`（`.cargo/config.toml` 指定），不是 `src-tauri/target/`。
 
@@ -31,7 +32,7 @@ welink-cli → SQLite → 本地大模型 Agent → 安全外发）。仅支持 
 - **SQLite 表结构归 TS 管**：迁移写在 `src/infra/db/migrations/`，经通用命令
   `db_migrate/db_select/db_execute/db_transaction` 下发。Rust 侧（`db.rs`）不知道任何表结构。
 - **TS 内部分层**（依赖自上而下）：`views`/`components` → `stores`（Pinia）→ `orchestrator`
-  （轮询/管线/安全闸/启动恢复）→ `infra`（welink / agent / db 三个端口-适配器模块）→ `repositories`。
+  （轮询/管线/安全闸/启动恢复/建群流程）→ `infra`（welink / agent / db 三个端口-适配器模块）→ `repositories`。
   外部世界一律先定义 Port 接口 + `mock.ts` 实现（测试替身，真实现后到只换适配器文件）。
 - **运行时零外部请求**：无 CDN 字体/图标/更新检查。图标用内联 SVG（`src/components/icons.ts`），
   字体用系统字体栈。
@@ -72,11 +73,14 @@ welink-cli → SQLite → 本地大模型 Agent → 安全外发）。仅支持 
 - **WeLink 自动回复铁律**：回复草稿必须先落库置 `ready` 才允许外发；外发前必须过
   `orchestrator/safety-gate.ts`（开关分级/配额/最小间隔/静默时段/熔断）。welink-cli 为 Windows
   exe，子进程输出 UTF-8→GBK 兜底解码。
+- **快速建群铁律**：外呼 CLI 前必须先落 `pending` 留痕，终态（success/failed）以
+  `WHERE status='pending'` 原子回写；建群**不做传输层自动重试**（响应丢失时重试会建出两个群）。
+- 进「快速建群」页会触发 migration v3；该页在浏览器模式走内存仓储（localStorage），桌面模式才落 SQLite。
 - `dist/`、`release/`、`target/`、`coverage/` 是构建产物，勿提交勿手改。
 
 ## 改动前先读的文档
 
 - `docs/design-welink-agent-2026-09-27.md` — WeLink × Agent 总设计（架构分层 §3、数据模型 §4、
-  安全闸 §5A、时序 §6）；动 `src/infra/`、`src/orchestrator/`、welink 相关表结构前必读。
+  安全闸 §5A、时序 §6、快速建群 §15）；动 `src/infra/`、`src/orchestrator/`、welink 相关表结构前必读。
 - `docs/` 其余为历史设计/质量报告，可按需查阅。
 - `README.md` — 打包与内网迁移细节（存储迁移、bootstrap 引导、离线依赖清单）。

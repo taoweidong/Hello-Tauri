@@ -34,18 +34,30 @@ Tauri 2 + Vue 3 + Element Plus 的 Windows 桌面应用模板，一次打包产�
 │   │   ├── web.ts            #   Web 实现（localStorage）
 │   │   └── index.ts          #   运行时自动选择实现
 │   ├── components/icons.ts   # 内联 SVG 图标系统（零图标依赖）
+│   ├── components/welink/    # WeLink 助手五 Tab（消息中心/收件箱/历史/回溯/监控）
+│   ├── components/group/     # 快速建群三 Tab（建群/模板/历史）
 │   ├── layouts/MainLayout.vue# 左右布局：深轨侧栏 + 亮画布
 │   ├── utils/logger.ts       #   统一日志出口（控制台 + 落盘）
-│   ├── views/                # 4 个页面
+│   ├── views/                # 6 个页面
 │   │   ├── DashboardView.vue #   概览
 │   │   ├── TableCrudView.vue #   表格增删改查
+│   │   ├── WeLinkView.vue    #   WeLink 助手（自动回复）
+│   │   ├── GroupView.vue     #   快速建群（模板 → 外呼 → 留痕）
 │   │   ├── SettingsView.vue  #   配置
 │   │   └── AboutView.vue     #   关于
-│   ├── stores/               # Pinia：应用配置、表格业务规则
-│   ├── router/               # 路由（hash 模式）
+│   ├── stores/               # Pinia：应用配置、表格、WeLink 助手、快速建群
+│   ├── orchestrator/         #   编排：轮询 / 回复管线 / 安全闸 / 建群流程
+│   ├── infra/                #   基础设施：welink / agent / db（端口 + mock + 适配器）
+│   ├── repositories/         #   业务记录仓储
+│   ├── router/               # 路由（hash 模式，侧栏导航由路由表派生）
 │   └── styles/               # 全局样式（系统字体，无在线字体）
-├── src-tauri/                # Rust 薄桥接层（仅 8 个命令，无业务规则）
-│   ├── src/commands.rs       #   存储布局 + 配置/数据/日志读写
+├── src-tauri/                # Rust 薄桥接层（仅 16 个命令，无业务规则）
+│   ├── src/commands.rs       #   存储布局 + 配置/日志读写（9 个命令）
+│   ├── src/db.rs             #   SQLite 通用通道（4 个命令，不认识表结构）
+│   ├── src/fs.rs             #   存储根文件读写（2 个命令，防路径穿越）
+│   ├── src/cli.rs            #   welink-cli 子进程通道（1 个命令，白名单校验）
+│   ├── src/storage.rs        #   数据根解析、降级与迁移
+│   ├── src/logging.rs        #   落盘日志与按天保留
 │   ├── src/lib.rs            #   Builder 注册
 │   ├── src/main.rs           #   入口（release 隐藏控制台）
 │   ├── capabilities/         #   权限：仅 core:default
@@ -53,12 +65,13 @@ Tauri 2 + Vue 3 + Element Plus 的 Windows 桌面应用模板，一次打包产�
 ├── .cargo/config.toml        #   编译产物输出到根 target/ + 静态 CRT（单文件保证）
 ├── scripts/
 │   ├── build.mjs             #   打包主流程（npm run pack 调用）
+│   ├── verify.mjs            #   全量验证编排（npm run verify 调用）
 │   └── pack.bat              #   双击即打包（自动补 PATH、自动还原依赖）
 ├── target/                   # Rust 编译产物（统一输出位置，勿提交）
 └── release/                  # 打包产物（生成的单文件 exe）
 ```
 
-**职责边界**：Rust 只做「开窗口 + 读写 `D:\TangYuan` 下的配置/数据/日志」，无任何业务规则；新增功能全部写在 `src/` 的 TypeScript 中，不需要改动 Rust。
+**职责边界**：Rust 只做「开窗口 + 存储读写 + SQLite 通用执行 + welink-cli 子进程」四件事，无任何业务规则；表结构、SQL、CLI 子命令与参数拼装全在 `src/` 的 TypeScript 里，新增功能不需要改动 Rust。
 
 ## 数据存储
 
@@ -149,7 +162,7 @@ dumpbin /dependents release\Hello-Tauri-0.1.0-x64.exe
 
 | 依赖               | 位置                                                                    | 体积   |
 | ------------------ | ----------------------------------------------------------------------- | ------ |
-| Node.js ≥ 22.5      | 系统安装                                                                | —      |
+| Node.js ≥ 22.5     | 系统安装                                                                | —      |
 | 前端依赖           | 项目内 `node_modules/`，或内网 npm 缓存（`npm install --offline` 还原） | 178 MB |
 | Rust 工具链        | `%USERPROFILE%\.rustup\toolchains\stable-x86_64-pc-windows-msvc`        | 577 MB |
 | Crate 缓存         | `%USERPROFILE%\.cargo\registry`（258 个 crate）                         | 367 MB |
@@ -172,13 +185,20 @@ dumpbin /dependents release\Hello-Tauri-0.1.0-x64.exe
 
 ## 常用命令
 
-| 命令                  | 说明                            |
-| --------------------- | ------------------------------- |
-| `npm run dev`         | 浏览器开发模式                  |
-| `npm run tauri:dev`   | 桌面开发模式                    |
-| `npm run typecheck`   | TypeScript 类型检查             |
-| `npm run build:web`   | 仅构建前端静态资源              |
-| `npm run pack`        | 一键打包单文件 exe              |
-| `npm run tauri:build` | 仅执行 Tauri 编译（不拷贝产物） |
+| 命令                  | 说明                                            |
+| --------------------- | ----------------------------------------------- |
+| `npm run dev`         | 浏览器开发模式（无需 Rust，可调试全部页面）     |
+| `npm run tauri:dev`   | 桌面开发模式                                    |
+| `npm run lint`        | ESLint（风格归 Prettier，lint 只抓真问题）      |
+| `npm run typecheck`   | TypeScript 类型检查                             |
+| `npm test`            | 单元测试（Vitest）                              |
+| `npm run check`       | lint + typecheck + test 一条龙                  |
+| `npm run build:web`   | 仅构建前端静态资源                              |
+| `npm run pack`        | 一键打包单文件 exe（含产物硬校验）              |
+| `npm run verify`      | 全量验证：静态检查→单测→UI 测试→构建→打包→校验  |
+| `npm run verify:fast` | 跳过打包的快速验证                              |
+| `npm run tauri:build` | 仅执行 Tauri 编译（不拷贝产物，不保证静态 CRT） |
+
+需要 Node.js ≥ 22.5（`uitest` / `smoke` 依赖 Node 22 内置的 `node:sqlite`）。
 
 Rust 编译产物统一输出到项目根的 `target/`（由 `.cargo/config.toml` 指定），不再是 `src-tauri/target/`。
