@@ -180,3 +180,16 @@ export function parseSendOutput(raw: string, fallbackSeed: string): string {
   const uid = pickString(parsed, ['msgUid', 'msg_uid', 'msgId', 'msg_id', 'id'])
   return uid || `local-${fallbackSeed}`
 }
+
+/**
+ * `create-group` 输出解析：取新群的会话 ID（宽进字段名，严出语义）。
+ *
+ * 缺 groupId 时**不报错**、用种子派生本地占位 —— 建群动作本身已发生（CLI 退出码 0），
+ * 此刻报 parse 错会把「已建成」记成「失败」，诱导用户再建一次。占位 ID 供历史
+ * 展示与人工核对；真实对接时务必核对 CLI 是否总能回传群 ID。
+ */
+export function parseCreateGroupOutput(raw: string, fallbackSeed: string): string {
+  const parsed = parseJson<Record<string, unknown>>(raw, 'create-group')
+  const groupId = pickString(parsed, ['groupId', 'group_id', 'convId', 'conv_id', 'chatId', 'id'])
+  return groupId || `local-${fallbackSeed}`
+}

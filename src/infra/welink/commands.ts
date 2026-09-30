@@ -20,6 +20,8 @@ export const SUBCOMMANDS = {
   list: 'list',
   pull: 'pull',
   send: 'send',
+  /** 快速建群（migration v3）：welink-cli create-group --name <群名> --members <id1,id2,…> */
+  createGroup: 'create-group',
   version: '--version',
 } as const
 
@@ -49,4 +51,14 @@ export function sendArgs(target: { convId: string; convType: WelinkConvType }, t
 /** `--help` 试跑（Settings 里的「试跑」按钮用） */
 export function helpArgs(): string[] {
   return ['--help']
+}
+
+/**
+ * `create-group` 参数（快速建群，migration v3）。
+ *
+ * 群名称与成员清单各自作为**独立参数**传递（不经 shell），中文群名/逗号成员串
+ * 都安全；成员串用半角逗号连接（归一化入口 `normalizeMemberIds` 已保证无空项）。
+ */
+export function createGroupArgs(name: string, memberIds: string[]): string[] {
+  return [SUBCOMMANDS.createGroup, '--name', name, '--members', memberIds.join(','), '--json']
 }

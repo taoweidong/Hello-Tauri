@@ -328,12 +328,12 @@ export function normalizeWelinkSettings(input?: Partial<WelinkSettings> | null):
     pollIntervalSec: clampNumber(input?.pollIntervalSec, 3, 60, base.pollIntervalSec),
     pullBatchLimit: clampNumber(input?.pullBatchLimit, 20, 200, base.pullBatchLimit),
     myUserId: input?.myUserId ?? base.myUserId,
-  trigger: {
-    groupAtMe: trigger.groupAtMe ?? base.trigger.groupAtMe,
-    privateAutoReply: trigger.privateAutoReply ?? base.trigger.privateAutoReply,
-  },
-  sendMode: input?.sendMode === 'manual' ? 'manual' : 'auto',
-  panicked: input?.panicked === true,
+    trigger: {
+      groupAtMe: trigger.groupAtMe ?? base.trigger.groupAtMe,
+      privateAutoReply: trigger.privateAutoReply ?? base.trigger.privateAutoReply,
+    },
+    sendMode: input?.sendMode === 'manual' ? 'manual' : 'auto',
+    panicked: input?.panicked === true,
     safety: {
       perConvMinIntervalSec: clampNumber(safety.perConvMinIntervalSec, 0, 600, base.safety.perConvMinIntervalSec),
       perConvHourlyCap: clampNumber(safety.perConvHourlyCap, 1, 500, base.safety.perConvHourlyCap),
@@ -385,4 +385,80 @@ function isHttpUrl(value: unknown): value is string {
   } catch {
     return false
   }
+}
+
+// ---------- 快速建群（migration v3） ----------
+
+/** 建群任务状态：pending = 已留痕未出结果；interrupted = 进程中断、结果未知 */
+export type GroupJobStatus = 'pending' | 'success' | 'failed' | 'interrupted'
+
+/** 建群模板（`welink_group_templates`） */
+export interface GroupTemplate {
+  pk: number
+  /** 模板名（如「项目周会群」），仅本地标识用 */
+  name: string
+  /** 群名称（创建时的默认值，可在建群时改） */
+  groupName: string
+  /** 成员工号列表（归一化：无空项、无重复、保序） */
+  members: string[]
+  description: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** 模板的写入草稿 */
+export interface GroupTemplateDraft {
+  name: string
+  groupName: string
+  members: string[]
+  description?: string
+}
+
+/** 建群历史（`welink_group_jobs`）。template 字段是**快照**，模板删除后历史仍可读 */
+export interface GroupJob {
+  pk: number
+  templatePk: number | null
+  templateName: string
+  groupName: string
+  members: string[]
+  status: GroupJobStatus
+  /** CLI 返回的新群会话 ID；失败/中断时为空 */
+  groupId: string
+  error: string
+  createdAt: string
+  finishedAt: string | null
+}
+
+/** 建群任务的写入草稿（发起外呼前落库留痕用） */
+export interface GroupJobDraft {
+  templatePk: number | null
+  templateName: string
+  groupName: string
+  members: string[]
+}
+
+/**
+ * 成员工号输入归一化（纯函数，输入侧与展示侧共用）。
+ *
+ * 分隔符容错（中英文逗号/分号/顿号/空白换行）、去空、去重、保序 —— 用户从
+ * Excel/聊天记录里粘贴工号清单是最常见的输入方式，格式不能苛求。
+ */
+export function normalizeMemberIds(input: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const token of input.split(/[,;，；、\s]+/)) {
+    const id = token.trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
+}
+
+/** 逗号串 ↔ 数组的存储编解码（DB 单列存 TEXT，分隔符即逗号） */
+export function encodeMemberIds(members: string[]): string {
+  return members.join(',')
+}
+export function decodeMemberIds(raw: string): string[] {
+  return raw ? raw.split(',').filter(Boolean) : []
 }

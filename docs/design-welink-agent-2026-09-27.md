@@ -809,4 +809,29 @@ stateDiagram-v2
 
 ---
 
+## 15. 快速建群（migration v3，2026-09-30 增补）
+
+独立页面（`/groups`，侧栏「快速建群」），复用同一架构分层，与自动回复链路正交：
+
+- **数据模型**（`welink_group_templates` / `welink_group_jobs`，migration v3）：
+  模板 = 模板名 + 群名称 + 成员工号（逗号串，`normalizeMemberIds` 归一化入口保证
+  无空项无重复）；历史 = 建群任务留痕，`template_name`/`members` 是**快照列**
+  （模板删改后历史不变脸），`template_pk` 为 `ON DELETE SET NULL` 的弱引用。
+- **建群铁律（要点3 的建群版）**：外呼 CLI **之前**必须先落 `status='pending'`
+  留痕；外呼结束后以 `WHERE status='pending'` 原子守卫落 success/failed 终态；
+  启动清扫把遗留 pending 标为 interrupted（结果未知），不谎报成败。
+- **端口**（`infra/welink` 增 `GroupPort`）：`createGroup(name, memberIds)` →
+  `welink-cli create-group --name <群名> --members <id1,id2,…> --json`。
+  与消息端口的**重试语义相反**：建群传输故障**不做自动重试**（响应丢失时重试
+  会建出两个群）；CLI 未回传群 ID 时用种子派生占位（动作已发生，不得谎报失败）。
+  mock/cli 工厂与消息端口同源（`welinkSource`），浏览器模式强制 mock（D5）。
+- **UI**：三 Tab（快速建群 / 建群模板 / 建群历史）。模板只做预填，「选择后定制」
+  是需求原文；建群提交必过确认弹层（真实 CLI 时标注「真实建群」）；历史行展开
+  可见成员清单与错误全文。跨 Tab 联动走 store 的 `historyVersion` 版本号。
+- **测试**：`group-ports.spec.ts`（参数/解析/mock/cli 契约，含「不重试」断言）、
+  `group-repos.spec.ts`（SQL 文本 + 内存实现契约一致）、`orchestrator/group.spec.ts`
+  （顺序与终态语义）、`stores/group.spec.ts`（聚合职责）；uitest 补三 Tab 结构契约。
+
+---
+
 **v4.5 待评审。确认后按 M1→M4 实施（M5 等真实接口）。**

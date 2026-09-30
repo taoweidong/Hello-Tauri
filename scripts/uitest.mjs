@@ -518,9 +518,10 @@ async function runFunctional(client, sandboxRoot) {
   for (const [label, marker] of [
     ['概览', '数据与运行状态一览'],
     ['数据管理', '业务记录的检索与维护'],
-    // 进本页会触发 WeLink 仓储 ensureSchema → 应用迁移 v2，本次会话后续的
-    // 「迁移记录」断言必须容纳 v1+v2 两条（见第 11 节）。
+    // 进本页会触发 WeLink 仓储 ensureSchema → 应用迁移 v2；进「快速建群」会触发
+    // migration v3，本次会话后续的「迁移记录」断言必须容纳 v1+v2+v3（见第 11 节）。
     ['WeLink 助手', '群/私聊消息自动回复 · 全链路留痕 · 防滥发闸口'],
+    ['快速建群', '建群模板 · 一键外呼 · 全程留痕'],
     ['配置', '界面偏好与存储位置'],
     ['关于', '版本信息与技术构成'],
   ]) {
@@ -562,6 +563,37 @@ async function runFunctional(client, sandboxRoot) {
     // 默认激活 Tab：只要求「是第一个 Tab」，不锁死具体名字（同源派生，改序不会误报）
     assertEqual(shape.active, shape.tabs[0], '默认激活 Tab（应为首个）')
     return `${shape.tabs.length} 个 Tab，默认「${shape.active}」`
+  })
+
+  // 快速建群页结构（migration v3）：三 Tab 主区 + 建群表单 + 数据源提示
+  await check('快速建群页：三 Tab 与建群表单均就位', async () => {
+    await gotoNav(client, '快速建群')
+    const shape = await query(
+      client,
+      `
+      return {
+        tabs: $$('.tabs__btn').map((el) => norm(el)),
+        active: norm($('.tabs__btn.is-active')),
+        form: !!$('.create__form'),
+        source: norm($('.create__source')),
+      };
+    `,
+    )
+    // 结构契约而非全等字符串（D-11）：必含集合 + 顺序单调
+    const requiredTabs = ['快速建群', '建群模板', '建群历史']
+    for (const name of requiredTabs) {
+      assert(shape.tabs.includes(name), `Tab 缺项：${name}（实际：${shape.tabs.join(',')}）`)
+    }
+    let groupTabCursor = -1
+    for (const name of requiredTabs) {
+      const at = shape.tabs.indexOf(name)
+      assert(at > groupTabCursor, `Tab 顺序错乱：${name}（实际：${shape.tabs.join(',')}）`)
+      groupTabCursor = at
+    }
+    assertEqual(shape.active, shape.tabs[0], '默认激活 Tab（应为首个）')
+    assert(shape.form, '建群表单未渲染')
+    assert(shape.source.includes('模拟') || shape.source.includes('真实'), `数据源提示缺失或不可读：${shape.source}`)
+    return `${shape.tabs.length} 个 Tab，数据源「${shape.source}」`
   })
 
   // ---- 3. 表格渲染与筛选 ----

@@ -115,6 +115,12 @@ const SHAPES: Record<string, Shape[]> = {
     ['circle', { cx: 12, cy: 7.5, r: 1 }],
     ['circle', { cx: 16.5, cy: 10.5, r: 1 }],
   ],
+  users: [
+    ['circle', { cx: 9, cy: 8, r: 3.5 }],
+    ['path', { d: 'M2.5 20a6.5 6.5 0 0 1 13 0' }],
+    ['path', { d: 'M15.5 5.2a3.5 3.5 0 0 1 0 5.6' }],
+    ['path', { d: 'M17.8 14.6a6.5 6.5 0 0 1 3.7 5.4' }],
+  ],
 }
 
 export type IconName = keyof typeof SHAPES
@@ -175,6 +181,7 @@ export const IconCoin = makeIcon('coin')
 export const IconFilter = makeIcon('filter')
 export const IconPalette = makeIcon('palette')
 export const IconAlert = makeIcon('alert')
+export const IconUsers = makeIcon('users')
 
 /** 通用图标组件：<AppIcon name="grid" />，用于模板里动态选图 */
 const iconCache = new Map<IconName, Component>()

@@ -1,5 +1,5 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
-import { IconGrid, IconTable, IconActivity, IconSliders, IconInfo } from '@/components/icons'
+import { IconGrid, IconTable, IconActivity, IconUsers, IconSliders, IconInfo } from '@/components/icons'
 
 /**
  * 路由表是导航的**唯一真值**（A-1）。
@@ -55,6 +55,12 @@ const routes: RouteRecordRaw[] = [
     name: 'welink',
     component: () => import('@/views/WeLinkView.vue'),
     meta: { title: 'WeLink 助手', icon: IconActivity, order: 30 },
+  },
+  {
+    path: '/groups',
+    name: 'groups',
+    component: () => import('@/views/GroupView.vue'),
+    meta: { title: '快速建群', icon: IconUsers, order: 35 },
   },
   {
     path: '/settings',

@@ -12,7 +12,9 @@ import { platform as runtime } from '@/api'
 import type { WelinkSettings } from '@/types/welink'
 import { logger } from '@/utils/logger'
 import { createMockWelinkPort, type MockWelinkOptions, type MockWelinkPort } from './mock'
-import type { WelinkPort } from './port'
+import { createMockGroupPort } from './group-mock'
+import { createCliGroupPort } from './group-cli'
+import type { GroupPort, WelinkPort } from './port'
 import { createCliWelinkPort } from './welink-cli'
 
 let cached: WelinkPort | null = null
@@ -87,4 +89,38 @@ export function mockHandle(): MockWelinkPort | null {
     : null
 }
 
-export type { WelinkPort }
+// ---------------- 建群端口工厂（migration v3） ----------------
+
+let groupCached: GroupPort | null = null
+let groupCachedKey = ''
+
+/**
+ * 取（或重建）建群端口实例。数据源开关与消息端口同源（`welinkSource`）：
+ * 选 cli 时走真实 welink-cli，浏览器模式强制 mock（D5），cliPath 为空回退 mock。
+ * 缓存键只含影响实现选择的字段，配置一改立即换实例（与 `welinkClient` 同款理由）。
+ */
+export function groupClient(options: { settings: WelinkSettings }): GroupPort {
+  const { settings } = options
+  const source = runtime === 'tauri' ? settings.welinkSource : 'mock'
+  const key = `${source}|${settings.cliPath}`
+
+  if (groupCached && groupCachedKey === key) return groupCached
+
+  if (source === 'cli' && settings.cliPath.trim()) {
+    logger.info(`建群端口：真实 CLI（${settings.cliPath}）`)
+    groupCached = createCliGroupPort({ cliPath: settings.cliPath.trim() })
+  } else {
+    if (source === 'cli') logger.warn('已选择真实 CLI 但未配置路径，建群回退 mock 数据源')
+    groupCached = createMockGroupPort()
+  }
+  groupCachedKey = key
+  return groupCached
+}
+
+/** 测试用：清空建群端口缓存 */
+export function resetGroupClient() {
+  groupCached = null
+  groupCachedKey = ''
+}
+
+export type { GroupPort, WelinkPort }

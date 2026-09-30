@@ -13,6 +13,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     ConfigTab: typeof import('./src/components/welink/ConfigTab.vue')['default']
     ControlBar: typeof import('./src/components/welink/ControlBar.vue')['default']
+    CreateTab: typeof import('./src/components/group/CreateTab.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElCheckbox: typeof import('element-plus/es')['ElCheckbox']
@@ -41,12 +42,14 @@ declare module 'vue' {
     ElTag: typeof import('element-plus/es')['ElTag']
     ElTimePicker: typeof import('element-plus/es')['ElTimePicker']
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
+    GroupHistoryTab: typeof import('./src/components/group/GroupHistoryTab.vue')['default']
     HistoryTab: typeof import('./src/components/welink/HistoryTab.vue')['default']
     InboxTab: typeof import('./src/components/welink/InboxTab.vue')['default']
     MessagesTab: typeof import('./src/components/welink/MessagesTab.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SettingsCard: typeof import('./src/components/welink/SettingsCard.vue')['default']
+    TemplateTab: typeof import('./src/components/group/TemplateTab.vue')['default']
     TraceTab: typeof import('./src/components/welink/TraceTab.vue')['default']
     WizardPanel: typeof import('./src/components/welink/WizardPanel.vue')['default']
   }

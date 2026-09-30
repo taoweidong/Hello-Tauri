@@ -48,3 +48,15 @@ export class WelinkError extends Error {
     this.name = 'WelinkError'
   }
 }
+
+/**
+ * 建群端口：welink-cli 的「快速建群」能力（migration v3）。
+ *
+ * 与消息三方法分开成端口，是因为两者的**重试语义相反**：list/pull 的传输故障
+ * 值得重试 1 次（幂等读），而建群**绝不能自动重试** —— CLI 可能已经把群建成功
+ * 只是响应丢了，重试会拉出两个一样的群。失败就落 failed 留痕，由人决定是否再建。
+ */
+export interface GroupPort {
+  /** 创建群聊，返回新群的会话 ID（写进建群历史，供后续追溯） */
+  createGroup(input: { name: string; memberIds: string[] }): Promise<{ groupId: string }>
+}
