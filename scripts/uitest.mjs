@@ -467,7 +467,7 @@ async function runFunctional(client, sandboxRoot) {
     //  * 这里改为断言**必含集合**（下列核心页面必须在）+ **顺序单调**
     //    （清单必须是声明顺序的子序列），新增页面无需改脚本 ——
     //    但核心页面（有独立功能与路由的）应主动加进 required，别让契约退化成空壳。
-    const required = ['概览', '数据管理', 'WeLink 助手', '快速建群', '配置', '关于']
+    const required = ['概览', '数据管理', 'WeLink 助手', '快速建群', '配置', '环境检测', '关于']
     for (const name of required) {
       assert(items.includes(name), `导航缺项：${name}（实际：${items.join(',')}）`)
     }
@@ -524,6 +524,7 @@ async function runFunctional(client, sandboxRoot) {
     ['WeLink 助手', '群/私聊消息自动回复 · 全链路留痕 · 防滥发闸口'],
     ['快速建群', '建群模板 · 一键外呼 · 全程留痕'],
     ['配置', '界面偏好与存储位置'],
+    ['环境检测', 'CLI 依赖环境检测 · 超时保护 · 不阻塞界面'],
     ['关于', '版本信息与技术构成'],
   ]) {
     await check(`导航到「${label}」页面`, async () => {
@@ -595,6 +596,40 @@ async function runFunctional(client, sandboxRoot) {
     assert(shape.form, '建群表单未渲染')
     assert(shape.source.includes('模拟') || shape.source.includes('真实'), `数据源提示缺失或不可读：${shape.source}`)
     return `${shape.tabs.length} 个 Tab，数据源「${shape.source}」`
+  })
+
+  // ---- 2.5 环境检测页 ----
+  section('2.5 环境检测页 —— 自动检测与结果渲染')
+
+  await check('环境检测页：两项检测（welink-cli / Python）自动出结论（沙箱缺对应环境时允许「异常」）', async () => {
+    await gotoNav(client, '环境检测')
+    // 进入页面即自动开检（overall=idle 触发）；逐项等待状态脱离「检测中」。
+    // 桌面模式下是真实子进程探测：沙箱没有 welink-cli / Python 时结论为「异常」，
+    // 这本身就是有效结论 —— 断言的是「有结论」而不是「结论为正常」。
+    const state = await waitFor(
+      async () => {
+        const shape = await query(client, `
+        const items = $$('.envcheck__item');
+        return {
+          count: items.length,
+          busy: items.some((el) => norm(el).includes('检测中')),
+          summaries: items.map((el) => norm(el.querySelector('.envcheck__summary'))).filter(Boolean),
+          tags: items.map((el) => norm(el.querySelector('.el-tag'))).filter(Boolean),
+        };
+      `)
+        assert(shape.count >= 2, `检测项卡片应为 2 项（welink-cli / Python），实际 ${shape.count}`)
+        if (shape.busy) return false
+        assert(shape.summaries.length >= 1, '检测项未给出结论摘要')
+        assert(shape.summaries.every((text) => text && !text.includes('检测中…')), '结论仍为过渡态')
+        return shape
+      },
+      { label: '环境检测出结论', timeoutMs: 30000 },
+    )
+    assert(
+      state.tags.every((text) => ['正常', '告警', '异常', '超时'].includes(text)),
+      `状态标签不是终态：${state.tags.join(',')}`,
+    )
+    return `${state.count} 项：${state.tags.join(' / ')}`
   })
 
   // ---- 3. 表格渲染与筛选 ----

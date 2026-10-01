@@ -1,5 +1,5 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
-import { IconGrid, IconTable, IconActivity, IconUsers, IconSliders, IconInfo } from '@/components/icons'
+import { IconGrid, IconTable, IconActivity, IconUsers, IconSliders, IconCircleCheck, IconInfo } from '@/components/icons'
 
 /**
  * 路由表是导航的**唯一真值**（A-1）。
@@ -67,6 +67,12 @@ const routes: RouteRecordRaw[] = [
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),
     meta: { title: '配置', icon: IconSliders, order: 40 },
+  },
+  {
+    path: '/envcheck',
+    name: 'envcheck',
+    component: () => import('@/views/EnvCheckView.vue'),
+    meta: { title: '环境检测', icon: IconCircleCheck, order: 45 },
   },
   {
     path: '/about',

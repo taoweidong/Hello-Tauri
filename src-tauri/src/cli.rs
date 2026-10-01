@@ -5,7 +5,7 @@
 //! 会直接把 UI 卡死（白屏/掉帧）。因此命令声明为 async，进程逻辑丢进阻塞线程池。
 //!
 //! 安全与可靠性要点：
-//!  * **白名单**：仅放行文件主干为 `welink-cli` 的可执行文件，其余一律拒绝；
+//!  * **白名单**：仅放行文件主干在 [`ALLOWED_STEMS`] 清单内的可执行文件，其余一律拒绝；
 //!  * args 以数组传递、**不经 shell**，杜绝命令注入；
 //!  * Windows 下 `CREATE_NO_WINDOW`，不弹黑框；
 //!  * stdout/stderr 各截断到 [`MAX_OUTPUT`]，超出部分继续读走丢弃 —— 不这样做的话
@@ -25,8 +25,13 @@ use serde::Serialize;
 const MAX_OUTPUT: usize = 2 * 1024 * 1024;
 /// 默认超时：15s（设计 §9）。Rust 侧兜底，TS 侧可按需缩短/放宽。
 const DEFAULT_TIMEOUT_MS: u64 = 15_000;
-/// 仅允许此主干名的可执行文件（不含扩展名，大小写不敏感）。
-const ALLOWED_STEM: &str = "welink-cli";
+/// 白名单：仅允许这些文件主干名（不含扩展名，大小写不敏感）。
+///  * `welink-cli` —— 消息拉取/发送、快速建群、环境自检；
+///  * `python` / `python3` / `py` —— 环境检测页的 Python 版本探测（只读 `--version`）。
+/// 白名单是防 Bridge 被当作通用命令通道的最后一道闸：TS 侧需要新程序时必须
+/// 在此处显式放行并写明用途，不接受任何「传什么跑什么」的放宽。
+const ALLOWED_STEMS: &[&str] = &["welink-cli", "python", "python3", "py"];
+
 /// Windows CREATE_NO_WINDOW：不创建控制台窗口。
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -47,7 +52,7 @@ pub struct CliOutcome {
 }
 
 /// 白名单校验：取文件主干名比对，大小写不敏感。
-/// 允许绝对路径（用户自配 cliPath），但主干名必须是 welink-cli.exe / welink-cli。
+/// 允许绝对路径（用户自配 cliPath），但主干名必须命中 [`ALLOWED_STEMS`] 清单。
 fn assert_allowed(program: &str) -> Result<(), String> {
     let trimmed = program.trim();
     if trimmed.is_empty() {
@@ -57,11 +62,12 @@ fn assert_allowed(program: &str) -> Result<(), String> {
         .file_stem()
         .map(|value| value.to_string_lossy().to_string())
         .unwrap_or_default();
-    if stem.eq_ignore_ascii_case(ALLOWED_STEM) {
+    if ALLOWED_STEMS.iter().any(|allowed| stem.eq_ignore_ascii_case(allowed)) {
         Ok(())
     } else {
         Err(format!(
-            "程序名不在白名单内：{stem}（仅允许 {ALLOWED_STEM}）"
+            "程序名不在白名单内：{stem}（仅允许 {}）",
+            ALLOWED_STEMS.join("、")
         ))
     }
 }

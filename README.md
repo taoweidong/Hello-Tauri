@@ -38,16 +38,17 @@ Tauri 2 + Vue 3 + Element Plus 的 Windows 桌面应用模板，一次打包产�
 │   ├── components/group/     # 快速建群三 Tab（建群/模板/历史）
 │   ├── layouts/MainLayout.vue# 左右布局：深轨侧栏 + 亮画布
 │   ├── utils/logger.ts       #   统一日志出口（控制台 + 落盘）
-│   ├── views/                # 6 个页面
+│   ├── views/                # 7 个页面
 │   │   ├── DashboardView.vue #   概览
 │   │   ├── TableCrudView.vue #   表格增删改查
 │   │   ├── WeLinkView.vue    #   WeLink 助手（自动回复）
 │   │   ├── GroupView.vue     #   快速建群（模板 → 外呼 → 留痕）
 │   │   ├── SettingsView.vue  #   配置
+│   │   ├── EnvCheckView.vue  #   环境检测（CLI 依赖自检，带超时保护）
 │   │   └── AboutView.vue     #   关于
-│   ├── stores/               # Pinia：应用配置、表格、WeLink 助手、快速建群
+│   ├── stores/               # Pinia：应用配置、表格、WeLink 助手、快速建群、环境检测
 │   ├── orchestrator/         #   编排：轮询 / 回复管线 / 安全闸 / 建群流程
-│   ├── infra/                #   基础设施：welink / agent / db（端口 + mock + 适配器）
+│   ├── infra/                #   基础设施：welink / agent / db / envcheck（端口 + mock + 适配器）
 │   ├── repositories/         #   业务记录仓储
 │   ├── router/               # 路由（hash 模式，侧栏导航由路由表派生）
 │   └── styles/               # 全局样式（系统字体，无在线字体）

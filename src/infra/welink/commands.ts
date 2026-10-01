@@ -25,6 +25,8 @@ export const SUBCOMMANDS = {
   send: 'send',
   /** 快速建群（migration v3）：welink-cli create-group --name <群名> --members <id1,id2,…> */
   createGroup: 'create-group',
+  /** 环境自检（环境检测页）：welink-cli doctor --json → { ok, problems? } */
+  doctor: 'doctor',
   version: '--version',
 } as const
 
@@ -50,6 +52,18 @@ export function pullArgs(convId: string, convType: WelinkConvType, after: string
  */
 export function sendArgs(target: { convId: string; convType: WelinkConvType }, text: string): string[] {
   return [SUBCOMMANDS.send, '--conv', target.convId, '--type', target.convType, '--text', text, '--json']
+}
+
+/**
+ * `doctor` 参数（环境检测页用）。
+ *
+ * [CLI-ASSUME] 子命令名 doctor 与返回形状（`{ ok: boolean, problems?: string[] }`）
+ * 均为假设：假设 CLI 提供「环境自检」能力（检查登录态/网络/凭据等）。对接真实 CLI
+ * 时优先核实本条 —— 若真实命令名不同，改 `SUBCOMMANDS.doctor` 即可；若根本没有
+ * 自检命令，探测器会把该步骤降级为 warn（基础可用性仍由 --version 判定）。
+ */
+export function doctorArgs(): string[] {
+  return [SUBCOMMANDS.doctor, '--json']
 }
 
 /** [CLI-ASSUME] `--help` 试跑（Settings 里的「试跑」按钮用；假设 CLI 支持 --help） */

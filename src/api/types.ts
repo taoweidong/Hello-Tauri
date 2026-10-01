@@ -63,7 +63,8 @@ export interface Bridge {
   // —— 子进程通道（Q1 同构：Rust 只做薄管道，命令名/参数/编码全在 TS） ——
 
   /**
-   * 执行白名单内的命令行程序（仅 `welink-cli`）。
+   * 执行白名单内的命令行程序（`welink-cli`、`python`/`python3`/`py`，
+   * 白名单实位在 `src-tauri/src/cli.rs` 的 `ALLOWED_STEMS`）。
    *
    * 三条契约（两侧实现必须一致）：
    *  * 输出以 **base64** 回传（编码判定在 TS：UTF-8 严格 → GBK 兜底）；

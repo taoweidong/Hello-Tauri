@@ -16,13 +16,14 @@ import { describe, expect, it } from 'vitest'
 import { navRoutes } from '@/router'
 
 describe('router —— 侧栏导航由路由表派生（A-1 单一真值）', () => {
-  it('派生结果包含全部六个核心页面且顺序与设计一致', () => {
+  it('派生结果包含全部七个核心页面且顺序与设计一致', () => {
     expect(navRoutes().map((item) => item.title)).toEqual([
       '概览',
       '数据管理',
       'WeLink 助手',
       '快速建群',
       '配置',
+      '环境检测',
       '关于',
     ])
   })
@@ -60,6 +61,7 @@ describe('router —— 侧栏导航由路由表派生（A-1 单一真值）', (
       'WeLink 助手',
       '快速建群',
       '配置',
+      '环境检测',
       '关于',
     ])
   })
