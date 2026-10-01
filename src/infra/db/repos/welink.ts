@@ -35,6 +35,7 @@ import type {
   MessageQuery,
   WelinkRepository,
 } from '../ports'
+import { escapeLike } from '../like'
 import { UNFINISHED_HARD_LIMIT, WATCHING_HARD_LIMIT } from '../ports'
 
 // ---------------------------------------------------------------- 行映射
@@ -236,9 +237,9 @@ function buildInboxWhere(query: Omit<InboxQuery, 'limit' | 'offset'>): {
 
   const keyword = query.keyword?.trim()
   if (keyword) {
-    // 同一占位符复用两次：标题与工号用同一个 LIKE 值
-    const index = hold(`%${keyword}%`)
-    clauses.push(`(c.title LIKE ?${index} OR c.conv_id LIKE ?${index})`)
+    // 同一占位符复用两次：标题与工号用同一个 LIKE 值（通配符转义，字面语义）
+    const index = hold(`%${escapeLike(keyword)}%`)
+    clauses.push(`(c.title LIKE ?${index} ESCAPE '\\' OR c.conv_id LIKE ?${index} ESCAPE '\\')`)
   }
   if (query.onlyUnreplied) {
     clauses.push(`EXISTS (
@@ -454,9 +455,9 @@ export const sqlWelinkRepository: WelinkRepository = {
     const where = new WhereBuilder().add('m.conv_pk = ?1', query.convPk)
     if (query.before) where.add(`m.sent_at < ?${where.params.length + 1}`, query.before)
     if (query.keyword?.trim()) {
-      const like = `%${query.keyword.trim()}%`
+      const like = `%${escapeLike(query.keyword.trim())}%`
       where.add(
-        `(m.content LIKE ?${where.params.length + 1} OR m.sender_name LIKE ?${where.params.length + 2})`,
+        `(m.content LIKE ?${where.params.length + 1} ESCAPE '\\' OR m.sender_name LIKE ?${where.params.length + 2} ESCAPE '\\')`,
         like,
         like,
       )
@@ -469,8 +470,8 @@ export const sqlWelinkRepository: WelinkRepository = {
 
   async searchMessages(keyword, from, to, limit, offset) {
     const where = new WhereBuilder()
-    const like = `%${keyword.trim()}%`
-    if (keyword.trim()) where.add('(m.content LIKE ?1 OR m.sender_name LIKE ?2)', like, like)
+    const like = `%${escapeLike(keyword.trim())}%`
+    if (keyword.trim()) where.add(`(m.content LIKE ?1 ESCAPE '\\' OR m.sender_name LIKE ?2 ESCAPE '\\')`, like, like)
     if (from) where.add(`m.sent_at >= ?${where.params.length + 1}`, from)
     if (to) where.add(`m.sent_at <= ?${where.params.length + 1}`, to)
     const { sql, params } = paged(MESSAGE_SELECT, where, 'ORDER BY m.sent_at DESC, m.id DESC', limit, offset)

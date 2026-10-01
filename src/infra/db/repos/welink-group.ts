@@ -13,6 +13,7 @@ import type { GroupJob, GroupJobDraft, GroupJobStatus, GroupTemplate, GroupTempl
 import { decodeMemberIds, encodeMemberIds } from '@/types/welink'
 import { nowStamp } from '@/utils/time'
 import type { GroupJobQuery, GroupRepository } from '../group-ports'
+import { escapeLike } from '../like'
 
 // ---------------------------------------------------------------- 行映射
 
@@ -78,9 +79,12 @@ function buildJobWhere(query: Omit<GroupJobQuery, 'limit' | 'offset'>): { where:
   }
   const keyword = query.keyword?.trim()
   if (keyword) {
-    // 同一占位符复用三次：群名称 / 模板名 / 成员串用同一个 LIKE 值
-    const index = hold(`%${keyword}%`)
-    clauses.push(`(group_name LIKE ?${index} OR template_name LIKE ?${index} OR members LIKE ?${index})`)
+    // 同一占位符复用三次：群名称 / 模板名 / 成员串用同一个 LIKE 值；
+    // 通配符按字面语义转义（搜「100%」别变成全表通配），SQL 侧配套 ESCAPE '\'
+    const index = hold(`%${escapeLike(keyword)}%`)
+    clauses.push(
+      `(group_name LIKE ?${index} ESCAPE '\\' OR template_name LIKE ?${index} ESCAPE '\\' OR members LIKE ?${index} ESCAPE '\\')`,
+    )
   }
   if (query.from) clauses.push(`created_at >= ?${hold(query.from)}`)
   if (query.to) clauses.push(`created_at <= ?${hold(query.to)}`)

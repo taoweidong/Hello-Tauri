@@ -157,13 +157,13 @@ describe('infra/db/welink —— 分页强制（P7）', () => {
     expect(params).toEqual([7, 50, 0])
   })
 
-  it('listMessages 的 keyword 展开成两个 LIKE 参数，仍然参数化', async () => {
-    // 关键词里的 % 会被当成通配符（仓储不做转义，是 LIKE 搜索的既定语义），
-    // 但永远是**参数**而非 SQL 片段 —— 这里守的是「不拼接」
+  it('listMessages 的 keyword 展开成两个 LIKE 参数，通配符按字面语义转义', async () => {
+    // %/_ 经 escapeLike 转义并配套 ESCAPE '\'：搜「50%」是字面匹配，不再全表通配；
+    // 值永远是**参数**而非 SQL 片段 —— 这里守的是「不拼接」
     await repo.listMessages({ convPk: 7, keyword: '50%', limit: 50 })
     const { sql, params } = lastSelect()
-    expect(sql).toContain('m.content LIKE ?2 OR m.sender_name LIKE ?3')
-    expect(params).toEqual([7, '%50%%', '%50%%', 50, 0])
+    expect(sql).toContain("m.content LIKE ?2 ESCAPE '\\' OR m.sender_name LIKE ?3 ESCAPE '\\'")
+    expect(params).toEqual([7, '%50\\%%', '%50\\%%', 50, 0])
   })
 
   it('listJobs 的每个筛选项都进 WHERE 且 limit 在最后一位前', async () => {
@@ -195,7 +195,7 @@ describe('infra/db/welink —— 分页强制（P7）', () => {
   it('searchMessages 关键词与时间段都参数化（LIKE 不拼接）', async () => {
     await repo.searchMessages("a' OR 1=1", '2026-01-01', '2026-12-31', 10, 0)
     const { sql, params } = lastSelect()
-    expect(sql).toContain('LIKE ?1 OR m.sender_name LIKE ?2')
+    expect(sql).toContain("LIKE ?1 ESCAPE '\\' OR m.sender_name LIKE ?2 ESCAPE '\\'")
     expect(params[0]).toBe("%a' OR 1=1%")
     expect(params).toEqual(["%a' OR 1=1%", "%a' OR 1=1%", '2026-01-01', '2026-12-31', 10, 0])
   })
@@ -446,6 +446,13 @@ describe('infra/db/welink —— 列表与计数同口径', () => {
     expect(sql.match(/x\.sent_at >= \?1/g)).toHaveLength(2)
     // 参数只收集一次（复用占位符，不重复绑定）
     expect(params).toEqual(['2026-09-01 00:00:00', 10, 0])
+  })
+
+  it('listInbox 的关键词按字面转义（与消息搜索/建群历史筛选同语义）', async () => {
+    await repo.listInbox({ keyword: 'E_01', limit: 10, offset: 0 })
+    const { sql, params } = lastSelect()
+    expect(sql).toContain("c.title LIKE ?1 ESCAPE '\\' OR c.conv_id LIKE ?1 ESCAPE '\\'")
+    expect(params[0]).toBe('%E\\_01%')
   })
 
   it('clearAgentLogs 返回删除行数', async () => {

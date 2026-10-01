@@ -196,12 +196,21 @@ describe('infra/db/group —— SQL 仓储', () => {
     })
     const { sql, params } = lastSelect()
     expect(sql).toContain('status IN (?1, ?2)')
-    expect(sql).toContain('(group_name LIKE ?3 OR template_name LIKE ?3 OR members LIKE ?3)')
+    expect(sql).toContain(
+      "(group_name LIKE ?3 ESCAPE '\\' OR template_name LIKE ?3 ESCAPE '\\' OR members LIKE ?3 ESCAPE '\\')",
+    )
     expect(sql).toContain('created_at >= ?4')
     expect(sql).toContain('created_at <= ?5')
     // ORDER BY 必须在 LIMIT 之前；LIMIT/OFFSET 是尾随参数（P7）
     expect(sql).toMatch(/ORDER BY created_at DESC, id DESC LIMIT \?6 OFFSET \?7$/)
     expect(params).toEqual(['failed', 'interrupted', '%周会%', '2026-09-01 00:00:00', '2026-09-30 23:59:59', 10, 20])
+  })
+
+  it('listJobs 关键词里的 %/_ 按字面量转义（搜「100%」不全表通配）', async () => {
+    await sqlRepo.listJobs({ keyword: '100%', limit: 10, offset: 0 })
+    const { sql, params } = lastSelect()
+    expect(sql).toContain("ESCAPE '\\'")
+    expect(params[0]).toBe('%100\\%%')
   })
 
   it('countJobs 与 listJobs 同口径（分页脚数字必须对得上）', async () => {
