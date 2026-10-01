@@ -9,6 +9,9 @@
  *  2. 退出码非 0 不算通道故障（CLI 自身报错是常态），由调用方决定如何分类；
  *  3. 超时必须与 Rust 侧一致地报 `transport` 错，否则退避策略会误判为可重试；
  *  4. `timedOut=true` 时输出通常不完整，直接判失败而不尝试解析。
+ *
+ * [CLI-ASSUME] 输出编码假设为 UTF-8（严格解码失败退 GBK，见 `utils/b64.ts`）；
+ * 真实 CLI 若采用其他编码，调整解码兜底链而不是在此处特判。
  */
 import { bridge } from '@/api'
 import type { CliResult } from '@/types'

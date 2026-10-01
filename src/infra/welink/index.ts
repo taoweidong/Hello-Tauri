@@ -1,6 +1,9 @@
 /**
  * WeLink 端口工厂（设计 §3.3 的切换点）。
  *
+ * [MOCK-CLI] 本文件是 mock/cli 的**切换点**（消息与建群两个端口各一套）：真实 CLI
+ * 到位后无需改这里 —— settings.welinkSource='cli' 且 cliPath 有效即自动走真实现。
+ *
  * 唯一入口 `welinkClient()`：按配置返回 mock 或 cli 实现。上层永远不 import 具体实现，
  * 因此「换真实接口」不需要动编排层任何一行。
  *

@@ -7,19 +7,29 @@ welink-cli create-group → 全程留痕，migration v3）。仅支持 Windows�
 
 ## 常用命令
 
-| 命令                  | 说明                                                        |
-| --------------------- | ----------------------------------------------------------- |
-| `npm run dev`         | 浏览器开发模式，**无需 Rust**，可调试全部页面（web Bridge） |
-| `npm run tauri:dev`   | 桌面开发模式（需 Rust 工具链）                              |
-| `npm run typecheck`   | `vue-tsc --noEmit` 类型检查                                 |
-| `npm run lint`        | ESLint（风格归 Prettier，lint 只抓真问题）                  |
-| `npm test`            | Vitest 单测（happy-dom，`src/**/*.spec.ts`）                |
-| `npm run check`       | lint + typecheck + test 一条龙                              |
-| `npm run pack`        | **产出可分发单文件 exe 的唯一正道**（含产物硬校验）         |
-| `npm run verify`      | 全量验证：静态检查→单测→UI 测试→构建→打包→产物校验          |
-| `npm run verify:fast` | 跳过打包的快速验证                                          |
+| 命令                  | 说明                                                          |
+| --------------------- | ------------------------------------------------------------- |
+| `npm run dev`         | 浏览器开发模式，**无需 Rust**，可调试全部页面（web Bridge）   |
+| `npm run tauri:dev`   | 桌面开发模式（需 Rust 工具链）                                |
+| `npm run typecheck`   | `vue-tsc --noEmit` 类型检查                                   |
+| `npm run lint`        | ESLint（风格归 Prettier，lint 只抓真问题）                    |
+| `npm test`            | **全量单测一键入口**：Vitest（happy-dom，`src/**/*.spec.ts`） |
+| `npm run check`       | lint + typecheck + test 一条龙                                |
+| `npm run pack`        | **产出可分发单文件 exe 的唯一正道**（含产物硬校验）           |
+| `npm run verify`      | 全量验证：静态检查→单测→UI 测试→构建→打包→产物校验            |
+| `npm run verify:fast` | 跳过打包的快速验证                                            |
 
 需要 Node.js ≥ 22.5（uitest/smoke 依赖 Node 22 内置的 `node:sqlite` 与稳定的 WebSocket）。Rust 产物统一输出到根 `target/`（`.cargo/config.toml` 指定），不是 `src-tauri/target/`。
+
+## 会话收尾测试门禁（强制）
+
+- **一键单测入口只有一个**：`npm test`（= `vitest run`，一次跑完 `src/**/*.spec.ts` 全部用例）。
+- **所有会话结束前必须执行 `npm test` 并确认全绿**；单元测试**必须强制通过才能进行后续操作**
+  （提交、打包、切换新任务均以前最近一次全绿为前提）。
+- **无法通过时先分析原因并解决**：定位根因 → 修复 → 重跑至全绿；禁止用跳过/注释/删除用例、
+  放宽断言、残留 `.skip`/`.only` 等方式让测试「变绿」后收尾。
+- **范围升级**：改动 `orchestrator/**`、`infra/db/**` 或可能触及覆盖率基线的会话，收尾改跑
+  `npm run check`（lint + typecheck + test）；必要时另跑 `npm run test:coverage` 核对阈值。
 
 ## 架构边界（改代码前必读）
 
@@ -34,6 +44,10 @@ welink-cli create-group → 全程留痕，migration v3）。仅支持 Windows�
 - **TS 内部分层**（依赖自上而下）：`views`/`components` → `stores`（Pinia）→ `orchestrator`
   （轮询/管线/安全闸/启动恢复/建群流程）→ `infra`（welink / agent / db 三个端口-适配器模块）→ `repositories`。
   外部世界一律先定义 Port 接口 + `mock.ts` 实现（测试替身，真实现后到只换适配器文件）。
+- **模拟 CLI 标注约定**：welink-cli 的模拟替身与假设契约带统一标签，对接真实 CLI 前先
+  `grep -rn "MOCK-CLI\|CLI-ASSUME" src/` 逐项核对：`[MOCK-CLI]` = 模拟实现（对接后**保留**
+  为测试替身与浏览器调试数据源）；`[CLI-ASSUME]` = 对真实 CLI 的假设（子命令/参数/字段名/
+  编码/游标/占位 ID），对接时必须逐一核实，核实后更新或删除对应标签。
 - **运行时零外部请求**：无 CDN 字体/图标/更新检查。图标用内联 SVG（`src/components/icons.ts`），
   字体用系统字体栈。
 

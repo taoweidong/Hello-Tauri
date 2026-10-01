@@ -1,6 +1,14 @@
 /**
  * 消息端口 Mock（设计 §3.3 / v4.4-O13 剧本引擎）。
  *
+ * [MOCK-CLI] 本文件是 welink-cli 消息能力的**模拟替身**（真实 CLI 就绪前后都保留：
+ * 单测替身 + 浏览器调试数据源 D5）。与真实行为的差异清单，对接时逐项核对：
+ *  * 会话候选固定为 MOCK_CONVERSATIONS（5 条，convId/工号均虚构）；
+ *  * pull 游标是 `mock:<convId>:<批次>` 格式 —— 真实游标语义由 CLI 决定（对业务不透明）；
+ *  * send 回执 msgUid 是 `mock-out-<convId>-<序号>` 本地编号 —— 真实回执以 CLI 返回为准；
+ *  * 时间用逻辑时钟推进（advance），非真实时钟；
+ *  * 演示剧本（DEMO_SCRIPT）与确定性故障注入是测试/演示专用通道，真实 CLI 无此概念。
+ *
  * 本期交付的核心目的：**在真实 welink-cli 未就绪时，把整条链路跑通并可演示**。
  * 因此这里的 mock 不是「返回几条死数据」，而是：
  *
@@ -301,11 +309,13 @@ export function createMockWelinkPort(options: MockWelinkOptions = {}): MockWelin
     },
 
     async listConversations() {
+      // [MOCK-CLI] 固定候选清单（真实侧来自 welink-cli list --json）
       await sleep(latencyMs)
       return MOCK_CONVERSATIONS.map((conv) => ({ ...conv }))
     },
 
     async pull(conv, after, limit): Promise<PullResult> {
+      // [MOCK-CLI] 按剧本/消息池推进批次；`after` 不参与语义（游标 mock: 前缀，仅回传）
       await sleep(latencyMs)
       state.pullCount += 1
       if (pullFailures > 0) {
@@ -327,6 +337,7 @@ export function createMockWelinkPort(options: MockWelinkOptions = {}): MockWelin
     },
 
     async send(target: { convId: string; convType: WelinkConvType }, text: string) {
+      // [MOCK-CLI] 记账即成功，回执 ID 本地编号（真实侧以 CLI 返回的 msgUid 为准）
       await sleep(latencyMs)
       state.sendCount += 1
       if (sendFailures > 0) {

@@ -5,6 +5,9 @@
  * 重试**：`list`/`pull` 是幂等读，抖动重试 1 次无损；`create-group` 不是 ——
  * CLI 可能已经把群建成只是响应丢失，盲目重试会拉出两个同名的群。失败就地抛出，
  * 由编排层落 failed 留痕，是否再建由人决定。
+ *
+ * [CLI-ASSUME] 对接时核对：create-group 的退出码语义、是否总能回传群 ID（回传缺失时
+ * adapter 会派生 `local-` 占位群 ID，UI 据此提示人工核对，见 adapter.ts）。
  */
 import { createGroupArgs } from './commands'
 import { runForOutput } from './exec'

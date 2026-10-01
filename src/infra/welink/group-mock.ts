@@ -1,6 +1,12 @@
 /**
  * 建群端口 Mock（设计 §3.3 的 mock 优先策略，migration v3）。
  *
+ * [MOCK-CLI] 本文件是 welink-cli create-group 的**模拟替身**（真实 CLI 就绪前后都保留：
+ * 单测替身 + 浏览器调试数据源）。与真实行为的差异清单，对接时核对：
+ *  * 立即成功（仅 latencyMs 延迟）—— 真实建群涉及成员拉入，耗时以 CLI 实测为准；
+ *  * 群 ID 是 `mock-g-<序号>` 本地编号 —— 真实群 ID 以 CLI 回传为准（字段名见 adapter.ts）；
+ *  * 确定性故障注入（`failNextCreate`）是测试专用通道，真实 CLI 无此概念。
+ *
  * 浏览器调试模式（`npm run dev`）下整条建群链路要能跑通：选模板 → 改信息 →
  * 确认 → CLI 外呼 → 留痕 → 历史可见。mock 与真实实现共享同一套端口夹具测试，
  * 确定性故障注入（`failNextCreate`）供编排层失败路径的单测使用 —— 随机故障
@@ -51,6 +57,7 @@ export function createMockGroupPort(options: MockGroupOptions = {}): MockGroupPo
     },
 
     async createGroup({ name, memberIds }) {
+      // [MOCK-CLI] 记账即成功，群 ID 本地编号（真实侧以 CLI 回传为准，且**不可自动重试**）
       state.createCount += 1
       if (failures > 0) {
         failures -= 1
