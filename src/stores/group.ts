@@ -33,6 +33,8 @@ export const useGroupStore = defineStore('group', () => {
   const historyVersion = ref(0)
 
   let initialized = false
+  /** 启动清扫至多一次（端口契约）：失败也不重试，遗留 pending 由下次启动接管 */
+  let swept = false
 
   // ---------------- 生命周期 ----------------
 
@@ -50,36 +52,44 @@ export const useGroupStore = defineStore('group', () => {
   /**
    * 装载（GroupView 挂载时调用，进程内幂等）：
    * 迁移 → 启动清扫（上一会话遗留的 pending 标记 interrupted）→ 装模板。
+   * 返回 false = 初始化未完成（迁移或模板装载失败），调用方应给出失败提示；
+   * 此时 `initialized` 保持 false，下次进入页面会**重试**（旧实现先置位后等待，
+   * 失败后整进程静默跳过）。清扫不受重试影响：至多尝试一次，不会误扫运行中的建群。
    * 历史清单由历史 Tab 自管（带筛选与分页），这里不抢。
    */
   async function init(): Promise<boolean> {
     if (initialized) return true
-    initialized = true
-    const ok = await ensureSchema()
-    if (!ok) return false
-    try {
-      const swept = await group().markInterrupted()
-      if (swept) logger.warn(`建群历史：${swept} 条中断留痕已标记为「结果未知」`)
-    } catch (error) {
-      logger.error('建群中断留痕清扫失败', error)
+    if (!(await ensureSchema())) return false
+    if (!swept) {
+      swept = true
+      try {
+        const count = await group().markInterrupted()
+        if (count) logger.warn(`建群历史：${count} 条中断留痕已标记为「结果未知」`)
+      } catch (error) {
+        logger.error('建群中断留痕清扫失败', error)
+      }
     }
-    await loadTemplates()
+    if (!(await loadTemplates())) return false
+    initialized = true
     return true
   }
 
   // ---------------- 模板 CRUD ----------------
 
-  async function loadTemplates() {
+  async function loadTemplates(): Promise<boolean> {
     try {
       const rows = await group().listTemplates(TEMPLATE_HARD_LIMIT)
       templates.value = rows
       if (rows.length >= TEMPLATE_HARD_LIMIT) {
         logger.warn(`建群模板已达硬上限 ${TEMPLATE_HARD_LIMIT}，更早的模板未显示`)
       }
-    } catch (error) {
-      logger.error('装载建群模板失败', error)
-    } finally {
       templatesLoaded.value = true
+      return true
+    } catch (error) {
+      // D-6：装载失败不能冒充「已装载且为空」——保持 false，别让 UI 误报「还没有模板」
+      templatesLoaded.value = false
+      logger.error('装载建群模板失败', error)
+      return false
     }
   }
 

@@ -16,7 +16,15 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { DEMO_SCRIPT, createMockWelinkPort, MOCK_CONVERSATIONS } from '@/infra/welink/mock'
 import { WelinkError } from '@/infra/welink/port'
-import { normalizeMessage, parseJson, parseListOutput, parsePullOutput, parseSendOutput } from '@/infra/welink/adapter'
+import {
+  isLocalGroupId,
+  normalizeMessage,
+  parseCreateGroupOutput,
+  parseJson,
+  parseListOutput,
+  parsePullOutput,
+  parseSendOutput,
+} from '@/infra/welink/adapter'
 import { listArgs, pullArgs, sendArgs } from '@/infra/welink/commands'
 import { withTransportRetry } from '@/infra/welink/exec'
 
@@ -220,6 +228,17 @@ describe('infra/welink —— adapter：宽进严出', () => {
     expect(rows[1]).toMatchObject({ convType: 'group', convId: 'G-1', title: '研发一组' })
     // 导入候选一律不预开开关，避免「同步一下就自动回复」
     expect(rows.every((row) => !row.watching && !row.autoReply)).toBe(true)
+  })
+
+  it('parseCreateGroupOutput 缺 groupId 时派生本地占位（防「已建成」被记成失败）', () => {
+    expect(parseCreateGroupOutput(JSON.stringify({ groupId: 'G-9' }), 's')).toBe('G-9')
+    expect(parseCreateGroupOutput(JSON.stringify({ ok: true }), 'n-3-123')).toBe('local-n-3-123')
+  })
+
+  it('isLocalGroupId 识别本地占位群 ID（UI 据此不把占位冒充真实群 ID）', () => {
+    expect(isLocalGroupId('local-n-3-123')).toBe(true)
+    expect(isLocalGroupId('G-123')).toBe(false)
+    expect(isLocalGroupId('')).toBe(false)
   })
 
   it('parseSendOutput 缺 msgUid 时用种子派生（保证幂等键稳定）', () => {

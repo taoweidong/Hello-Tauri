@@ -13,6 +13,7 @@ import { IconRefresh } from '@/components/icons'
 import { useAppStore } from '@/stores/app'
 import { useGroupStore } from '@/stores/group'
 import { GROUP_JOB_STATUS_LABEL, GROUP_JOB_STATUS_TONE } from '@/infra/db/group-ports'
+import { isLocalGroupId } from '@/infra/welink/adapter'
 import type { GroupJob, GroupJobStatus } from '@/types/welink'
 import { rowOf } from '@/utils/table'
 import { shortStamp } from '@/utils/welink-display'
@@ -173,7 +174,9 @@ onMounted(() => {
       <el-table-column label="群名称" min-width="170" show-overflow-tooltip>
         <template #default="{ row }">
           <div>{{ jobOf(row).groupName }}</div>
-          <div v-if="jobOf(row).groupId" class="cell-dim mono">{{ jobOf(row).groupId }}</div>
+          <div v-if="jobOf(row).groupId" class="cell-dim mono">
+            {{ isLocalGroupId(jobOf(row).groupId) ? '本地占位（CLI 未回传群 ID）' : jobOf(row).groupId }}
+          </div>
         </template>
       </el-table-column>
 

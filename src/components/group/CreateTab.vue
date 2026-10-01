@@ -17,6 +17,7 @@ import { IconUsers } from '@/components/icons'
 import { useGroupStore } from '@/stores/group'
 import { useAppStore } from '@/stores/app'
 import { platform } from '@/api'
+import { isLocalGroupId } from '@/infra/welink/adapter'
 import { normalizeWelinkSettings, normalizeMemberIds } from '@/types/welink'
 import type { GroupTemplate } from '@/types/welink'
 import { validateGroupDraft } from '@/orchestrator/group'
@@ -95,7 +96,13 @@ async function submit() {
   try {
     const job = await store.createGroup(jobDraft)
     if (job.status === 'success') {
-      ElMessage.success(`建群成功（群 ID：${job.groupId || '未回传'}）`)
+      // CLI 退出码 0 但未回传群 ID 时，解析层派生 local- 占位（防「已建成」被记成失败）；
+      // 提示必须如实区分，别把占位 ID 冒充真实群 ID
+      ElMessage.success(
+        isLocalGroupId(job.groupId)
+          ? '建群成功（CLI 未回传群 ID，历史中以本地占位留痕，请人工核对）'
+          : `建群成功（群 ID：${job.groupId}）`,
+      )
     } else {
       ElMessage.error(`建群失败：${job.error}`)
     }

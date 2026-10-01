@@ -96,6 +96,34 @@ describe('stores/group —— init', () => {
     expect(repoMock.listTemplates).not.toHaveBeenCalled()
     expect(logger.error).toHaveBeenCalled()
   })
+
+  it('失败可重试：迁移恢复后再次 init 完成清扫与装载（旧缺陷：失败后永久跳过）', async () => {
+    const { dbMigrateAll } = await import('@/infra/db')
+    vi.mocked(dbMigrateAll).mockRejectedValueOnce(new Error('db 锁死'))
+    const store = await freshStore()
+    await expect(store.init()).resolves.toBe(false)
+    await expect(store.init()).resolves.toBe(true)
+    expect(repoMock.markInterrupted).toHaveBeenCalledTimes(1)
+    expect(repoMock.listTemplates).toHaveBeenCalledTimes(1)
+  })
+
+  it('模板装载失败：init 返回 false 且 templatesLoaded 不冒充已装载（D-6），重试成功后放行', async () => {
+    repoMock.listTemplates.mockRejectedValueOnce(new Error('查询超时'))
+    const store = await freshStore()
+    await expect(store.init()).resolves.toBe(false)
+    expect(store.templatesLoaded).toBe(false)
+    await expect(store.init()).resolves.toBe(true)
+    expect(store.templatesLoaded).toBe(true)
+  })
+
+  it('清扫失败不阻塞装载，且本进程内不重扫（遗留 pending 由下次启动接管）', async () => {
+    repoMock.markInterrupted.mockRejectedValueOnce(new Error('db busy'))
+    const store = await freshStore()
+    await expect(store.init()).resolves.toBe(true)
+    expect(repoMock.listTemplates).toHaveBeenCalled()
+    await store.init()
+    expect(repoMock.markInterrupted).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('stores/group —— createGroup', () => {

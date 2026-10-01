@@ -11,12 +11,14 @@
  *     则用 `myUserId` 判定。**@所有人 不算 @我**（Q5）—— 因此要排除 `atAll`/`@所有人` 标记。
  *  3. **非 text 消息**：仅占位存档（设计 §7.1），内容替换成 `[图片]` 这类描述，
  *     而不是丢弃 —— R2 要求「所有私聊消息」可查。
+ *  4. [CLI-ASSUME] 所有「候选字段名」清单（msgId/msg_id/id…）是对真实 CLI 输出的
+ *     **假设面**：对接时按真实输出核对并收窄候选，避免过度宽容掩盖字段缺失。
  */
 import type { NormalizedMessage, WelinkConversation, WelinkConvType } from '@/types/welink'
 import { nowStamp } from '@/utils/time'
 import { WelinkError } from './port'
 
-/** 从任意对象里按候选键名取值（宽进：CLI 字段名未知） */
+/** [CLI-ASSUME] 从任意对象里按候选键名取值（宽进：键名清单即假设面，对接后收窄） */
 function pick(source: Record<string, unknown>, keys: string[]): unknown {
   for (const key of keys) {
     if (source[key] !== undefined && source[key] !== null) return source[key]
@@ -181,6 +183,14 @@ export function parseSendOutput(raw: string, fallbackSeed: string): string {
   return uid || `local-${fallbackSeed}`
 }
 
+/** 本地占位群 ID 的固定前缀：CLI 退出码 0 但未回传群 ID 时派生（见 parseCreateGroupOutput） */
+export const LOCAL_GROUP_ID_PREFIX = 'local-'
+
+/** 是否为本地占位群 ID —— UI 据此提示「CLI 未回传」，不把占位冒充真实群 ID 展示 */
+export function isLocalGroupId(groupId: string): boolean {
+  return groupId.startsWith(LOCAL_GROUP_ID_PREFIX)
+}
+
 /**
  * `create-group` 输出解析：取新群的会话 ID（宽进字段名，严出语义）。
  *
@@ -191,5 +201,5 @@ export function parseSendOutput(raw: string, fallbackSeed: string): string {
 export function parseCreateGroupOutput(raw: string, fallbackSeed: string): string {
   const parsed = parseJson<Record<string, unknown>>(raw, 'create-group')
   const groupId = pickString(parsed, ['groupId', 'group_id', 'convId', 'conv_id', 'chatId', 'id'])
-  return groupId || `local-${fallbackSeed}`
+  return groupId || `${LOCAL_GROUP_ID_PREFIX}${fallbackSeed}`
 }

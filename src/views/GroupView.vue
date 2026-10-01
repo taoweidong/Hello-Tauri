@@ -36,8 +36,15 @@ const activeTab = ref<TabKey>('create')
 /** 数据源徽标：桌面模式选了真实 CLI 才是「真实建群」 */
 const sourceLabel = ref('')
 
+/** init 失败时页头给出错误与重试入口 —— 失败后静默空白比失败本身更糟 */
+const initFailed = ref(false)
+
+async function runInit() {
+  initFailed.value = !(await store.init())
+}
+
 onMounted(() => {
-  void store.init()
+  void runInit()
   const real = platform === 'tauri' && normalizeWelinkSettings(appStore.settings.weLink).welinkSource === 'cli'
   sourceLabel.value = real ? 'welink-cli 真实建群' : '模拟数据源'
 })
@@ -57,6 +64,15 @@ function switchTab(tab: 'templates' | 'history') {
         {{ sourceLabel }}
       </el-tag>
     </div>
+
+    <el-alert v-if="initFailed" type="error" show-icon :closable="false" title="建群数据初始化失败">
+      <template #default>
+        <div class="groups__init-retry">
+          <span>建群模板与历史暂不可用（数据表初始化或装载失败，详情见日志）。</span>
+          <el-button size="small" type="primary" plain @click="runInit">重试</el-button>
+        </div>
+      </template>
+    </el-alert>
 
     <section class="ht-card tabs">
       <header class="tabs__head">
@@ -86,6 +102,12 @@ function switchTab(tab: 'templates' | 'history') {
 <style scoped>
 .groups .spacer {
   flex: 1;
+}
+
+.groups__init-retry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .tabs {
