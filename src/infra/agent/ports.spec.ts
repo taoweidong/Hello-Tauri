@@ -401,3 +401,93 @@ describe('infra/agent —— HTTP 客户端（真实实现的形状，用假 fet
     vi.unstubAllGlobals()
   })
 })
+
+describe('infra/agent —— OpenAI 兼容风格（apiStyle=openai，对接真实大模型环境）', () => {
+  function jsonResponse(body: unknown, status = 200) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    } as unknown as Response
+  }
+
+  const openaiOptions = {
+    baseUrl: 'http://127.0.0.1:11434',
+    endpoint: '/v1/chat/completions',
+    apiStyle: 'openai',
+    model: 'qwen2.5-7b',
+    timeoutMs: 1000,
+  } as const
+
+  it('请求体是 { model, messages, stream:false }，apiKey 进 Bearer 头（trim 后）', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: unknown) =>
+      jsonResponse({ choices: [{ message: { role: 'assistant', content: '好的' } }] }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = createHttpAgent({ ...openaiOptions, apiKey: '  sk-test-123  ' })
+    await expect(agent.complete('这里的提示词')).resolves.toBe('好的')
+
+    const init = fetchMock.mock.calls[0]![1] as unknown as RequestInit
+    expect(init.method).toBe('POST')
+    const headers = init.headers as Record<string, string>
+    expect(headers['content-type']).toBe('application/json')
+    expect(headers.authorization).toBe('Bearer sk-test-123')
+    expect(JSON.parse(init.body as string)).toEqual({
+      model: 'qwen2.5-7b',
+      messages: [{ role: 'user', content: '这里的提示词' }],
+      stream: false,
+    })
+    vi.unstubAllGlobals()
+  })
+
+  it('apiKey 为空则不带 Authorization 头（本地免鉴权服务）', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: unknown) =>
+      jsonResponse({ choices: [{ message: { content: 'ok' } }] }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = createHttpAgent({ ...openaiOptions })
+    await agent.complete('p')
+    const headers = (fetchMock.mock.calls[0]![1] as unknown as RequestInit).headers as Record<string, string>
+    expect(headers.authorization).toBeUndefined()
+    vi.unstubAllGlobals()
+  })
+
+  it('model 缺失 → fail-fast 报错且不发请求（错误仍经 onCall 落语料）', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = createHttpAgent({ ...openaiOptions, model: '   ' })
+    const seen: AgentCallRecord[] = []
+    agent.onCall((record) => seen.push(record))
+    await expect(agent.complete('p')).rejects.toThrow(/大模型名称/)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ status: 'error', response: '' })
+    vi.unstubAllGlobals()
+  })
+
+  it('从 choices[0].message.content 提取正文（OpenAI 标准响应形状）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          id: 'chatcmpl-1',
+          choices: [{ index: 0, message: { role: 'assistant', content: '结论：可以发布' }, finish_reason: 'stop' }],
+          usage: { total_tokens: 42 },
+        }),
+      ),
+    )
+    const agent = createHttpAgent({ ...openaiOptions })
+    await expect(agent.complete('p')).resolves.toBe('结论：可以发布')
+    vi.unstubAllGlobals()
+  })
+
+  it('公网 literal IP 守卫对 openai 风格同样生效（对话原文不得出内网）', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = createHttpAgent({ ...openaiOptions, baseUrl: 'http://8.8.8.8' })
+    await expect(agent.complete('p')).rejects.toThrow(/公网/)
+    expect(fetchMock).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+})

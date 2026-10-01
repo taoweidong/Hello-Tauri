@@ -44,10 +44,13 @@ welink-cli create-group → 全程留痕，migration v3）。仅支持 Windows�
 - **TS 内部分层**（依赖自上而下）：`views`/`components` → `stores`（Pinia）→ `orchestrator`
   （轮询/管线/安全闸/启动恢复/建群流程）→ `infra`（welink / agent / db 三个端口-适配器模块）→ `repositories`。
   外部世界一律先定义 Port 接口 + `mock.ts` 实现（测试替身，真实现后到只换适配器文件）。
-- **模拟 CLI 标注约定**：welink-cli 的模拟替身与假设契约带统一标签，对接真实 CLI 前先
+- **模拟替身标注约定**：welink-cli 的模拟替身与假设契约带统一标签，对接真实 CLI 前先
   `grep -rn "MOCK-CLI\|CLI-ASSUME" src/` 逐项核对：`[MOCK-CLI]` = 模拟实现（对接后**保留**
   为测试替身与浏览器调试数据源）；`[CLI-ASSUME]` = 对真实 CLI 的假设（子命令/参数/字段名/
   编码/游标/占位 ID），对接时必须逐一核实，核实后更新或删除对应标签。
+  大模型 HTTP 适配器同款约定：`[LLM-ASSUME]` = 对真实大模型服务的协议假设（路径/鉴权头/
+  model 字段/消息结构/流式开关/响应形状/CORS），对接前 `grep -rn "LLM-ASSUME" src/` 逐项核实，
+  清单见 `docs/design-llm-connection-2026-10-02.md`。
 - **运行时零外部请求**：无 CDN 字体/图标/更新检查。图标用内联 SVG（`src/components/icons.ts`），
   字体用系统字体栈。
 

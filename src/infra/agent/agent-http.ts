@@ -1,8 +1,25 @@
 /**
  * Agent HTTP 实现（设计 §3.3 / §9）—— 真实对接的唯一改动面。
  *
- * 协议假设（文档到手后改这里）：`POST {baseUrl}{endpoint}`，请求体
- * `{ prompt: string }`，响应体 `{ reply: string }`（字段名容错见下）。
+ * 两种接口风格（`apiStyle`，见 `LlmApiStyle`）：
+ *
+ *  * `simple` —— 内网 SDK 私有协议（设计 §3.2/D3）：
+ *    `POST {baseUrl}{endpoint}`，请求体 `{ prompt }`，响应体 `{ reply }`
+ *    （字段名容错见 pickReply）。
+ *
+ *  * `openai` —— OpenAI 兼容 chat/completions（内网本地部署的事实标准）：
+ *    `POST {baseUrl}{endpoint}`，请求体
+ *    `{ model, messages: [{ role: 'user', content: <prompt> }], stream: false }`，
+ *    响应正文取 `choices[0].message.content`。
+ *    [LLM-ASSUME] 对接真实大模型环境前逐一核实（同 MOCK-CLI 约定，grep "LLM-ASSUME"）：
+ *      1. 路径为 `/v1/chat/completions` 类 chat/completions 端点（用户自配 endpoint）；
+ *      2. 鉴权为 `Authorization: Bearer <apiKey>`（apiKey 非空才带头，本地免鉴权服务留空即可）；
+ *      3. `model` 必填 —— 缺失时调用方 fail-fast 报错，不发无效请求；
+ *      4. 非流式（`stream: false`），一次性取全文（回复草稿要整体落库，流式无意义）；
+ *      5. 响应解析 `choices[0].message.content`（pickReply 已兼容，含 data/嵌套容错）；
+ *      6. 渲染后的完整提示词作为**单条 user 消息**发送 —— 端口契约是
+ *         `complete(prompt)`（D3：上下文客户端组装），拆 system/user 角色留给真实
+ *         对接时按服务端要求再加，不在本期协议里预留。
  *
  * 三个必须做对的细节：
  *  * **超时必须能中止**：`AbortController` 是唯一手段，只 `Promise.race` 的话
@@ -10,14 +27,22 @@
  *  * **超时与错误分类**：`AbortError` → `timeout`，其余 → `error`（R4 语料靠这个区分）；
  *  * **onCall 恒触发**：失败也要留痕 —— 语料的价值恰恰在于「哪些提示词让模型挂了」。
  *
- * 零联网约束：只有用户自配的内网 `baseUrl` 会被访问，无遥测、无 CDN、无外部字体。
+ * 零联网约束：只有用户自配的内网 `baseUrl` 会被访问，无遥测、无 CDN、无外部字体；
+ * API 密钥只进请求头，**绝不进日志**（工厂的 info 日志只打风格/模型名）。
  */
+import type { LlmApiStyle } from '@/types/welink'
 import type { AgentCallRecord, AgentClient, AgentPort } from './port'
 import { AgentError } from './port'
 
 export interface HttpAgentOptions {
   baseUrl: string
   endpoint: string
+  /** 接口风格；缺省按 simple（私有 prompt-in/result-out 协议） */
+  apiStyle?: LlmApiStyle
+  /** API 密钥：openai 风格作 Bearer Token；空则不带 Authorization 头 */
+  apiKey?: string
+  /** 大模型名称：openai 风格必填（缺失 fail-fast），simple 风格忽略 */
+  model?: string
   /** 单次调用超时（设计 §8 默认 60s，本地推理单条可能 2–60s） */
   timeoutMs: number
 }
@@ -74,6 +99,22 @@ function assertIntranetHost(endpoint: string): void {
   }
 }
 
+/**
+ * 按接口风格组装请求头与请求体。
+ *
+ * 拆成纯函数便于单测逐字段断言（openai 的 model/messages/鉴权头、simple 的
+ * 最小 `{ prompt }` 协议），也让 complete() 的主流程保持线性。
+ */
+function buildRequestParts(prompt: string, options: HttpAgentOptions): { headers: Record<string, string>; body: string } {
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  if (options.apiStyle === 'openai') {
+    const apiKey = options.apiKey?.trim() ?? ''
+    if (apiKey) headers.authorization = `Bearer ${apiKey}`
+    return { headers, body: JSON.stringify({ model: options.model, messages: [{ role: 'user', content: prompt }], stream: false }) }
+  }
+  return { headers, body: JSON.stringify({ prompt }) }
+}
+
 export function createHttpAgent(options: HttpAgentOptions): AgentClient {
   const endpoint = `${options.baseUrl.replace(/\/+$/, '')}${options.endpoint.startsWith('/') ? '' : '/'}${options.endpoint}`
   const handlers: Array<(record: AgentCallRecord) => void> = []
@@ -91,10 +132,16 @@ export function createHttpAgent(options: HttpAgentOptions): AgentClient {
 
       try {
         assertIntranetHost(endpoint)
+        // openai 风格 model 必填：服务端只会回一个含糊的 400/404，这里提前给出
+        // 可行动的错误（且经 onCall 落 R4 语料，回溯里能看到原因）
+        if (options.apiStyle === 'openai' && !options.model?.trim()) {
+          throw new AgentError('OpenAI 兼容接口需要在设置里填写「大模型名称」（model）', 'error')
+        }
+        const { headers, body } = buildRequestParts(prompt, options)
         const response = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ prompt }),
+          headers,
+          body,
           signal: controller.signal,
         })
         const latencyMs = Date.now() - started

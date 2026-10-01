@@ -92,6 +92,13 @@ onBeforeUnmount(() => {
 /** 选真实 CLI 但路径为空：CLI 的等价值是「每次轮询都失败」，必须拦在保存前 */
 const cliPathMissing = computed(() => draft.value.welinkSource === 'cli' && !draft.value.cliPath.trim())
 const agentUrlMissing = computed(() => draft.value.agent.agentSource === 'http' && !draft.value.agent.baseUrl.trim())
+/** OpenAI 兼容风格必填 model（缺失时调用 fail-fast，每次生成都会失败）——提示但不拦截保存 */
+const agentModelMissing = computed(
+  () =>
+    draft.value.agent.agentSource === 'http' &&
+    draft.value.agent.apiStyle === 'openai' &&
+    !draft.value.agent.model.trim(),
+)
 
 const valid = computed(() => !cliPathMissing.value)
 watch(valid, (value) => emit('update:valid', value), { immediate: true })
@@ -202,6 +209,23 @@ const previewResult = computed(() => {
 })
 
 // ---------------- CLI / Agent 连通性 ----------------
+
+/**
+ * 两种接口风格的惯用 endpoint 默认值。
+ *
+ * 切换风格时只做「温和纠正」：当前路径为空、或恰好是另一种风格的默认值时，
+ * 才自动换成新风格的默认值 —— 用户手填过自定义路径绝不覆盖。
+ */
+const STYLE_ENDPOINT_DEFAULTS = { simple: '/chat', openai: '/v1/chat/completions' } as const
+
+function onAgentStyleChange(value: string | number | boolean | undefined) {
+  const style = value === 'openai' ? 'openai' : 'simple'
+  const current = draft.value.agent.endpoint.trim()
+  const other = style === 'openai' ? STYLE_ENDPOINT_DEFAULTS.simple : STYLE_ENDPOINT_DEFAULTS.openai
+  if (!current || current === other) {
+    draft.value.agent.endpoint = STYLE_ENDPOINT_DEFAULTS[style]
+  }
+}
 
 const cliTesting = ref(false)
 const agentTesting = ref(false)
@@ -324,6 +348,15 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
         show-icon
         title="已选择内网 Agent 但 baseUrl 为空"
         description="运行时会自动回退到「模拟回复」，回复内容不是模型生成的。填写地址后重新保存即可生效。"
+      />
+      <el-alert
+        v-else-if="agentModelMissing"
+        class="wc__alert"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="OpenAI 兼容接口未填写大模型名称（model）"
+        description="该风格下 model 为必填字段，缺失时每次生成都会在本机直接报错（不发出无效请求）。填写后重新保存即可生效。"
       />
 
       <el-collapse v-model="activeGroup">
@@ -564,8 +597,41 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
                 非回环地址 + 明文 HTTP：提示词（含聊天原文）会以明文离开本机，请确认在内网可信链路上
               </span>
             </el-form-item>
+            <el-form-item label="接口风格">
+              <el-radio-group v-model="draft.agent.apiStyle" @change="onAgentStyleChange">
+                <el-radio-button value="simple">内网服务（私有协议）</el-radio-button>
+                <el-radio-button value="openai">OpenAI 兼容</el-radio-button>
+              </el-radio-group>
+              <span class="wc__hint">
+                OpenAI 兼容 = /chat/completions 协议（vLLM / Ollama / 企业网关等）；私有协议按「{prompt} →
+                {reply}」直连
+              </span>
+            </el-form-item>
+            <el-form-item v-if="draft.agent.apiStyle === 'openai'" label="大模型名称">
+              <el-input
+                v-model="draft.agent.model"
+                class="wc__control"
+                placeholder="如 Qwen2.5-7B-Instruct / deepseek-r1:14b"
+              />
+              <span v-if="!draft.agent.model.trim()" class="wc__warn">OpenAI 兼容接口必填 model，缺失时每次生成都将失败</span>
+            </el-form-item>
+            <el-form-item v-if="draft.agent.apiStyle === 'openai'" label="API 密钥">
+              <el-input
+                v-model="draft.agent.apiKey"
+                class="wc__control"
+                type="password"
+                show-password
+                autocomplete="new-password"
+                placeholder="本地免鉴权服务可留空"
+              />
+              <span class="wc__hint">以 Authorization: Bearer 头随请求发送；仅存本机配置文件，不进日志、不进留痕语料</span>
+            </el-form-item>
             <el-form-item label="接口路径">
-              <el-input v-model="draft.agent.endpoint" class="wc__control" placeholder="/chat" />
+              <el-input
+                v-model="draft.agent.endpoint"
+                class="wc__control"
+                :placeholder="draft.agent.apiStyle === 'openai' ? '/v1/chat/completions' : '/chat'"
+              />
             </el-form-item>
             <el-form-item label="超时">
               <el-input-number v-model="draft.agent.timeoutMs" :min="1000" :max="300000" :step="1000" size="small" />

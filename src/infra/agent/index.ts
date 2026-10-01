@@ -31,16 +31,23 @@ export function agentClient(options: AgentClientOptions): AgentClient {
     source,
     settings.baseUrl,
     settings.endpoint,
+    settings.apiStyle,
+    settings.model,
+    settings.apiKey,
     settings.timeoutMs,
     JSON.stringify(options.mock ?? {}),
   ].join('|')
   if (cached && cachedKey === key) return cached
 
   if (source === 'http' && settings.baseUrl.trim()) {
-    logger.info(`Agent 端口：内网 HTTP（${settings.baseUrl}${settings.endpoint}）`)
+    // 密钥只进请求头不进日志：这里只打风格与模型名
+    logger.info(`Agent 端口：内网 HTTP（${settings.baseUrl}${settings.endpoint} · ${settings.apiStyle} · model=${settings.model || '（未填）'}）`)
     cached = createHttpAgent({
       baseUrl: settings.baseUrl.trim(),
       endpoint: settings.endpoint,
+      apiStyle: settings.apiStyle,
+      apiKey: settings.apiKey,
+      model: settings.model,
       timeoutMs: settings.timeoutMs,
     })
   } else {
@@ -74,6 +81,9 @@ export function createAgentProbe(settings: WelinkAgentSettings): AgentClient {
     return createHttpAgent({
       baseUrl: settings.baseUrl.trim(),
       endpoint: settings.endpoint,
+      apiStyle: settings.apiStyle,
+      apiKey: settings.apiKey,
+      model: settings.model,
       timeoutMs: settings.timeoutMs,
     })
   }

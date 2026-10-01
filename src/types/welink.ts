@@ -25,6 +25,14 @@ export type JobRating = 'up' | 'down'
 export type WelinkSource = 'mock' | 'cli'
 /** Agent 端口实现 */
 export type AgentSource = 'mock' | 'http'
+/**
+ * 大模型接口风格（HTTP 实现内的协议分支）：
+ *  * `simple` —— 内网 SDK 私有协议：`POST {prompt}` → `{reply}`（设计 §3.2/D3）；
+ *  * `openai` —— OpenAI 兼容 `/chat/completions`：`Authorization: Bearer` +
+ *    `{model, messages}` → `choices[0].message.content`。内网本地部署的事实标准
+ *    （vLLM / Ollama / LM Studio / 企业网关）都提供该协议，作为对接真实大模型环境的默认形状。
+ */
+export type LlmApiStyle = 'simple' | 'openai'
 
 /** SafetyGate 拦截原因（设计 §5A，全量枚举 —— 落库 skip_reason 只允许取这里的值） */
 export type SkipReason =
@@ -164,6 +172,12 @@ export interface WelinkAgentSettings {
   agentSource: AgentSource
   baseUrl: string
   endpoint: string
+  /** 接口风格（LlmApiStyle）：决定 HTTP 请求体/鉴权/响应解析走哪套协议 */
+  apiStyle: LlmApiStyle
+  /** API 密钥：openai 风格作 `Authorization: Bearer`；simple 私有服务通常不需要，留空即可 */
+  apiKey: string
+  /** 大模型名称：openai 风格请求体的 `model` 字段（必填，缺失时调用直接报错不外发） */
+  model: string
   timeoutMs: number
   maxContextMsgs: number
   promptTemplate: string
@@ -251,6 +265,9 @@ export const DEFAULT_WELINK_SETTINGS: WelinkSettings = {
     agentSource: 'mock',
     baseUrl: 'http://127.0.0.1:8080',
     endpoint: '/chat',
+    apiStyle: 'simple',
+    apiKey: '',
+    model: '',
     timeoutMs: 60_000,
     maxContextMsgs: 20,
     promptTemplate: DEFAULT_PROMPT_TEMPLATE,
@@ -357,6 +374,9 @@ export function normalizeWelinkSettings(input?: Partial<WelinkSettings> | null):
       // 之类的协议；解析失败回退默认值，运行期另有公网 IP 拦截（agent-http）
       baseUrl: isHttpUrl(agent.baseUrl) ? agent.baseUrl.trim() : base.agent.baseUrl,
       endpoint: agent.endpoint ?? base.agent.endpoint,
+      apiStyle: agent.apiStyle === 'openai' ? 'openai' : 'simple',
+      apiKey: typeof agent.apiKey === 'string' ? agent.apiKey.trim() : base.agent.apiKey,
+      model: typeof agent.model === 'string' ? agent.model.trim() : base.agent.model,
       timeoutMs: clampNumber(agent.timeoutMs, 1000, 300_000, base.agent.timeoutMs),
       maxContextMsgs: clampNumber(agent.maxContextMsgs, 1, 200, base.agent.maxContextMsgs),
       promptTemplate: agent.promptTemplate?.trim() ? agent.promptTemplate : base.agent.promptTemplate,
