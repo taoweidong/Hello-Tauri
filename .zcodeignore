@@ -1,0 +1,75 @@
+# 依赖
+node_modules/
+
+# 前端构建产物
+dist/
+
+# 打包输出（独立 exe）
+release/
+
+# Tauri / Rust 构建产物（统一输出到项目根 target/，见 .cargo/config.toml）
+target/
+src-tauri/target/
+src-tauri/gen/
+**/*.rs.bk
+*.pdb
+**/mutants.out*/
+
+# 工作区本地数据（AI 会话记忆等）
+# 例外：.workbuddy/skills/ 为项目级共享技能，纳入版本管理
+.workbuddy/*
+!.workbuddy/skills/
+.codebuddy/
+.impeccable.md
+
+# 历史构建产物目录（误提交产物所在，防止再混入）
+build/
+
+# 图标生成的中间产物
+vibe_images/
+
+# 编辑器与系统文件
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+
+# ESLint / 覆盖率产物
+coverage/
+.eslintcache
+
+# 注意：以下三个是 unplugin 的**生成文件**，但必须提交（P-1）
+#   auto-imports.d.ts / components.d.ts / .eslintrc-auto-import.json
+# 原因：它们承载 typecheck 与 lint 所需的全局声明，CI 上如果缺了会在
+# 「首次构建之前」就失败（typecheck/lint 跑在 build 前面）。不要加进这里。
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+__pycache__/
+site-packages/
+venv/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）

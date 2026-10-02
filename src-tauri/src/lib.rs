@@ -3,7 +3,9 @@ mod commands;
 mod db;
 mod fs;
 mod logging;
+mod shell;
 mod storage;
+mod sysinfo;
 
 use tauri::Manager;
 
@@ -33,7 +35,16 @@ pub fn run() {
             db::db_select,
             db::db_transaction,
             db::db_migrate,
-            cli::cli_run
+            cli::cli_run,
+            // —— Windows 基础设施通道（windows-infra-foundation）——
+            sysinfo::sys_overview,
+            sysinfo::sys_env_var,
+            sysinfo::sys_disks,
+            sysinfo::sys_adapters,
+            shell::shell_open,
+            shell::clipboard_read,
+            shell::clipboard_write,
+            shell::notify_send
         ])
         .run(tauri::generate_context!())
         .expect("启动 Hello-Tauri 失败");

@@ -1,4 +1,18 @@
-import type { AppInfo, CliResult, DbParam, DbRow, ExecResult, LogLevel, Migration, StorageLayout } from '@/types'
+import type {
+  AppInfo,
+  BasicOutcome,
+  CliResult,
+  DbParam,
+  DbRow,
+  ExecResult,
+  LogLevel,
+  Migration,
+  ProbeResult,
+  StorageLayout,
+  SysAdapter,
+  SysDisk,
+  SysOverview,
+} from '@/types'
 import type { Bridge } from './types'
 
 const STORAGE_KEY = 'hello-tauri:config'
@@ -94,5 +108,93 @@ export const webBridge: Bridge = {
   //    永远不会被业务路径调用。保留它只为 Bridge 契约两侧对齐。
   async cliRun(_program: string, _args: string[], _timeoutMs?: number): Promise<CliResult> {
     throw new Error('浏览器调试模式不支持执行本地命令，WeLink 数据源请使用 mock')
+  },
+
+  // —— Windows 基础设施通道 ——
+  //    系统信息：浏览器无宿主进程概念，返回 [MOCK-WIN] 标注的模拟数据（结构一致）。
+  //    Shell 交互：走浏览器等价 API（window.open / clipboard / Notification），
+  //    失败折叠为结果对象 —— 与桌面同契约，永不 reject。
+
+  async sysOverview(): Promise<ProbeResult<SysOverview>> {
+    return {
+      ok: true,
+      data: {
+        osName: '[MOCK-WIN] Windows 11 专业版',
+        osVersion: '[MOCK-WIN] 23H2 build 22631',
+        arch: 'x86_64',
+        hostname: 'mock-hostname',
+        username: 'mock-user',
+        dataRoot: WEB_LAYOUT.root,
+      },
+    }
+  },
+  async sysEnvVar(_name: string): Promise<ProbeResult<string | null>> {
+    // 浏览器无进程环境变量语义：按「变量不存在」返回空结果（spec 允许，不是失败）
+    return { ok: true, data: null }
+  },
+  async sysDisks(): Promise<ProbeResult<SysDisk[]>> {
+    return {
+      ok: true,
+      data: [
+        { letter: 'C', totalBytes: 512_110_190_592, freeBytes: 128_849_018_880 },
+        { letter: 'D', totalBytes: 1_000_203_481_088, freeBytes: 644_245_094_400 },
+      ],
+    }
+  },
+  async sysAdapters(): Promise<ProbeResult<SysAdapter[]>> {
+    return {
+      ok: true,
+      data: [
+        { name: '[MOCK-WIN] 以太网', enabled: true, ipv4: '192.168.1.100' },
+        { name: '[MOCK-WIN] WLAN', enabled: false, ipv4: null },
+      ],
+    }
+  },
+  async shellOpen(target: string): Promise<BasicOutcome> {
+    if (/^https?:\/\//.test(target)) {
+      const opened = window.open(target, '_blank', 'noopener')
+      return opened ? { ok: true } : { ok: false, reason: '浏览器拦截了弹窗，请允许后重试' }
+    }
+    return { ok: false, reason: '浏览器调试模式仅支持 http/https 打开，本地路径请在桌面模式使用' }
+  },
+  async clipboardRead(): Promise<ProbeResult<string | null>> {
+    try {
+      if (!navigator.clipboard?.readText) {
+        return { ok: false, reason: '当前浏览器不支持剪贴板读取 API' }
+      }
+      const text = await navigator.clipboard.readText()
+      return { ok: true, data: text === '' ? null : text }
+    } catch (error) {
+      // NotFoundError = 剪贴板无文本格式（非文本内容），按「空结果」处理而非失败
+      const name = error instanceof DOMException ? error.name : ''
+      if (name === 'NotFoundError') return { ok: true, data: null }
+      return { ok: false, reason: '浏览器剪贴板读取失败（权限被拒或环境不支持）', detail: String(error) }
+    }
+  },
+  async clipboardWrite(text: string): Promise<BasicOutcome> {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        return { ok: false, reason: '当前浏览器不支持剪贴板写入 API' }
+      }
+      await navigator.clipboard.writeText(text)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, reason: '浏览器剪贴板写入失败（权限被拒或环境不支持）', detail: String(error) }
+    }
+  },
+  async notifySend(title: string, body: string): Promise<BasicOutcome> {
+    if (typeof Notification === 'undefined') {
+      return { ok: false, reason: '当前浏览器不支持 Notification API' }
+    }
+    try {
+      const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission
+      if (permission !== 'granted') {
+        return { ok: false, reason: '浏览器通知权限未授予' }
+      }
+      new Notification(title, { body })
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, reason: '浏览器通知发送失败', detail: String(error) }
+    }
   },
 }

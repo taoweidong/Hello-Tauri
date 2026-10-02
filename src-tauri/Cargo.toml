@@ -24,13 +24,29 @@ serde_json = "1"
 # 与 +crt-static 兼容性已 PoC 实测通过（产物零可分发 DLL）。
 rusqlite = { version = "0.37", features = ["bundled"] }
 
-# 仅用于 GetLocalTime（本地时区日志时间戳）。
+# 仅用于 GetLocalTime（本地时区日志时间戳）+ Windows 基础设施通道
+# （sysinfo.rs / shell.rs：注册表、磁盘、网卡、ShellExecute、剪贴板、托盘气球通知）。
 # 选它而非 chrono：chrono 会拉入 iana-time-zone，该 crate 不在内网缓存中，
 # 会破坏「打包过程不访问公网」的约束；windows-sys 已在依赖树内且源码已缓存。
+# 新增 feature 只扩展现有 crate，不引入新依赖 —— 剪贴板/通知同理不引第三方
+# crate（arboard/notify-rust 均不在内网缓存清单），详见 design D3/D4 修订。
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_SystemInformation",
+    "Win32_System_Registry",
+    "Win32_Storage_FileSystem",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+    "Win32_System_DataExchange",
+    "Win32_System_Ole",
+    "Win32_System_Memory",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
 ] }
 
 [profile.release]

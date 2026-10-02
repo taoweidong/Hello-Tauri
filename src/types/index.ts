@@ -100,3 +100,53 @@ export interface TableRow {
 }
 
 export type TableRowDraft = Omit<TableRow, 'id' | 'createdAt'>
+
+// —— Windows 基础设施通道（windows-infra-foundation，design D5）——
+
+/** 系统概要（`sys_overview` 回传） */
+export interface SysOverview {
+  /** 如 "Windows 11 专业版"（注册表 ProductName） */
+  osName: string
+  /** 如 "23H2 build 22631"（DisplayVersion + CurrentBuildNumber） */
+  osVersion: string
+  /** 目标架构（x86_64 / aarch64） */
+  arch: string
+  /** 计算机名 */
+  hostname: string
+  /** 当前用户名 */
+  username: string
+  /** 应用数据根绝对路径 */
+  dataRoot: string
+}
+
+/** 磁盘分区（`sys_disks` 回传） */
+export interface SysDisk {
+  /** 盘符（如 "C"） */
+  letter: string
+  totalBytes: number
+  /** 调用者可用空间 */
+  freeBytes: number
+}
+
+/** 网络适配器（`sys_adapters` 回传） */
+export interface SysAdapter {
+  /** 适配器友好名（如 "以太网"、"WLAN"） */
+  name: string
+  /** OperStatus == Up */
+  enabled: boolean
+  /** 首个 IPv4 单播地址；无则 null */
+  ipv4: string | null
+}
+
+/**
+ * 探测/尽力而为类宿主调用的统一结果（Bridge 层「永不 reject」语义）。
+ * 成功带 `data`；失败时 `reason` 必填、`detail` 可选（底层异常串）。
+ */
+export type ProbeResult<T> = { ok: true; data: T } | { ok: false; reason: string; detail?: string }
+
+/** 动作型结果（打开/写入/通知等无载荷操作），同样永不 reject */
+export interface BasicOutcome {
+  ok: boolean
+  reason?: string
+  detail?: string
+}

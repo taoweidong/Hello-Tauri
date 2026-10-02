@@ -1,5 +1,6 @@
 import type {
   AppInfo,
+  BasicOutcome,
   CliResult,
   DbParam,
   DbRow,
@@ -7,7 +8,11 @@ import type {
   LogLevel,
   Migration,
   MigrateReport,
+  ProbeResult,
   StorageLayout,
+  SysAdapter,
+  SysDisk,
+  SysOverview,
 } from '@/types'
 
 export type Platform = 'tauri' | 'web'
@@ -72,4 +77,27 @@ export interface Bridge {
    *  * 只有通道故障（程序名不在白名单、进程起不来）才 reject。
    */
   cliRun(program: string, args: string[], timeoutMs?: number): Promise<CliResult>
+
+  // —— Windows 基础设施通道（windows-infra-foundation）——
+  //
+  // 结果语义分层（design D5）：下列方法 **永不 reject**，一切失败折叠进结果
+  // 对象（ok:false + reason [+ detail]）；调用方无需 try/catch。
+  // 命令执行不在此列：走上方 cliRun 的既有契约（仅通道故障 reject）。
+
+  /** 系统概要探测（OS 版本/架构/主机名/用户/数据根） */
+  sysOverview(): Promise<ProbeResult<SysOverview>>
+  /** 按名读取当前进程环境变量；不存在返回 data:null（不是失败） */
+  sysEnvVar(name: string): Promise<ProbeResult<string | null>>
+  /** 磁盘分区枚举（盘符/容量/可用空间） */
+  sysDisks(): Promise<ProbeResult<SysDisk[]>>
+  /** 网络适配器枚举（友好名/启用状态/首个 IPv4） */
+  sysAdapters(): Promise<ProbeResult<SysAdapter[]>>
+  /** 用系统默认程序打开 http/https URL 或本地文件/目录 */
+  shellOpen(target: string): Promise<BasicOutcome>
+  /** 读剪贴板纯文本；剪贴板无文本内容时 data:null（不是失败） */
+  clipboardRead(): Promise<ProbeResult<string | null>>
+  /** 向剪贴板写入纯文本（覆盖现有内容） */
+  clipboardWrite(text: string): Promise<BasicOutcome>
+  /** 发出系统通知（标题 + 正文）；能力不可用时返回未送达结果 */
+  notifySend(title: string, body: string): Promise<BasicOutcome>
 }

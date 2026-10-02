@@ -27,10 +27,27 @@ const MAX_OUTPUT: usize = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS: u64 = 15_000;
 /// 白名单：仅允许这些文件主干名（不含扩展名，大小写不敏感）。
 ///  * `welink-cli` —— 消息拉取/发送、快速建群、环境自检；
-///  * `python` / `python3` / `py` —— 环境检测页的 Python 版本探测（只读 `--version`）。
+///  * `python` / `python3` / `py` —— 环境检测页的 Python 版本探测（只读 `--version`）；
+///  * `systeminfo`/`ipconfig`/`tasklist`/`where`/`whoami`/`hostname`/`nslookup`/`ping`
+///    —— Windows 只读诊断命令（windows-infra-foundation；登记表在
+///    `src/infra/windows/registry.ts`，每条用途见该文件，均为 System32 独立 EXE）。
 /// 白名单是防 Bridge 被当作通用命令通道的最后一道闸：TS 侧需要新程序时必须
 /// 在此处显式放行并写明用途，不接受任何「传什么跑什么」的放宽。
-const ALLOWED_STEMS: &[&str] = &["welink-cli", "python", "python3", "py"];
+const ALLOWED_STEMS: &[&str] = &[
+    "welink-cli",
+    "python",
+    "python3",
+    "py",
+    // —— 只读系统诊断（infra/windows 注册表闸 + 本清单 = 双层闸，design D1）——
+    "systeminfo",
+    "ipconfig",
+    "tasklist",
+    "where",
+    "whoami",
+    "hostname",
+    "nslookup",
+    "ping",
+];
 
 /// Windows CREATE_NO_WINDOW：不创建控制台窗口。
 #[cfg(windows)]
