@@ -6,9 +6,6 @@ import { IconSearch, IconPlus, IconTrash, IconRestore, IconX, IconDownload } fro
 
 import { CATEGORIES, useTableStore } from '@/stores/table'
 import { useAppStore } from '@/stores/app'
-import { csvFileName, downloadCsv, exportRecordsCsv } from '@/repositories/csv'
-import { platform } from '@/api'
-import { logger } from '@/utils/logger'
 import type { TableRow, TableRowDraft } from '@/types'
 import { rowOf } from '@/utils/table'
 
@@ -182,24 +179,19 @@ function clearFilters() {
   tableStore.category = ''
 }
 
-/** 导出当前筛选结果为 CSV：桌面写 exports/，浏览器降级为下载 */
+/** 导出当前筛选结果为 CSV：平台分支收敛在 table store（V3 治理），视图只做提示 */
 async function exportCsv() {
-  if (!tableStore.filtered.length) {
-    ElMessage.warning('没有可导出的记录')
+  const result = await tableStore.exportCsv(tableStore.filtered)
+  if (!result.ok) {
+    if (result.reason === '没有可导出的记录') ElMessage.warning(result.reason)
+    else ElMessage.error(result.reason)
     return
   }
-  if (platform === 'web') {
-    downloadCsv(tableStore.filtered, csvFileName().split('/').pop())
-    ElMessage({ message: '已下载 CSV', type: 'success' })
+  if (result.target === '已下载 CSV') {
+    ElMessage({ message: result.target, type: 'success' })
     return
   }
-  try {
-    const path = await exportRecordsCsv(tableStore.filtered)
-    logger.info(`已导出 ${tableStore.filtered.length} 条记录到 ${path}`)
-    ElMessage({ message: `已导出到 ${path}`, type: 'success' })
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? `导出失败：${error.message}` : '导出失败')
-  }
+  ElMessage({ message: `已导出到 ${result.target}`, type: 'success' })
 }
 
 /** 分页器改变每页条数时写回配置源（单一真值），自动保存负责落盘 */

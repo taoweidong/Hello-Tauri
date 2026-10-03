@@ -15,6 +15,7 @@
  *     **假设面**：对接时按真实输出核对并收窄候选，避免过度宽容掩盖字段缺失。
  */
 import type { NormalizedMessage, WelinkConversation, WelinkConvType } from '@/types/welink'
+import { LOCAL_GROUP_ID_PREFIX } from '@/types/welink'
 import { nowStamp } from '@/utils/time'
 import { WelinkError } from './port'
 
@@ -184,12 +185,10 @@ export function parseSendOutput(raw: string, fallbackSeed: string): string {
 }
 
 /** 本地占位群 ID 的固定前缀：CLI 退出码 0 但未回传群 ID 时派生（见 parseCreateGroupOutput） */
-export const LOCAL_GROUP_ID_PREFIX = 'local-'
+export { LOCAL_GROUP_ID_PREFIX, isLocalGroupId } from '@/types/welink'
 
 /** 是否为本地占位群 ID —— UI 据此提示「CLI 未回传」，不把占位冒充真实群 ID 展示 */
-export function isLocalGroupId(groupId: string): boolean {
-  return groupId.startsWith(LOCAL_GROUP_ID_PREFIX)
-}
+
 
 /**
  * `create-group` 输出解析：取新群的会话 ID（宽进字段名，严出语义）。

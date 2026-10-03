@@ -12,22 +12,15 @@
  *  * 选内网 Agent 但 baseUrl 为空 → 提示会回退 mock（不拦截，但要说清）；
  *  * S2/S3 调到默认 2 倍以上 → 二次确认（放宽防滥发是最危险的一类改动）。
  */
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { IconAlert, IconCheck, IconRefresh, IconRestore } from '@/components/icons'
+import { IconAlert, IconCheck } from '@/components/icons'
 import { bridge } from '@/api'
-import { createAgentProbe } from '@/infra/agent'
 import { useWelinkStore } from '@/stores/welink'
-import {
-  applySafetyPreset,
-  DEFAULT_PROMPT_TEMPLATE,
-  DEFAULT_WELINK_SETTINGS,
-  normalizeWelinkSettings,
-  PROMPT_PLACEHOLDERS,
-  SAFETY_PRESETS,
-  type WelinkSettings,
-} from '@/types/welink'
+import { normalizeWelinkSettings, type WelinkSettings } from '@/types/welink'
+import AgentSection from './settings/AgentSection.vue'
+import SafetySection from './settings/SafetySection.vue'
 import { decodeBase64Text } from '@/utils/b64'
 import { formatMs, formatSec } from '@/utils/welink-display'
 
@@ -103,11 +96,6 @@ const agentModelMissing = computed(
 const valid = computed(() => !cliPathMissing.value)
 watch(valid, (value) => emit('update:valid', value), { immediate: true })
 
-/** 模板占位符缺失告警（设计 §11.6：变量缺失 → 保存警告） */
-const missingPlaceholders = computed(() =>
-  PROMPT_PLACEHOLDERS.filter((token) => !draft.value.agent.promptTemplate.includes(token)),
-)
-
 /**
  * 轮询节奏预估（D-6）。
  *
@@ -120,115 +108,9 @@ const plan = computed(() => welinkStore.pollPlan(draft.value.pollIntervalSec))
 
 /** 秒的可读格式化（保留一位小数即可，避免出现 40.0000001 这种数） */
 
-/**
- * 非回环 + 明文 HTTP 告警（S-3）。
- *
- * 为什么只警告不回环：回环地址（127.0.0.1 / localhost / ::1）的流量不出本机，
- * 明文并不构成额外暴露 —— 对一个「内网离线可用」的桌面应用来说，本地模型
- * 走 http://127.0.0.1:8080 是正常用法，把它也标红只会让告警变成噪音。
- * 判据是「**离开本机**且明文」才提示。
- */
-const agentUrlInsecure = computed(() => {
-  const url = draft.value.agent.baseUrl.trim()
-  if (!url || draft.value.agent.agentSource !== 'http') return false
-  if (!/^http:\/\//i.test(url)) return false
-  const host = url
-    .replace(/^https?:\/\//i, '')
-    .split(/[/:?#]/)[0]
-    .toLowerCase()
-  return !['localhost', '127.0.0.1', '[::1]', '::1', '0.0.0.0'].includes(host)
-})
-
-// ---------------- O9 预设三档 ----------------
-
-/** 当前档位：与预设值完全一致才算命中，否则显示「自定义」 */
-const currentPreset = computed(() => {
-  const safety = draft.value.safety
-  return (
-    SAFETY_PRESETS.find(
-      (preset) =>
-        preset.values.perConvMinIntervalSec === safety.perConvMinIntervalSec &&
-        preset.values.perConvHourlyCap === safety.perConvHourlyCap &&
-        preset.values.globalHourlyCap === safety.globalHourlyCap &&
-        preset.values.quietHoursEnabled === safety.quietHours.enabled,
-    )?.id ?? 'custom'
-  )
-})
-
-const presetId = computed({
-  get: () => currentPreset.value,
-  set: (id: string) => {
-    const preset = SAFETY_PRESETS.find((item) => item.id === id)
-    if (!preset) return
-    draft.value.safety = applySafetyPreset(draft.value.safety, preset)
-    ElMessage.success(`已套用「${preset.label}」预设，可展开微调`)
-  },
-})
-
-const presetOptions = computed(() => [
-  ...SAFETY_PRESETS.map((preset) => ({ id: preset.id, label: preset.label, description: preset.description })),
-  { id: 'custom', label: '自定义', description: '当前参数不匹配任何预设（已手动微调）' },
-])
-
-/** 放宽防滥发（超默认 2 倍）需要二次确认 —— 这是最容易造成事故的一类改动 */
-const DEFAULT_SAFETY = DEFAULT_WELINK_SETTINGS.safety
-async function guardCapChange(field: 'perConvHourlyCap' | 'globalHourlyCap', value: number) {
-  const limit = DEFAULT_SAFETY[field] * 2
-  if (value <= limit) return true
-  const { ElMessageBox } = await import('element-plus')
-  const confirmed = await ElMessageBox.confirm(
-    `该值（${value}）已超过默认值（${DEFAULT_SAFETY[field]}）的 2 倍。放宽防滥发上限会真实提高「刷屏」风险，确认继续？`,
-    '确认放宽配额',
-    { type: 'warning', confirmButtonText: '确认放宽', cancelButtonText: '改回去' },
-  ).catch(() => false)
-  if (confirmed === false) {
-    draft.value.safety[field] = DEFAULT_SAFETY[field]
-    return false
-  }
-  return true
-}
-
-// ---------------- 拦截图预览（O9 的「预览拦截效果」） ----------------
-
-const preview = reactive({ perConv: 8, global: 12 })
-
-/** 纯前端估算：把当前参数套到一个模拟场景上，直观说明哪条规则先命中 */
-const previewResult = computed(() => {
-  const safety = draft.value.safety
-  const hits: string[] = []
-  if (preview.perConv > safety.perConvHourlyCap) hits.push(`S2 单会话小时上限（${safety.perConvHourlyCap}）会先命中`)
-  if (preview.global > safety.globalHourlyCap) hits.push(`S3 全局小时上限（${safety.globalHourlyCap}）会先命中`)
-  if (safety.perConvMinIntervalSec > 0) {
-    hits.push(
-      `S1 每条之间至少间隔 ${safety.perConvMinIntervalSec}s，1 分钟内最多 ${Math.floor(60 / safety.perConvMinIntervalSec) || 1} 条`,
-    )
-  }
-  if (safety.quietHours.enabled) hits.push(`S4 静默时段 ${safety.quietHours.from}–${safety.quietHours.to} 期间不外发`)
-  if (safety.mergeWindowSec > 0) hits.push(`S5 ${safety.mergeWindowSec}s 内同会话重复内容会合并`)
-  return hits
-})
-
 // ---------------- CLI / Agent 连通性 ----------------
 
-/**
- * 两种接口风格的惯用 endpoint 默认值。
- *
- * 切换风格时只做「温和纠正」：当前路径为空、或恰好是另一种风格的默认值时，
- * 才自动换成新风格的默认值 —— 用户手填过自定义路径绝不覆盖。
- */
-const STYLE_ENDPOINT_DEFAULTS = { simple: '/chat', openai: '/v1/chat/completions' } as const
-
-function onAgentStyleChange(value: string | number | boolean | undefined) {
-  const style = value === 'openai' ? 'openai' : 'simple'
-  const current = draft.value.agent.endpoint.trim()
-  const other = style === 'openai' ? STYLE_ENDPOINT_DEFAULTS.simple : STYLE_ENDPOINT_DEFAULTS.openai
-  if (!current || current === other) {
-    draft.value.agent.endpoint = STYLE_ENDPOINT_DEFAULTS[style]
-  }
-}
-
 const cliTesting = ref(false)
-const agentTesting = ref(false)
 const testResult = ref<{ kind: 'cli' | 'agent'; ok: boolean; text: string } | null>(null)
 
 /** 试跑 `welink-cli --help`：只验证「能起来 + 有输出」，不校验协议 */
@@ -266,52 +148,6 @@ async function testCli() {
   } finally {
     cliTesting.value = false
   }
-}
-
-/**
- * 连通性测试：发固定探测 prompt，看耗时与返回摘要。
- *
- * 走 `createAgentProbe`（评审 A-1）：共享运行期同一份环境兜底（浏览器强制 mock，
- * 探测结论与真实运行链路一致），但用独立实例——不命中全局缓存、不挂管线
- * onCall 录音钩子，探测请求不污染 R4 留痕语料。
- */
-async function testAgent() {
-  agentTesting.value = true
-  testResult.value = null
-  try {
-    const settings = draft.value.agent
-    const probe = createAgentProbe({ ...settings, timeoutMs: Math.min(settings.timeoutMs, 15_000) })
-    const started = Date.now()
-    const reply = await probe.complete('连通性测试：请只回复「ok」两个字符。')
-    const elapsed = Date.now() - started
-    testResult.value = {
-      kind: 'agent',
-      ok: true,
-      text: `耗时 ${elapsed}ms · 返回摘要：${reply.slice(0, 120)}${reply.length > 120 ? '…' : ''}`,
-    }
-    ElMessage.success('Agent 连通正常')
-  } catch (error) {
-    testResult.value = {
-      kind: 'agent',
-      ok: false,
-      text: error instanceof Error ? error.message : String(error),
-    }
-    ElMessage.error('Agent 连通失败，请核对地址与端口')
-  } finally {
-    agentTesting.value = false
-  }
-}
-
-// ---------------- 模板操作 ----------------
-
-function restoreTemplate() {
-  draft.value.agent.promptTemplate = DEFAULT_PROMPT_TEMPLATE
-  ElMessage.success('已恢复内置提示词模板')
-}
-
-/** 插入占位符到模板末尾（省得手打 {{ }}） */
-function insertPlaceholder(token: string) {
-  draft.value.agent.promptTemplate = `${draft.value.agent.promptTemplate}\n${token}`
 }
 
 const sourceLabel = computed(() => (draft.value.welinkSource === 'mock' ? '模拟数据' : '真实 CLI'))
@@ -391,138 +227,7 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
           </el-form>
         </el-collapse-item>
 
-        <!-- ② 防滥发（S1–S8） -->
-        <el-collapse-item name="safety" title="防滥发（SafetyGate 闸口）">
-          <div class="wc__presets">
-            <el-radio-group v-model="presetId">
-              <el-radio-button
-                v-for="preset in presetOptions"
-                :key="preset.id"
-                :value="preset.id"
-                :title="preset.description"
-              >
-                {{ preset.label }}
-              </el-radio-button>
-            </el-radio-group>
-            <p class="wc__preset-desc">
-              {{ presetOptions.find((item) => item.id === presetId)?.description }}
-            </p>
-          </div>
-
-          <el-form :model="draft.safety" label-width="120px" class="wc__form" @submit.prevent>
-            <el-form-item label="S1 最小间隔">
-              <el-input-number
-                v-model="draft.safety.perConvMinIntervalSec"
-                :min="0"
-                :max="600"
-                :step="1"
-                size="small"
-              />
-              <span class="wc__unit">秒 / 每会话</span>
-              <span class="wc__hint">同一会话两次回复的最小间隔，跨重启仍然生效</span>
-            </el-form-item>
-            <el-form-item label="S2 会话小时上限">
-              <el-input-number
-                v-model="draft.safety.perConvHourlyCap"
-                :min="1"
-                :max="500"
-                size="small"
-                @change="(value: number | undefined) => value && guardCapChange('perConvHourlyCap', value)"
-              />
-              <span class="wc__unit">条 / 小时</span>
-            </el-form-item>
-            <el-form-item label="S3 全局小时上限">
-              <el-input-number
-                v-model="draft.safety.globalHourlyCap"
-                :min="1"
-                :max="1000"
-                size="small"
-                @change="(value: number | undefined) => value && guardCapChange('globalHourlyCap', value)"
-              />
-              <span class="wc__unit">条 / 小时</span>
-              <span class="wc__hint">所有会话合计，超出后任务回「待发送」等下一小时</span>
-            </el-form-item>
-            <el-form-item label="S4 静默时段">
-              <el-switch v-model="draft.safety.quietHours.enabled" />
-              <el-time-picker
-                v-if="draft.safety.quietHours.enabled"
-                v-model="draft.safety.quietHours.from"
-                format="HH:mm"
-                value-format="HH:mm"
-                size="small"
-                placeholder="开始"
-                class="wc__time"
-              />
-              <span v-if="draft.safety.quietHours.enabled" class="wc__unit">至</span>
-              <el-time-picker
-                v-if="draft.safety.quietHours.enabled"
-                v-model="draft.safety.quietHours.to"
-                format="HH:mm"
-                value-format="HH:mm"
-                size="small"
-                placeholder="结束"
-                class="wc__time"
-              />
-            </el-form-item>
-            <el-form-item label="S5 合并窗口">
-              <el-input-number v-model="draft.safety.mergeWindowSec" :min="0" :max="3600" size="small" />
-              <span class="wc__unit">秒</span>
-              <span class="wc__hint">窗口内同一会话的重复触发只回一次</span>
-            </el-form-item>
-            <el-form-item label="S6 草稿长度上限">
-              <el-input-number v-model="draft.safety.maxDraftChars" :min="20" :max="4000" size="small" />
-              <span class="wc__unit">字符</span>
-            </el-form-item>
-            <el-form-item label="S7 敏感句式黑名单">
-              <div class="wc__patterns">
-                <div v-for="(_, index) in draft.safety.blacklistPatterns" :key="index" class="wc__pattern">
-                  <el-input v-model="draft.safety.blacklistPatterns[index]" size="small" placeholder="正则表达式" />
-                  <el-button size="small" text type="danger" @click="draft.safety.blacklistPatterns.splice(index, 1)"
-                    >删除</el-button
-                  >
-                </div>
-                <el-button size="small" text @click="draft.safety.blacklistPatterns.push('')">+ 添加一条</el-button>
-                <p class="wc__hint">命中后转「人工待审」而不是丢弃：保留草稿让人判断，避免误伤正常回复</p>
-              </div>
-            </el-form-item>
-            <el-form-item label="S8 熔断">
-              <el-input-number v-model="draft.safety.fuseWindowMin" :min="1" :max="1440" size="small" />
-              <span class="wc__unit">分钟内同类拦截达</span>
-              <el-input-number v-model="draft.safety.fuseThreshold" :min="1" :max="100" size="small" />
-              <span class="wc__unit">次 → 暂停该场景</span>
-              <span class="wc__hint">熔断后在助手页横幅上人工解除，避免异常内容持续外发</span>
-            </el-form-item>
-          </el-form>
-
-          <!-- 拦截图预览（O9） -->
-          <div class="wc__preview">
-            <span class="wc__preview-title">预览拦截效果</span>
-            <div class="wc__preview-row">
-              <span>某会话 1 小时内触发</span>
-              <el-input-number
-                v-model="preview.perConv"
-                :min="1"
-                :max="200"
-                size="small"
-                controls-position="right"
-                class="wc__preview-num"
-              />
-              <span>条，全局触发</span>
-              <el-input-number
-                v-model="preview.global"
-                :min="1"
-                :max="500"
-                size="small"
-                controls-position="right"
-                class="wc__preview-num"
-              />
-              <span>条</span>
-            </div>
-            <ul class="wc__preview-list">
-              <li v-for="(line, index) in previewResult" :key="index">{{ line }}</li>
-            </ul>
-          </div>
-        </el-collapse-item>
+        <SafetySection v-model="draft.safety" />
 
         <!-- ③ 运行参数 -->
         <el-collapse-item name="runtime" title="运行参数">
@@ -587,103 +292,8 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
           </el-form>
         </el-collapse-item>
 
-        <!-- ⑥ Agent -->
-        <el-collapse-item v-if="draft.agent.agentSource === 'http'" name="agent" title="Agent 通道">
-          <el-form :model="draft.agent" label-width="140px" class="wc__form" @submit.prevent>
-            <el-form-item label="服务地址">
-              <el-input v-model="draft.agent.baseUrl" class="wc__control" placeholder="http://10.0.0.5:8080" />
-              <!-- S-3：请求体含完整聊天上下文，明文 HTTP 出内网即等于聊天记录裸奔 -->
-              <span v-if="agentUrlInsecure" class="wc__warn">
-                非回环地址 + 明文 HTTP：提示词（含聊天原文）会以明文离开本机，请确认在内网可信链路上
-              </span>
-            </el-form-item>
-            <el-form-item label="接口风格">
-              <el-radio-group v-model="draft.agent.apiStyle" @change="onAgentStyleChange">
-                <el-radio-button value="simple">内网服务（私有协议）</el-radio-button>
-                <el-radio-button value="openai">OpenAI 兼容</el-radio-button>
-              </el-radio-group>
-              <span class="wc__hint">
-                OpenAI 兼容 = /chat/completions 协议（vLLM / Ollama / 企业网关等）；私有协议按「{prompt} →
-                {reply}」直连
-              </span>
-            </el-form-item>
-            <el-form-item v-if="draft.agent.apiStyle === 'openai'" label="大模型名称">
-              <el-input
-                v-model="draft.agent.model"
-                class="wc__control"
-                placeholder="如 Qwen2.5-7B-Instruct / deepseek-r1:14b"
-              />
-              <span v-if="!draft.agent.model.trim()" class="wc__warn">OpenAI 兼容接口必填 model，缺失时每次生成都将失败</span>
-            </el-form-item>
-            <el-form-item v-if="draft.agent.apiStyle === 'openai'" label="API 密钥">
-              <el-input
-                v-model="draft.agent.apiKey"
-                class="wc__control"
-                type="password"
-                show-password
-                autocomplete="new-password"
-                placeholder="本地免鉴权服务可留空"
-              />
-              <span class="wc__hint">以 Authorization: Bearer 头随请求发送；仅存本机配置文件，不进日志、不进留痕语料</span>
-            </el-form-item>
-            <el-form-item label="接口路径">
-              <el-input
-                v-model="draft.agent.endpoint"
-                class="wc__control"
-                :placeholder="draft.agent.apiStyle === 'openai' ? '/v1/chat/completions' : '/chat'"
-              />
-            </el-form-item>
-            <el-form-item label="超时">
-              <el-input-number v-model="draft.agent.timeoutMs" :min="1000" :max="300000" :step="1000" size="small" />
-              <span class="wc__unit">毫秒</span>
-            </el-form-item>
-            <el-form-item label="上下文条数">
-              <el-input-number v-model="draft.agent.maxContextMsgs" :min="1" :max="200" size="small" />
-              <span class="wc__unit">条</span>
-              <span class="wc__hint">取该会话最近 N 条消息拼进提示词（客户端组装）</span>
-            </el-form-item>
-            <el-form-item label="">
-              <el-button size="small" :icon="IconRefresh" :loading="agentTesting" @click="testAgent"
-                >连通性测试</el-button
-              >
-              <span class="wc__hint">发送固定探测提示词，显示耗时与返回摘要</span>
-            </el-form-item>
-          </el-form>
-        </el-collapse-item>
+        <AgentSection v-model="draft.agent" @tested="testResult = $event" />
 
-        <!-- ⑦ 提示词模板 -->
-        <el-collapse-item name="prompt" title="提示词模板">
-          <div class="wc__prompt">
-            <div class="wc__prompt-bar">
-              <span class="wc__hint">占位符：</span>
-              <el-tag
-                v-for="token in PROMPT_PLACEHOLDERS"
-                :key="token"
-                size="small"
-                effect="plain"
-                class="wc__token pressable"
-                @click="insertPlaceholder(token)"
-              >
-                {{ token }}
-              </el-tag>
-              <span class="spacer" />
-              <el-button size="small" :icon="IconRestore" @click="restoreTemplate">恢复内置模板</el-button>
-            </div>
-            <el-input v-model="draft.agent.promptTemplate" type="textarea" :rows="14" class="wc__textarea" />
-            <el-alert
-              v-if="missingPlaceholders.length"
-              class="wc__alert"
-              type="warning"
-              :closable="false"
-              show-icon
-              :title="`模板缺少占位符：${missingPlaceholders.join('、')}`"
-              description="缺少的占位符不会被替换，模型将拿不到对应信息（如对话上下文或待回复消息），回复质量会明显下降。"
-            />
-            <p class="wc__hint">
-              模板每次生成时读取，改完立即对下一条任务生效。提示词里「只输出正文」等约束是防模型输出前后缀噪声的关键。
-            </p>
-          </div>
-        </el-collapse-item>
       </el-collapse>
 
       <!-- 连通性测试结果 -->
@@ -784,83 +394,17 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
   font-weight: 600;
 }
 
-.wc__presets {
-  padding: 10px 0 4px;
-}
 
-.wc__preset-desc {
-  margin: 8px 0 0;
-  font-size: 11.5px;
-  color: var(--ht-text-3);
-}
 
-.wc__patterns {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-  max-width: 560px;
-}
 
-.wc__pattern {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
 
-.wc__preview {
-  margin-top: 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--ht-primary-line);
-  border-radius: var(--ht-radius-sm);
-  background: var(--ht-primary-soft);
-}
 
-.wc__preview-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ht-primary);
-}
 
-.wc__preview-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--ht-text-2);
-  flex-wrap: wrap;
-}
 
-.wc__preview-num {
-  width: 110px;
-}
 
-.wc__preview-list {
-  margin: 8px 0 0;
-  padding-left: 18px;
-  font-size: 11.5px;
-  color: var(--ht-text-2);
-  line-height: 1.8;
-}
 
-.wc__prompt-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
 
-.wc__token {
-  cursor: copy;
-}
 
-.wc__textarea :deep(textarea) {
-  font-family: var(--ht-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 12px;
-  line-height: 1.65;
-}
 
 .wc__test-text {
   margin: 0;

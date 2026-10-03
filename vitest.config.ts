@@ -48,16 +48,26 @@ export default defineConfig({
       // 后续若要提阈值，先补测试再抬线，不要反过来。
       thresholds: {
         'src/orchestrator/**': {
-          lines: 92,
-          functions: 88,
-          statements: 92,
-          branches: 85,
+          // 2026-10-03 抬线（quality-hardening-2026-10 7.1）：实测 97.1/92/93，
+          // 抬到 95/88/90 留 2~3 个百分点余量 —— 防回退基线，不追高点。
+          lines: 95,
+          functions: 90,
+          statements: 95,
+          branches: 88,
         },
         'src/infra/db/**': {
           lines: 72,
           functions: 68,
           statements: 72,
           branches: 68,
+        },
+        'src/infra/windows/**': {
+          // 2026-10-03 新增（quality-hardening-2026-10 7.1）：实测 97/93.2/80，
+          // windows-infra 模块的防回退基线。
+          lines: 90,
+          functions: 75,
+          statements: 90,
+          branches: 88,
         },
       },
     },

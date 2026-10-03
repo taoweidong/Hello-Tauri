@@ -482,3 +482,82 @@ export function encodeMemberIds(members: string[]): string {
 export function decodeMemberIds(raw: string): string[] {
   return raw ? raw.split(',').filter(Boolean) : []
 }
+
+// ---------------- 展示常量（quality-hardening-2026-10 D2 自 infra/db/ports 迁入）----------------
+// types 层是 stores/components 的合法依赖层：展示文案住在这里，UI 不必为拿
+// 标签而触达 infra。`infra/db/ports` 对旧路径做 re-export，infra 内部引用不变。
+
+/** 会话管理页一次读取的条数（D-5）。超限即告警，不静默截断（见 store 的 loadConversations） */
+export const CONVERSATION_PAGE_LIMIT = 500
+
+/** 状态机文案（UI 与测试共用，避免各处硬编码） */
+export const JOB_STATUS_LABEL: Record<JobStatus, string> = {
+  pending: '排队中',
+  discussing: '生成中',
+  ready: '待发送',
+  sending: '发送中',
+  sent: '已回复',
+  failed: '失败',
+  skipped: '已拦截',
+}
+
+/** 状态机配色（Element Plus tag tone） */
+export const JOB_STATUS_TONE: Record<JobStatus, 'info' | 'warning' | 'success' | 'danger' | 'muted'> = {
+  pending: 'info',
+  discussing: 'info',
+  ready: 'warning',
+  sending: 'info',
+  sent: 'success',
+  failed: 'danger',
+  skipped: 'muted',
+}
+
+/** SafetyGate 拦截原因中文说明（审计留痕的展示层，§11.3 hover 文案） */
+export const SKIP_REASON_LABEL: Record<string, string> = {
+  panic: '全局急停',
+  disabled: '助手总开关关闭',
+  switch_off: '场景开关关闭',
+  conv_switch: '该会话未开启自动回复',
+  fused: '熔断中，已暂停该场景',
+  empty: '草稿为空',
+  oversize: '草稿超长',
+  blacklist: '命中敏感句式，转人工待审',
+  rate_conv: '会话限流（最小间隔）',
+  rate_conv_hourly: '该会话本小时配额已满',
+  rate_global_hourly: '全局本小时配额已满',
+  quiet: '静默时段',
+  merge_window: '合并窗口内重复触发',
+  no_user_id: '未填写工号，已熔断兜底',
+  target_missing: '目标会话不存在',
+  manual_mode: '人工模式待确认',
+}
+
+/** 待审原因中文说明（O7 待审聚合入口的展示文案） */
+export const HOLD_REASON_LABEL: Record<string, string> = {
+  manual_mode: '人工模式待审',
+  blacklist: '命中敏感句式待审',
+  stale_draft: '隔夜草稿待审',
+}
+
+/** 群任务状态机文案（UI 与测试共用；自 infra/db/group-ports 迁入，V2 同族治理） */
+export const GROUP_JOB_STATUS_LABEL: Record<GroupJobStatus, string> = {
+  pending: '创建中',
+  success: '已建群',
+  failed: '失败',
+  interrupted: '结果未知',
+}
+
+export const GROUP_JOB_STATUS_TONE: Record<GroupJobStatus, 'info' | 'warning' | 'success' | 'danger' | 'muted'> = {
+  pending: 'info',
+  success: 'success',
+  failed: 'danger',
+  interrupted: 'warning',
+}
+
+/** 本地占位群 ID 前缀（CLI 未回传群 ID 时的种子派生占位，§15） */
+export const LOCAL_GROUP_ID_PREFIX = 'local-'
+
+/** 占位群 ID 判定（纯谓词；自 infra/welink/adapter 迁入，V1 同族治理） */
+export function isLocalGroupId(groupId: string): boolean {
+  return groupId.startsWith(LOCAL_GROUP_ID_PREFIX)
+}

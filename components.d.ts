@@ -11,8 +11,10 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AgentSection: typeof import('./src/components/welink/settings/AgentSection.vue')['default']
     ConfigTab: typeof import('./src/components/welink/ConfigTab.vue')['default']
     ControlBar: typeof import('./src/components/welink/ControlBar.vue')['default']
+    ConversationListPanel: typeof import('./src/components/welink/messages/ConversationListPanel.vue')['default']
     CreateTab: typeof import('./src/components/group/CreateTab.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElButton: typeof import('element-plus/es')['ElButton']
@@ -46,10 +48,13 @@ declare module 'vue' {
     HistoryTab: typeof import('./src/components/welink/HistoryTab.vue')['default']
     InboxTab: typeof import('./src/components/welink/InboxTab.vue')['default']
     MessagesTab: typeof import('./src/components/welink/MessagesTab.vue')['default']
+    PendingJobsPanel: typeof import('./src/components/welink/messages/PendingJobsPanel.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SafetySection: typeof import('./src/components/welink/settings/SafetySection.vue')['default']
     SettingsCard: typeof import('./src/components/welink/SettingsCard.vue')['default']
     TemplateTab: typeof import('./src/components/group/TemplateTab.vue')['default']
+    TimelinePanel: typeof import('./src/components/welink/messages/TimelinePanel.vue')['default']
     TraceTab: typeof import('./src/components/welink/TraceTab.vue')['default']
     WizardPanel: typeof import('./src/components/welink/WizardPanel.vue')['default']
   }

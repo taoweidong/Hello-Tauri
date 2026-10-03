@@ -11,6 +11,7 @@
  *  * `'mock'`：[MOCK-WIN] 测试替身，测试与离线演示用，不触碰 Bridge。
  */
 import { bridge } from '@/api'
+import { foldRejection, withHardTimeout } from '@/utils/async-guard'
 import { logger } from '@/utils/logger'
 import { createCommandRunner } from './command-exec'
 import { createMockWindowsInfra, type MockWindowsInfraOptions } from './mock'
@@ -40,17 +41,12 @@ function timeoutExecOutcome(durationMs: number): CommandExecOutcome {
   }
 }
 
-/** 硬超时包装（命令执行）：rejection 正常传播（通道故障契约），只有挂死才超时 */
-async function strictTimeout<T>(task: () => Promise<T>, timeoutMs: number, onTimeout: () => T): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await new Promise<T>((resolve, reject) => {
-      timer = setTimeout(() => resolve(onTimeout()), timeoutMs)
-      task().then(resolve, reject)
-    })
-  } finally {
-    if (timer !== undefined) clearTimeout(timer)
-  }
+/**
+ * 硬超时包装（命令执行）：rejection 正常传播（通道故障契约），只有挂死才超时。
+ * 实现委托 `utils/async-guard` 通用原语（quality-hardening-2026-10 D5）。
+ */
+function strictTimeout<T>(task: () => Promise<T>, timeoutMs: number, onTimeout: () => T): Promise<T> {
+  return withHardTimeout(task, timeoutMs, onTimeout)
 }
 
 /**
@@ -58,23 +54,16 @@ async function strictTimeout<T>(task: () => Promise<T>, timeoutMs: number, onTim
  * 底层 rejection（正常路径已被适配器 backstop 折叠，这里只兜工厂自身之前的违约）
  * 也折叠为失败结果 —— 本工厂产出的端口**永不 reject**（runCommand 除外）。
  */
-async function foldedTimeout<T>(
+function foldedTimeout<T>(
   task: () => Promise<T>,
   timeoutMs: number,
   failure: (detail: string) => T,
 ): Promise<T> {
   const started = Date.now()
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await new Promise<T>((resolve) => {
-      timer = setTimeout(() => resolve(failure(`硬超时（超过 ${Date.now() - started}ms 未返回）`)), timeoutMs)
-      task().then(resolve, (error: unknown) =>
-        resolve(failure(error instanceof Error ? error.message : String(error))),
-      )
-    })
-  } finally {
-    if (timer !== undefined) clearTimeout(timer)
-  }
+  return foldRejection(
+    () => withHardTimeout(task, timeoutMs, () => failure(`硬超时（超过 ${Date.now() - started}ms 未返回）`)),
+    (error: unknown) => failure(error instanceof Error ? error.message : String(error)),
+  )
 }
 
 /** 给原始端口统一施加硬超时与折叠 */

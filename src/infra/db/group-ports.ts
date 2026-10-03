@@ -54,16 +54,5 @@ export interface GroupRepository {
 }
 
 /** 建群状态文案与色调（UI 与测试共用，避免各处硬编码） */
-export const GROUP_JOB_STATUS_LABEL: Record<GroupJobStatus, string> = {
-  pending: '创建中',
-  success: '已建群',
-  failed: '失败',
-  interrupted: '结果未知',
-}
-
-export const GROUP_JOB_STATUS_TONE: Record<GroupJobStatus, 'info' | 'warning' | 'success' | 'danger' | 'muted'> = {
-  pending: 'info',
-  success: 'success',
-  failed: 'danger',
-  interrupted: 'warning',
-}
+// 群任务状态机文案：真值已迁 `@/types/welink`（V2 同族治理），此处 re-export。
+export { GROUP_JOB_STATUS_LABEL, GROUP_JOB_STATUS_TONE } from '@/types/welink'

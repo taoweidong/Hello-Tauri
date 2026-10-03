@@ -46,6 +46,10 @@ welink-cli create-group → 全程留痕，migration v3）。仅支持 Windows�
 - **TS 内部分层**（依赖自上而下）：`views`/`components` → `stores`（Pinia）→ `orchestrator`
   （轮询/管线/安全闸/启动恢复/建群流程）→ `infra`（welink / agent / db / windows 四个端口-适配器模块）→ `repositories`。
   外部世界一律先定义 Port 接口 + `mock.ts` 实现（测试替身，真实现后到只换适配器文件）。
+  **组合点例外**（quality-hardening-2026-10 D2）：store 允许消费 infra 工厂做**装配**
+  （如 `envcheck.ts → createEnvChecks`、`table.ts → recordsBackend`、`group.ts → groupClient`，
+  浏览器内存实现的切换点），业务逻辑仍归 orchestrator；UI 层（views/components）禁止
+  直触 `@/infra/**` 与 `@/repositories/**`（ESLint `no-restricted-imports` 闸门强制）。
 - **Windows 基础设施闸门**（`src/infra/windows/`）：系统命令执行走「TS 命令注册表
   （registry.ts）+ Rust 白名单（cli.rs `ALLOWED_STEMS`）」双层闸，只登记只读诊断类
   System32 EXE，禁止任何 `cmd /c` 自由字符串通道；系统信息探测与 Shell 交互

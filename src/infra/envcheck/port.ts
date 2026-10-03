@@ -15,6 +15,8 @@
  *     `src-tauri/src/cli.rs` 的 `ALLOWED_STEM` —— 这是唯一一处必须动 Rust 的场景。
  */
 
+import { foldRejection, withHardTimeout as withTimeoutLimit } from '@/utils/async-guard'
+
 /** 单项检测的状态（UI 的标签与汇总横幅都由它派生） */
 export type EnvCheckStatus = 'ok' | 'warn' | 'fail' | 'timeout'
 
@@ -73,34 +75,26 @@ export function worstStatus(steps: EnvCheckStep[]): EnvCheckStatus {
  *     Rust 侧超时（15s 兜底）负责 —— 两侧预算必须满足 Rust < 硬超时链路合理，
  *     单次 CLI 调用的预算要显式小于本硬超时；
  *  3. 定时器在 settle 后必须清除，否则会拖住定时器队列（测试 fake timers 下尤为明显）。
+ *
+ * 实现委托 `utils/async-guard` 的通用原语（quality-hardening-2026-10 D5）：
+ * 本函数只负责把通用语义映射成 EnvCheckOutcome 的两种折叠形态。
  */
-export async function withHardTimeout(task: () => Promise<EnvCheckOutcome>, timeoutMs: number, label: string): Promise<EnvCheckOutcome> {
+export function withHardTimeout(task: () => Promise<EnvCheckOutcome>, timeoutMs: number, label: string): Promise<EnvCheckOutcome> {
   const started = Date.now()
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await new Promise<EnvCheckOutcome>((resolve) => {
-      timer = setTimeout(() => {
-        resolve({
-          status: 'timeout',
-          summary: `检测超时（超过 ${timeoutMs}ms 未返回）：${label}`,
-          details: `检测项：${label}。\n已放弃等待本次检测；底层进程由宿主侧超时负责回收，不影响其他页面。`,
-          steps: [],
-          durationMs: Date.now() - started,
-        })
-      }, timeoutMs)
-      task()
-        .then(resolve)
-        .catch((error: unknown) => {
-          // 理论上探测实现内部已折叠异常；这里是最后一道防线（防 unhandled rejection）
-          resolve({
-            status: 'fail',
-            summary: `检测执行异常：${error instanceof Error ? error.message : String(error)}`,
-            steps: [],
-            durationMs: Date.now() - started,
-          })
-        })
-    })
-  } finally {
-    if (timer !== undefined) clearTimeout(timer)
-  }
+  return foldRejection(
+    () =>
+      withTimeoutLimit(task, timeoutMs, () => ({
+        status: 'timeout',
+        summary: `检测超时（超过 ${timeoutMs}ms 未返回）：${label}`,
+        details: `检测项：${label}。\n已放弃等待本次检测；底层子进程由宿主侧超时负责回收，不影响其他页面。`,
+        steps: [],
+        durationMs: Date.now() - started,
+      })),
+    (error: unknown) => ({
+      status: 'fail',
+      summary: `检测执行异常：${error instanceof Error ? error.message : String(error)}`,
+      steps: [],
+      durationMs: Date.now() - started,
+    }),
+  )
 }

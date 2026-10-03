@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 
+import { platform } from '@/api'
+import { csvFileName, downloadCsv, exportRecordsCsv } from '@/repositories/csv'
 import { recordsBackend, cloneSeed, type RecordsBackend } from '@/repositories/records'
 import type { TableRow, TableRowDraft } from '@/types'
 import { logger } from '@/utils/logger'
@@ -137,6 +139,26 @@ export const useTableStore = defineStore('table', () => {
     page.value = 1
   })
 
+  /**
+   * 导出指定行为 CSV：桌面写存储根 exports/，浏览器降级为浏览器下载。
+   * 平台分支收敛在 store（组合点例外），视图不再直触 repositories
+   * （quality-hardening-2026-10 V3 治理）。
+   */
+  async function exportCsv(rows: TableRow[]): Promise<{ ok: true; target: string } | { ok: false; reason: string }> {
+    if (!rows.length) return { ok: false, reason: '没有可导出的记录' }
+    if (platform === 'web') {
+      downloadCsv(rows, csvFileName().split('/').pop())
+      return { ok: true, target: '已下载 CSV' }
+    }
+    try {
+      const path = await exportRecordsCsv(rows)
+      logger.info(`已导出 ${rows.length} 条记录到 ${path}`)
+      return { ok: true, target: path }
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? `导出失败：${error.message}` : '导出失败' }
+    }
+  }
+
   return {
     rows,
     keyword,
@@ -156,5 +178,6 @@ export const useTableStore = defineStore('table', () => {
     update,
     remove,
     resetSeed,
+    exportCsv,
   }
 })

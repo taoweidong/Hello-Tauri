@@ -135,6 +135,28 @@ export default tseslint.config(
     rules: { 'no-restricted-imports': 'off' },
   },
 
+  // —— 分层闸门（quality-hardening-2026-10 D4）——
+  // UI 层（views/components）禁止直触 infra / repositories：宿主与数据访问一律
+  // 经 stores（组合点例外与口径见 AGENTS.md「TS 内部分层」）。V1/V2/V3 已清零，
+  // 本规则是防回流的机器闸。
+  {
+    files: ['src/views/**/*.{ts,vue}', 'src/components/**/*.{ts,vue}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@/infra', '@/infra/**', '@/repositories', '@/repositories/**'],
+              message:
+                'UI 层（views/components）禁止直触 infra/repositories —— 一律经 stores（AGENTS.md「TS 内部分层」；quality-hardening-2026-10 D4）。',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // 测试文件放宽：允许非空断言、允许 any（构造边界数据）
   {
     files: ['**/*.spec.ts'],
