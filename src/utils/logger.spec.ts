@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { logger, onLog } from './logger'
+import { logger, onLog, registerSecret, resetSecretsForTest } from './logger'
 
 /**
  * 统一日志出口（P10 旁路转发语义）：控制台 + 宿主 appendLog + 订阅者同步转发；
@@ -90,6 +90,49 @@ describe('logger', () => {
     logger.error('干净消息')
     expect(sink).toHaveBeenNthCalledWith(1, 'error', '字符串异常 :: plain')
     expect(sink).toHaveBeenNthCalledWith(2, 'error', '干净消息')
+    unsubscribe()
+  })
+})
+
+describe('logger —— 敏感值遮蔽（design D6：CodeHub token 全链路脱敏）', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    resetSecretsForTest()
+  })
+
+  afterEach(() => {
+    resetSecretsForTest()
+    vi.restoreAllMocks()
+  })
+
+  it('注册的敏感值在旁路订阅与落盘消息中都被等值替换', () => {
+    registerSecret('super-secret-token-value')
+    const sink = vi.fn()
+    const unsubscribe = onLog(sink)
+    logger.info('调用失败：--token super-secret-token-value 已被拒绝')
+    expect(sink).toHaveBeenCalledWith('info', '调用失败：--token *** 已被拒绝')
+    expect(appendLog).toHaveBeenCalledWith('info', '调用失败：--token *** 已被拒绝')
+    unsubscribe()
+  })
+
+  it('error 级别拼接的异常详情同样遮蔽', () => {
+    registerSecret('tok-abcdef1234')
+    const sink = vi.fn()
+    const unsubscribe = onLog(sink)
+    logger.error('同步失败', new Error('bad args: --token tok-abcdef1234'))
+    const message = sink.mock.calls[0][1] as string
+    expect(message).not.toContain('tok-abcdef1234')
+    expect(message).toContain('***')
+    unsubscribe()
+  })
+
+  it('未注册值原样保留；过短值（<4 字符）不注册（误伤面大于收益）', () => {
+    registerSecret('tok')
+    const sink = vi.fn()
+    const unsubscribe = onLog(sink)
+    logger.info('token tok 原样出现')
+    expect(sink).toHaveBeenCalledWith('info', 'token tok 原样出现')
     unsubscribe()
   })
 })

@@ -87,3 +87,37 @@ export type WelinkEvent =
 
 /** 事件接收器（store 实现；测试里换成数组收集器即可断言事件序列） */
 export type EventSink = (event: WelinkEvent) => void
+
+// ---------------- CodeHub 检视域（personal-workbench） ----------------
+
+/**
+ * 一轮同步的终态摘要（检视页状态条 + 手动刷新 toast 的数据源）。
+ * 纯数据事件与 welink 侧同一约定：可断言、可落日志。
+ */
+export interface CodeHubSyncSummary {
+  phase: 'ok' | 'failed'
+  /** 参与本轮的启用仓库数 */
+  repos: number
+  /** 实际落库的 MR 条数（含覆盖更新） */
+  applied: number
+  /** 失败的仓库数 */
+  failed: number
+  /**
+   * 输出触到截断上限、本轮快照可能不完整的仓库（design D5 降级信号）。
+   * 非空时 `phase` 仍可为 ok —— 数据是有效的，只是「可能少了尾巴」。
+   */
+  degraded: string[]
+  /** 失败原因（phase=failed 时可读；部分失败时是首个终止原因或计数摘要） */
+  reason: string
+  startedAt: string
+  finishedAt: string | null
+}
+
+export type CodeHubEvent =
+  | { type: 'codehubSyncStarted' }
+  | { type: 'codehubRepoSynced'; repoId: string; applied: number }
+  | { type: 'codehubRepoFailed'; repoId: string; reason: string; kind: string }
+  | { type: 'codehubSyncFinished'; summary: CodeHubSyncSummary }
+
+/** CodeHub 事件接收器（codehub store 实现；测试用数组收集器断言序列） */
+export type CodeHubEventSink = (event: CodeHubEvent) => void

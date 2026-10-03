@@ -12,6 +12,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AgentSection: typeof import('./src/components/welink/settings/AgentSection.vue')['default']
+    CodehubSettingsCard: typeof import('./src/components/codehub/CodehubSettingsCard.vue')['default']
     ConfigTab: typeof import('./src/components/welink/ConfigTab.vue')['default']
     ControlBar: typeof import('./src/components/welink/ControlBar.vue')['default']
     ConversationListPanel: typeof import('./src/components/welink/messages/ConversationListPanel.vue')['default']
@@ -48,6 +49,8 @@ declare module 'vue' {
     HistoryTab: typeof import('./src/components/welink/HistoryTab.vue')['default']
     InboxTab: typeof import('./src/components/welink/InboxTab.vue')['default']
     MessagesTab: typeof import('./src/components/welink/MessagesTab.vue')['default']
+    MrDetailPanel: typeof import('./src/components/codehub/MrDetailPanel.vue')['default']
+    MrStateBadge: typeof import('./src/components/codehub/MrStateBadge.vue')['default']
     PendingJobsPanel: typeof import('./src/components/welink/messages/PendingJobsPanel.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']

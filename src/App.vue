@@ -6,11 +6,13 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import MainLayout from '@/layouts/MainLayout.vue'
 import { useAppStore } from '@/stores/app'
 import { useTableStore } from '@/stores/table'
+import { useCodehubStore } from '@/stores/codehub'
 
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const tableStore = useTableStore()
+const codehubStore = useCodehubStore()
 
 /**
  * Element Plus 区域语言（P-1）。
@@ -37,6 +39,11 @@ onMounted(async () => {
   if (target && target !== '/' && route.path === '/') {
     void router.replace(target)
   }
+
+  // CodeHub 检视域的应用级装配：迁移 → 装载仓库清单 → 按配置起自动同步。
+  // 周期轮询是后台职责，不该等用户走进检视页才开始（spec「轮询间隔生效」）；
+  // 不 await —— 首屏不被子进程与磁盘IO 拖住（P6），失败由检视页呈现失败态与重试。
+  void codehubStore.init()
 })
 
 // 配置改动实时同步到表格分页，修复 keep-alive 后配置不生效的问题

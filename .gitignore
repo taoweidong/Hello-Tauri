@@ -28,6 +28,10 @@ build/
 # 图标生成的中间产物
 vibe_images/
 
+# 本地调试截图与外部视觉工具产物（会话期生成，不纳入版本管理）
+.screenshots/
+.dsh-vision-toolkit/
+
 # 编辑器与系统文件
 .idea/
 .vscode/

@@ -35,6 +35,9 @@ const DEFAULT_TIMEOUT_MS: u64 = 15_000;
 /// 在此处显式放行并写明用途，不接受任何「传什么跑什么」的放宽。
 const ALLOWED_STEMS: &[&str] = &[
     "welink-cli",
+    // `codehub-cli` —— 内网 CodeHub MR 检视拉取（personal-workbench；与 welink-cli
+    // 同构的 CLI 通道消费方，命令拼装与解析全在 TS 侧 `src/infra/codehub/`）。
+    "codehub-cli",
     "python",
     "python3",
     "py",

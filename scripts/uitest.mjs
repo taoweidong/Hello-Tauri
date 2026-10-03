@@ -467,7 +467,7 @@ async function runFunctional(client, sandboxRoot) {
     //  * 这里改为断言**必含集合**（下列核心页面必须在）+ **顺序单调**
     //    （清单必须是声明顺序的子序列），新增页面无需改脚本 ——
     //    但核心页面（有独立功能与路由的）应主动加进 required，别让契约退化成空壳。
-    const required = ['概览', '数据管理', 'WeLink 助手', '快速建群', '配置', '环境检测', '关于']
+    const required = ['工作台', '数据管理', 'WeLink 助手', '快速建群', 'CodeHub 检视', '配置', '环境检测', '关于']
     for (const name of required) {
       assert(items.includes(name), `导航缺项：${name}（实际：${items.join(',')}）`)
     }
@@ -517,12 +517,14 @@ async function runFunctional(client, sandboxRoot) {
   section('2. 路由与页面可达性')
 
   for (const [label, marker] of [
-    ['概览', '数据与运行状态一览'],
+    ['工作台', '各工作域入口与数据摘要'],
     ['数据管理', '业务记录的检索与维护'],
     // 进本页会触发 WeLink 仓储 ensureSchema → 应用迁移 v2；进「快速建群」会触发
     // migration v3，本次会话后续的「迁移记录」断言必须容纳 v1+v2+v3（见第 11 节）。
     ['WeLink 助手', '群/私聊消息自动回复 · 全链路留痕 · 防滥发闸口'],
     ['快速建群', '建群模板 · 一键外呼 · 全程留痕'],
+    // CodeHub 检视页首次进入会 ensureSchema → migration v4（仓库注册 / MR 快照 / 同步状态）。
+    ['CodeHub 检视', '内网 MR 合并与检视动态（本地快照，只读）'],
     ['配置', '界面偏好与存储位置'],
     ['环境检测', 'CLI 依赖环境检测 · 超时保护 · 不阻塞界面'],
     ['关于', '版本信息与技术构成'],
@@ -534,6 +536,31 @@ async function runFunctional(client, sandboxRoot) {
       return caption
     })
   }
+
+  // CodeHub 检视页：默认 mock 数据源，首屏只读本地快照（不起子进程、不发网络请求）
+  await check('CodeHub 检视页：筛选条、来源徽标与未同步空态就位', async () => {
+    await gotoNav(client, 'CodeHub 检视')
+    await waitFor(() => client.evaluate("Boolean(document.querySelector('.filters .chip'))"), {
+      label: '状态筛选条出现',
+      timeoutMs: 8000,
+    })
+    const shape = await query(
+      client,
+      `
+      return {
+        chips: $$('.filters .chip').map((el) => norm(el)),
+        tags: $$('.toolbar .tag').map((el) => norm(el)),
+        allRepos: norm($('.repos .repo--all')),
+        empty: norm($('.empty')),
+      };
+    `,
+    )
+    assertEqual(shape.chips.join('/'), '全部/开启/已合并/已关闭', '状态筛选条')
+    assertEqual(shape.tags.join('/'), '模拟数据', '同步状态徽标')
+    assert(shape.allRepos.startsWith('全部仓库'), `仓库清单首行异常：${shape.allRepos}`)
+    assert(shape.empty.includes('还没有同步过任何 MR'), `空态文案不符：${shape.empty}`)
+    return `${shape.chips.join(' / ')} · ${shape.tags.join(' / ')}`
+  })
 
   // WeLink 助手页结构：全局控制条常驻 + 五 Tab 主区（设计 §11）
   await check('WeLink 助手页：控制条与五个 Tab 均就位', async () => {

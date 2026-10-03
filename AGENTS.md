@@ -3,7 +3,8 @@
 Tauri 2 + Vue 3 + Element Plus 的 Windows 桌面应用，打包为**单文件离线 exe**（面向内网环境）。
 三大技术域：桌面壳（Rust，薄桥接）、前端业务（100% TypeScript）、WeLink × Agent 自动回复（轮询
 welink-cli → SQLite → 本地大模型 Agent → 安全外发）；WeLink 域另含「快速建群」（建群模板 →
-welink-cli create-group → 全程留痕，migration v3）。仅支持 Windows。
+welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内网 MR 检视：codehub-cli 子进程
+→ SQLite 快照 → 检视页，纯只读、无外发，migration v4）首页是聚合各域的「工作台」。仅支持 Windows。
 
 ## 常用命令
 
@@ -38,13 +39,15 @@ welink-cli create-group → 全程留痕，migration v3）。仅支持 Windows�
   是唯一例外（桌面实现），`web.ts` 是浏览器实现（localStorage），`index.ts` 运行时按
   `__TAURI_INTERNALS__` 自动选择。
 - **Rust 无业务规则**：`src-tauri/src/` 只有「开窗口 + 存储读写 + SQLite 通用通道 +
-  welink-cli 子进程 + Windows 基础设施只读通道」共 24 个命令（commands 9 / db 4 / fs 2 /
-  cli 1 / sysinfo 4 / shell 4）。新增功能全部写在 `src/` 的 TypeScript 中，不要动 Rust；
-  新增宿主能力 = 薄桥接命令 + Bridge 双侧实现 + infra 端口-适配器（同 windows-infra 模式）。
+  CLI 子进程（welink-cli / codehub-cli 共用一条通道）+ Windows 基础设施只读通道」共 24 个
+  命令（commands 9 / db 4 / fs 2 / cli 1 / sysinfo 4 / shell 4）。新增功能全部写在 `src/` 的
+  TypeScript 中，不要动 Rust；新增宿主能力 = 薄桥接命令 + Bridge 双侧实现 + infra
+  端口-适配器（同 windows-infra 模式）。
 - **SQLite 表结构归 TS 管**：迁移写在 `src/infra/db/migrations/`，经通用命令
   `db_migrate/db_select/db_execute/db_transaction` 下发。Rust 侧（`db.rs`）不知道任何表结构。
 - **TS 内部分层**（依赖自上而下）：`views`/`components` → `stores`（Pinia）→ `orchestrator`
-  （轮询/管线/安全闸/启动恢复/建群流程）→ `infra`（welink / agent / db / windows 四个端口-适配器模块）→ `repositories`。
+  （轮询/管线/安全闸/启动恢复/建群流程/CodeHub 同步与详情补拉）→ `infra`（welink / agent /
+  db / envcheck / windows / codehub 六个端口-适配器模块）→ `repositories`。
   外部世界一律先定义 Port 接口 + `mock.ts` 实现（测试替身，真实现后到只换适配器文件）。
   **组合点例外**（quality-hardening-2026-10 D2）：store 允许消费 infra 工厂做**装配**
   （如 `envcheck.ts → createEnvChecks`、`table.ts → recordsBackend`、`group.ts → groupClient`，
@@ -54,10 +57,12 @@ welink-cli create-group → 全程留痕，migration v3）。仅支持 Windows�
   （registry.ts）+ Rust 白名单（cli.rs `ALLOWED_STEMS`）」双层闸，只登记只读诊断类
   System32 EXE，禁止任何 `cmd /c` 自由字符串通道；系统信息探测与 Shell 交互
   （打开/剪贴板/通知）为**永不 reject** 结果对象语义，硬超时由工厂统一施加。
-- **模拟替身标注约定**：welink-cli 的模拟替身与假设契约带统一标签，对接真实 CLI 前先
+- **模拟替身标注约定**：welink-cli / codehub-cli 的模拟替身与假设契约带统一标签，对接真实 CLI 前先
   `grep -rn "MOCK-CLI\|CLI-ASSUME" src/` 逐项核对：`[MOCK-CLI]` = 模拟实现（对接后**保留**
   为测试替身与浏览器调试数据源）；`[CLI-ASSUME]` = 对真实 CLI 的假设（子命令/参数/字段名/
   编码/游标/占位 ID），对接时必须逐一核实，核实后更新或删除对应标签。
+  CodeHub 域的清单已整理成 `openspec/changes/personal-workbench/cli-assume-checklist.md`
+  （对接 codehub-cli 时按表逐项打勾）。
   大模型 HTTP 适配器同款约定：`[LLM-ASSUME]` = 对真实大模型服务的协议假设（路径/鉴权头/
   model 字段/消息结构/流式开关/响应形状/CORS），对接前 `grep -rn "LLM-ASSUME" src/` 逐项核实，
   清单见 `docs/design-llm-connection-2026-10-02.md`。
@@ -106,12 +111,21 @@ welink-cli create-group → 全程留痕，migration v3）。仅支持 Windows�
   exe，子进程输出 UTF-8→GBK 兜底解码。
 - **快速建群铁律**：外呼 CLI 前必须先落 `pending` 留痕，终态（success/failed）以
   `WHERE status='pending'` 原子回写；建群**不做传输层自动重试**（响应丢失时重试会建出两个群）。
-- 进「快速建群」页会触发 migration v3；该页在浏览器模式走内存仓储（localStorage），桌面模式才落 SQLite。
+- **CodeHub 检视铁律**：纯只读域，**不接 safety-gate、无任何外发**；列表浏览只读本地快照，
+  唯一的子进程出口是「点开缺详情的 MR 按条补拉」（在飞去重归 `orchestrator/codehub-detail.ts`）。
+  token 以 `--token` 参数注入并经 `registerSecret` 全链路遮蔽；本期**无游标列**（每轮按
+  `CODEHUB_MAX_BATCH=200` 全量重拉），覆盖写只增改不删，清理只随仓库删除级联发生；
+  输出截断只记 `degraded`（UI 标「数据可能不完整」），**不写** `last_error`。
+- 进「快速建群」页会触发 migration v3；进「CodeHub 检视」页会触发 migration v4
+  （仓库注册 / MR 快照 / 同步状态）；两页在浏览器模式走内存仓储（localStorage），桌面模式才落 SQLite。
 - `dist/`、`release/`、`target/`、`coverage/` 是构建产物，勿提交勿手改。
 
 ## 改动前先读的文档
 
 - `docs/design-welink-agent-2026-09-27.md` — WeLink × Agent 总设计（架构分层 §3、数据模型 §4、
   安全闸 §5A、时序 §6、快速建群 §15）；动 `src/infra/`、`src/orchestrator/`、welink 相关表结构前必读。
+- `openspec/changes/personal-workbench/design.md` + 同目录 `cli-assume-checklist.md` — CodeHub
+  检视域口径（D3 打桩先行、D5 截断降级、D6 token 注入、D7 工作台首页、D8 分层归位）与
+  对接真实 codehub-cli 时的逐项核对表。
 - `docs/` 其余为历史设计/质量报告，可按需查阅。
 - `README.md` — 打包与内网迁移细节（存储迁移、bootstrap 引导、离线依赖清单）。

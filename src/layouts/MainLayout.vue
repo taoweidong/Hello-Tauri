@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { IconSun, IconMoon, IconPanelLeft } from '@/components/icons'
-import { navRoutes } from '@/router'
+import { navGroups } from '@/router'
 
 import { platform } from '@/api'
 import { useAppStore } from '@/stores/app'
@@ -14,13 +14,12 @@ const appStore = useAppStore()
 const welinkStore = useWelinkStore()
 
 /**
- * 侧栏导航由**路由表派生**（A-1）。
+ * 侧栏导航由**路由表派生**（A-1），分组与条目全部来自 `navGroups()`。
  *
- * 这里刻意不再维护一份 `navItems` 数组：标题、图标、顺序全部声明在
- * `router/index.ts` 的 `meta` 上，新增页面只需改路由表一处，
- * 侧栏自动出现（曾经的「双真值」会导致路由能进但侧栏没有）。
+ * 这里刻意不再维护自己的清单：标题、图标、顺序、分组声明在 `router/index.ts`
+ * 的 `meta` 上，新增页面（或挪分组）只需改路由表一处，侧栏自动出现。
  */
-const navItems = navRoutes()
+const groups = navGroups()
 
 /**
  * 兜底版本号（R-3）：真值来自构建期注入的 `__APP_VERSION__`（源自 package.json）。
@@ -74,27 +73,30 @@ function go(path: string) {
       </div>
 
       <nav class="rail__nav">
-        <button
-          v-for="item in navItems"
-          :key="item.path"
-          class="rail__item pressable"
-          :class="{ 'is-active': route.path === item.path }"
-          :title="collapsed ? item.title : undefined"
-          :aria-current="route.path === item.path ? 'page' : undefined"
-          @click="go(item.path)"
-        >
-          <component :is="item.icon" class="rail__icon" />
-          <span v-show="!collapsed" class="rail__label">{{ item.title }}</span>
-          <span
-            v-if="item.path === '/welink' && welinkBadge"
-            class="rail__badge"
-            :class="{ 'rail__badge--dot': collapsed }"
-            :title="`${welinkStore.unreadTotal} 条未读 · ${welinkStore.reviewCount} 条待审`"
+        <template v-for="group in groups" :key="group.name">
+          <div v-show="!collapsed" class="rail__group">{{ group.name }}</div>
+          <button
+            v-for="item in group.items"
+            :key="item.path"
+            class="rail__item pressable"
+            :class="{ 'is-active': route.path === item.path }"
+            :title="collapsed ? item.title : undefined"
+            :aria-current="route.path === item.path ? 'page' : undefined"
+            @click="go(item.path)"
           >
-            {{ collapsed ? '' : welinkBadge > 99 ? '99+' : welinkBadge }}
-          </span>
-          <span v-if="route.path === item.path" class="rail__marker" aria-hidden="true" />
-        </button>
+            <component :is="item.icon" class="rail__icon" />
+            <span v-show="!collapsed" class="rail__label">{{ item.title }}</span>
+            <span
+              v-if="item.path === '/welink' && welinkBadge"
+              class="rail__badge"
+              :class="{ 'rail__badge--dot': collapsed }"
+              :title="`${welinkStore.unreadTotal} 条未读 · ${welinkStore.reviewCount} 条待审`"
+            >
+              {{ collapsed ? '' : welinkBadge > 99 ? '99+' : welinkBadge }}
+            </span>
+            <span v-if="route.path === item.path" class="rail__marker" aria-hidden="true" />
+          </button>
+        </template>
       </nav>
 
       <div class="rail__foot">
@@ -225,6 +227,16 @@ function go(path: string) {
   gap: 2px;
   padding: 10px 8px;
   overflow-y: auto;
+}
+
+.rail__group {
+  padding: 12px 10px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ht-rail-text);
+  opacity: 0.7;
+  white-space: nowrap;
 }
 
 .rail__item {

@@ -4,12 +4,16 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { IconCheck, IconDownload, IconRestore, IconFolder, IconAlert, IconArrowRight } from '@/components/icons'
 
 import { bridge, platform } from '@/api'
+import { navRoutes } from '@/router'
 import { useAppStore } from '@/stores/app'
+import { useCodehubStore } from '@/stores/codehub'
 import { logger } from '@/utils/logger'
 import type { AppSettings } from '@/types'
 import SettingsCard from '@/components/welink/SettingsCard.vue'
+import CodehubSettingsCard from '@/components/codehub/CodehubSettingsCard.vue'
 
 const appStore = useAppStore()
+const codehubStore = useCodehubStore()
 
 const form = reactive<AppSettings>({ ...appStore.settings })
 
@@ -19,13 +23,10 @@ watch(
   { deep: true },
 )
 
-const routeOptions = [
-  { label: '概览', value: '/' },
-  { label: '数据管理', value: '/table' },
-  { label: 'WeLink 助手', value: '/welink' },
-  { label: '配置', value: '/settings' },
-  { label: '关于', value: '/about' },
-]
+/** 启动默认页候选：从路由表派生（A-1 单一真值），避免手写清单与侧栏漂移 */
+const routeOptions = computed(() =>
+  navRoutes().map((item) => ({ label: item.title, value: item.path })),
+)
 
 const savedText = computed(() =>
   appStore.lastSavedAt ? new Date(appStore.lastSavedAt).toLocaleString('zh-CN') : '尚未保存',
@@ -35,6 +36,8 @@ const storage = computed(() => appStore.storage)
 
 /** WeLink 卡片校验：选真实 CLI 但路径为空时禁用保存，避免存下一个必然失败的配置 */
 const welinkValid = ref(true)
+/** CodeHub 卡片校验：同款规则（选真实 CLI 但路径为空 → 拦截保存） */
+const codehubValid = ref(true)
 
 function apply() {
   appStore.settings = { ...form }
@@ -45,9 +48,16 @@ async function save() {
     ElMessage.error('WeLink 助手配置不合法（已选真实 CLI 但路径为空），请修正后再保存')
     return
   }
+  if (!codehubValid.value) {
+    ElMessage.error('CodeHub 连接配置不合法（已选真实 CLI 但路径为空），请修正后再保存')
+    return
+  }
   apply()
   const ok = await appStore.save()
   if (ok) {
+    // CodeHub 自动同步随配置即时重评估：间隔归零 → 停，配齐且 >0 → 起（不必重启应用）。
+    // 先过 init（幂等）：启动时迁移失败的场景下，修好配置保存即补一次装载。
+    void codehubStore.init().then(() => codehubStore.applyAutoSettings())
     ElMessage({ message: '配置已保存', type: 'success' })
   } else {
     ElMessage.error('保存失败，请查看日志')
@@ -244,6 +254,14 @@ async function migrateDir() {
       @update:model-value="(value) => (form.weLink = value)"
       @update:valid="(value: boolean) => (welinkValid = value)"
     />
+
+    <!-- CodeHub 连接（personal-workbench）：配置持久化在这里，同步/刷新入口在检视页 -->
+    <CodehubSettingsCard
+      :model-value="form.codeHub ?? {}"
+      class="codehub-card"
+      @update:model-value="(value) => (form.codeHub = value)"
+      @update:valid="(value: boolean) => (codehubValid = value)"
+    />
   </div>
 </template>
 
@@ -256,6 +274,10 @@ async function migrateDir() {
 }
 
 .welink-card {
+  margin-top: 14px;
+}
+
+.codehub-card {
   margin-top: 14px;
 }
 

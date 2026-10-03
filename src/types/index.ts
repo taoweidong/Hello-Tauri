@@ -43,6 +43,11 @@ export interface AppSettings {
    * 调用方永远拿归一化后的完整对象。
    */
   weLink?: Partial<import('./welink').WelinkSettings>
+  /**
+   * CodeHub 检视域配置（personal-workbench：`config/config.json` → `AppSettings.codeHub`）。
+   * 同 weLink 的约定：Partial 允许老配置缺省，归一化由 `normalizeCodeHubSettings` 负责。
+   */
+  codeHub?: Partial<import('./codehub').CodeHubSettings>
 }
 
 export type RowStatus = 'active' | 'inactive'

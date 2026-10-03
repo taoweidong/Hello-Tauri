@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   IconTable,
@@ -9,19 +9,70 @@ import {
   IconActivity,
   IconUser,
   IconClock,
+  IconGitBranch,
+  IconCircleCheck,
 } from '@/components/icons'
 
 import { platform } from '@/api'
+import type { StorageLayout } from '@/types'
 import { useAppStore } from '@/stores/app'
+import { useWelinkStore } from '@/stores/welink'
+import { useCodehubStore } from '@/stores/codehub'
 import { CATEGORIES, useTableStore } from '@/stores/table'
 
 const router = useRouter()
 const appStore = useAppStore()
+const welinkStore = useWelinkStore()
+const codehubStore = useCodehubStore()
 const tableStore = useTableStore()
 
 function fmt(n: number) {
   return n.toLocaleString('zh-CN')
 }
+
+// ---------------- 工作域卡片（personal-workbench：首页 = 多域聚合入口） ----------------
+
+/** CodeHub 摘要：页面装载时读一次本地快照（浏览不触发任何子进程/网络） */
+const codehubReady = ref(false)
+const openMrCount = ref(0)
+
+onMounted(async () => {
+  if (await codehubStore.init()) {
+    openMrCount.value = await codehubStore.countMrs({ state: 'open' })
+    codehubReady.value = true
+  }
+})
+
+const domainCards = computed(() => [
+  {
+    path: '/welink',
+    title: 'WeLink 助手',
+    desc: '消息存档与自动回复',
+    metric: welinkStore.reviewCount > 0 ? `待审 ${welinkStore.reviewCount}` : '暂无待审',
+    icon: IconActivity,
+  },
+  {
+    path: '/codehub',
+    title: 'CodeHub 检视',
+    desc: '内网 MR 合并与检视动态',
+    metric: codehubReady.value ? `开启 ${fmt(openMrCount.value)}` : '待同步',
+    icon: IconGitBranch,
+  },
+  {
+    path: '/table',
+    title: '数据管理',
+    desc: '本地记录与导出',
+    metric: `共 ${fmt(tableStore.stats.total)} 条`,
+    icon: IconTable,
+  },
+  {
+    path: '/envcheck',
+    title: '环境检测',
+    desc: '系统诊断与依赖探测',
+    metric: '一键体检',
+    icon: IconCircleCheck,
+  },
+])
 
 /** 分类分布：条数 + 金额占比，供色带条使用 */
 const distribution = computed(() => {
@@ -50,21 +101,46 @@ const ledger = computed(() => [
 const statusText: Record<string, string> = { active: '启用', inactive: '停用' }
 const catIndex = (name: string) => Math.max(0, CATEGORIES.indexOf(name))
 
-const infoRows = computed(() => [
-  { label: '运行模式', value: platform === 'tauri' ? 'Tauri 桌面' : 'Web 浏览器' },
-  { label: '应用版本', value: appStore.info?.version ?? '-' },
-  { label: 'Tauri 版本', value: appStore.info?.tauriVersion ?? '-' },
-  { label: '系统 / 架构', value: appStore.info ? `${appStore.info.platform} / ${appStore.info.arch}` : '-' },
-  { label: '配置文件', value: appStore.info?.configPath ?? '-', mono: true },
-])
+/** 存储状态只给结论（正常/降级）：完整原因走 title 提示，长文案不在 300px 侧栏里换行铺开 */
+function storageLabel(storage: StorageLayout | null): string {
+  if (!storage) return '-'
+  return storage.fallback ? '降级' : '正常'
+}
+
+const infoRows = computed(() => {
+  const storage = appStore.info?.storage ?? null
+  return [
+    { label: '运行模式', value: platform === 'tauri' ? 'Tauri 桌面' : 'Web 浏览器' },
+    { label: '应用版本', value: appStore.info?.version ?? '-' },
+    { label: 'Tauri 版本', value: appStore.info?.tauriVersion ?? '-' },
+    { label: '系统 / 架构', value: appStore.info ? `${appStore.info.platform} / ${appStore.info.arch}` : '-' },
+    { label: '配置文件', value: appStore.info?.configPath ?? '-', mono: true },
+    // 存储状态（design D7 卡片项）：数据根目录 + 是否降级回退，内网迁移最先要核对的就是这两行
+    { label: '数据根目录', value: storage?.root ?? '-', mono: true },
+    { label: '存储状态', value: storageLabel(storage), title: storage?.note ?? '' },
+  ]
+})
 </script>
 
 <template>
   <div class="page">
     <div class="page-title">
-      <h1>概览</h1>
-      <span class="caption">数据与运行状态一览</span>
+      <h1>工作台</h1>
+      <span class="caption">各工作域入口与数据摘要</span>
     </div>
+
+    <!-- 工作域卡片：个人工作台的聚合入口（spec「首页域卡片聚合」） -->
+    <section class="domains" aria-label="工作域入口">
+      <button v-for="card in domainCards" :key="card.path" class="domain pressable" @click="router.push(card.path)">
+        <component :is="card.icon" class="domain__icon" />
+        <span class="domain__meta">
+          <span class="domain__title">{{ card.title }}</span>
+          <span class="domain__desc">{{ card.desc }}</span>
+        </span>
+        <span class="domain__metric num">{{ card.metric }}</span>
+        <IconArrowRight class="domain__arrow" />
+      </button>
+    </section>
 
     <!-- 指标条：单行 hairline 分隔，不拆成四张浮卡 -->
     <section class="ledger" aria-label="数据摘要">
@@ -163,7 +239,7 @@ const infoRows = computed(() => [
           <dl class="kv">
             <template v-for="row in infoRows" :key="row.label">
               <dt>{{ row.label }}</dt>
-              <dd :class="{ mono: row.mono }">{{ row.value }}</dd>
+              <dd :class="{ mono: row.mono }" :title="row.title">{{ row.value }}</dd>
             </template>
           </dl>
           <p class="foot-note">业务逻辑全部由 TypeScript 实现，Rust 仅桥接窗口与存储。</p>
@@ -174,6 +250,79 @@ const infoRows = computed(() => [
 </template>
 
 <style scoped>
+/* —— 工作域卡片 —— */
+.domains {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.domain {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--ht-line);
+  border-radius: var(--ht-radius);
+  background: var(--ht-surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.domain:hover {
+  border-color: var(--ht-primary);
+}
+
+.domain__icon {
+  width: 20px;
+  height: 20px;
+  color: var(--ht-primary);
+  flex-shrink: 0;
+}
+
+.domain__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.domain__title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ht-text-1);
+}
+
+.domain__desc {
+  font-size: 11.5px;
+  color: var(--ht-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.domain__metric {
+  font-size: 12px;
+  color: var(--ht-text-2);
+  white-space: nowrap;
+}
+
+.domain__arrow {
+  width: 14px;
+  height: 14px;
+  color: var(--ht-text-3);
+  flex-shrink: 0;
+}
+
+@media (max-width: 1080px) {
+  .domains {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 /* —— 指标条 —— */
 .ledger {
   display: grid;

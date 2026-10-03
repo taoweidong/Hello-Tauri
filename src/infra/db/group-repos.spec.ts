@@ -89,7 +89,7 @@ describe('infra/db/group —— 迁移 v3', () => {
 
   it('注册进全库迁移注册表（唯一真值）', async () => {
     const { MIGRATIONS } = await import('@/infra/db')
-    expect(MIGRATIONS.map((item) => item.version)).toEqual([1, 2, 3])
+    expect(MIGRATIONS.map((item) => item.version)).toEqual([1, 2, 3, 4])
   })
 })
 

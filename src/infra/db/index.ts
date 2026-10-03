@@ -10,8 +10,11 @@
  */
 import { bridge, platform } from '@/api'
 import type { Migration } from '@/types'
+import type { CodeHubRepository } from './codehub-ports'
 import type { GroupRepository } from './group-ports'
 import type { WelinkRepository } from './ports'
+import { sqlCodehubRepository } from './repos/codehub'
+import { memoryCodehubRepository } from './repos/codehub-memory'
 import { sqlGroupRepository } from './repos/welink-group'
 import { memoryGroupRepository } from './repos/welink-group-memory'
 import { sqlWelinkRepository } from './repos/welink'
@@ -19,6 +22,7 @@ import { memoryWelinkRepository } from './repos/welink-memory'
 import { migrationV1 } from './migrations/records'
 import { migrationV2 } from './migrations/welink'
 import { migrationV3 } from './migrations/group'
+import { migrationV4 } from './migrations/codehub'
 
 /**
  * 全库迁移注册表（**唯一真值**）。
@@ -27,7 +31,7 @@ import { migrationV3 } from './migrations/group'
  * 声明 —— 两份文本靠人肉同步，漂移后建表结构取决于谁先跑，且已落库的库不会
  * 重跑迁移，缺陷会被掩盖很久。现在两边都 import 同一份定义。
  */
-export const MIGRATIONS: Migration[] = [migrationV1, migrationV2, migrationV3]
+export const MIGRATIONS: Migration[] = [migrationV1, migrationV2, migrationV3, migrationV4]
 
 let migrated: Promise<number[]> | null = null
 
@@ -82,9 +86,25 @@ export function setGroupRepository(repo: GroupRepository | null) {
   groupRepo = repo
 }
 
+let codehubRepo: CodeHubRepository | null = null
+
+/** CodeHub 检视仓储单例（桌面 = SQLite；浏览器 = 内存实现，Q3/D5） */
+export function codehub(): CodeHubRepository {
+  if (!codehubRepo) {
+    codehubRepo = platform === 'tauri' ? sqlCodehubRepository : memoryCodehubRepository
+  }
+  return codehubRepo
+}
+
+/** 测试用：替换检视仓储实现（注入假件） */
+export function setCodehubRepository(repo: CodeHubRepository | null) {
+  codehubRepo = repo
+}
+
 export type { WelinkRepository } from './ports'
 export type { GroupRepository } from './group-ports'
 export type { GroupJobQuery } from './group-ports'
+export type { CodeHubRepository, CodeHubMrQuery } from './codehub-ports'
 export type {
   ApplyResult,
   ApplyRules,
