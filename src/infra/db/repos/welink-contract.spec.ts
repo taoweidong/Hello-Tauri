@@ -182,11 +182,49 @@ function execStatement(rawSql: string, params: DbParam[] = []): number {
       last_error: '',
       skip_reason: '',
       hold_reason: '',
+      skill_id: '',
+      skill_name: '',
+      skill_source: '',
       rating: null,
       created_at: createdAt,
       updated_at: createdAt,
       finished_at: null,
     })
+    return 1
+  }
+
+  // —— 状态流转（markStatus：status=?1, updated_at=?2 WHERE id=?3 [AND status=?4]） ——
+  if (sql.startsWith('UPDATE welink_reply_jobs SET status')) {
+    const job = tables.jobs.find((row) => number(row.id) === number(arg(params, 3)))
+    if (!job) return 0
+    if (params.length >= 4 && text(job.status) !== text(arg(params, 4))) return 0
+    job.status = arg(params, 1)
+    job.updated_at = arg(params, 2)
+    return 1
+  }
+
+  // —— 草稿提交（要点3：draft 与 status='ready' 同条 UPDATE；skill-routing：技能三列同条） ——
+  // 可选段按构建顺序依次排列：context_snapshot → skill_id/skill_name/skill_source，
+  // 从 SQL 文本判断段是否存在再按序取参。
+  if (sql.startsWith('UPDATE welink_reply_jobs SET draft')) {
+    const job = tables.jobs.find(
+      (row) => number(row.id) === number(arg(params, params.length)) && row.status === 'discussing',
+    )
+    if (!job) return 0
+    job.draft = arg(params, 1)
+    job.status = 'ready'
+    job.updated_at = arg(params, 2)
+    job.hold_reason = ''
+    let cursor = 3
+    if (/context_snapshot = \?/.test(sql)) {
+      job.context_snapshot = arg(params, cursor)
+      cursor += 1
+    }
+    if (/skill_id = \?/.test(sql)) {
+      job.skill_id = arg(params, cursor)
+      job.skill_name = arg(params, cursor + 1)
+      job.skill_source = arg(params, cursor + 2)
+    }
     return 1
   }
 
@@ -508,6 +546,51 @@ describe('WelinkRepository 双实现契约（SQLite ⇄ 内存）', () => {
     for (const side of [sqlite, memory]) {
       expect(side.count).toBe(1)
       expect(side.conv).toMatchObject({ title: '新名', watching: true, remark: '备注' })
+    }
+  })
+
+  it('新 job 的技能三列默认空串（老数据口径，展示层按「—」处理）', async () => {
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      await repo.upsertConversation({ convType: 'group', convId: 'G-1', title: '群', watching: true })
+      const applied = await repo.applyPollResult('G-1', messagesFor('G-1', [{}]), 'c1', {
+        triggers: { 'uid-1': 'group_at_me' },
+        sendMode: 'auto',
+      })
+      return applied.createdJobs[0]
+    })
+    for (const job of [sqlite, memory]) {
+      expect(job).toMatchObject({ skillId: '', skillName: '', skillSource: '' })
+    }
+  })
+
+  it('commitDraft 的技能三列与草稿同条落库（skill-routing：留痕与草稿原子一致）', async () => {
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      await repo.upsertConversation({ convType: 'group', convId: 'G-1', title: '群', watching: true })
+      const applied = await repo.applyPollResult('G-1', messagesFor('G-1', [{}]), 'c1', {
+        triggers: { 'uid-1': 'group_at_me' },
+        sendMode: 'auto',
+      })
+      const jobPk = applied.createdJobs[0].pk
+      const locked = await repo.markStatus(jobPk, 'discussing', 'pending')
+      const committed = await repo.commitDraft(jobPk, '草稿内容', '提示词', {
+        id: 'fault-fix',
+        name: '故障咨询',
+        source: 'rule',
+      })
+      return { locked, committed, job: await repo.getJob(jobPk) }
+    })
+
+    for (const side of [sqlite, memory]) {
+      expect(side.locked).toBe(true)
+      expect(side.committed).toBe(true)
+      expect(side.job).toMatchObject({
+        status: 'ready',
+        draft: '草稿内容',
+        contextSnapshot: '提示词',
+        skillId: 'fault-fix',
+        skillName: '故障咨询',
+        skillSource: 'rule',
+      })
     }
   })
 

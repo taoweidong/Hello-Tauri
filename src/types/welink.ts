@@ -25,14 +25,10 @@ export type JobRating = 'up' | 'down'
 export type WelinkSource = 'mock' | 'cli'
 /** Agent 端口实现 */
 export type AgentSource = 'mock' | 'http'
-/**
- * 大模型接口风格（HTTP 实现内的协议分支）：
- *  * `simple` —— 内网 SDK 私有协议：`POST {prompt}` → `{reply}`（设计 §3.2/D3）；
- *  * `openai` —— OpenAI 兼容 `/chat/completions`：`Authorization: Bearer` +
- *    `{model, messages}` → `choices[0].message.content`。内网本地部署的事实标准
- *    （vLLM / Ollama / LM Studio / 企业网关）都提供该协议，作为对接真实大模型环境的默认形状。
- */
-export type LlmApiStyle = 'simple' | 'openai'
+/** 技能命中来源（`welink_reply_jobs.skill_source`，空串 = 本变更前的老数据） */
+export type SkillSource = 'rule' | 'llm' | 'fallback'
+/** 技能草稿处置：auto = 正常走安全闸；manual = 生成后转人工待审（O7） */
+export type SkillReviewMode = 'auto' | 'manual'
 
 /** SafetyGate 拦截原因（设计 §5A，全量枚举 —— 落库 skip_reason 只允许取这里的值） */
 export type SkipReason =
@@ -54,7 +50,7 @@ export type SkipReason =
   | 'manual_mode' // 人工模式，不外发（hold_reason）
 
 /** 待审原因（O7）：hold_reason 取值，reviewCount 聚合依据 */
-export type HoldReason = 'manual_mode' | 'blacklist' | 'stale_draft'
+export type HoldReason = 'manual_mode' | 'blacklist' | 'stale_draft' | 'skill_review'
 
 // ---------- 实体 ----------
 
@@ -122,6 +118,10 @@ export interface WelinkJob {
   skipReason: string
   /** 待审原因（O7） */
   holdReason: string
+  /** 技能路由留痕（migration v5）：命中技能 id / 名称快照 / 来源（空串 = 老数据） */
+  skillId: string
+  skillName: string
+  skillSource: SkillSource | ''
   rating: JobRating | null
   createdAt: string
   updatedAt: string
@@ -143,6 +143,39 @@ export interface WelinkAgentLog {
   latencyMs: number
   error: string
   createdAt: string
+}
+
+// ---------- 回复技能（skill-routing 设计 §6） ----------
+
+/** 内置兜底技能的固定 ID（用户自定义技能不允许占用，归一化时撞车自动改名） */
+export const FALLBACK_SKILL_ID = 'fallback'
+
+/** 技能清单上限（S-B：个人应用技能量少，防手改 config.json 灌爆） */
+export const MAX_WELINK_SKILLS = 20
+
+/**
+ * 回复技能：一类问题的「匹配规则 + 专属模板 + 静态知识块 + 审核模式」。
+ *
+ * 技能只影响「生成什么」，绝不影响「能不能发」（安全不变量 S-F）；
+ * 兜底技能不落 skills 数组 —— 运行时清单 = 兜底（`promptTemplate` 字段）+ skills（D4）。
+ */
+export interface WelinkSkill {
+  /** 稳定 ID（slug 归一化去重；LLM 分类返回值与任务留痕的对齐键） */
+  id: string
+  /** 显示名，如「故障咨询」 */
+  name: string
+  /** 技能说明：LLM 分类时模型选择技能的唯一依据，须写清「什么问题该选它」 */
+  description: string
+  /** 停用的技能不参与路由（规则与 LLM 清单都跳过） */
+  enabled: boolean
+  /** 规则匹配词条：普通文本 = 包含匹配；`/…/` 形式 = 正则（非法正则运行期跳过） */
+  keywords: string[]
+  /** 技能专属模板：支持既有 4 占位符 + {{knowledge}}；空 = 回退兜底模板 */
+  promptTemplate: string
+  /** 静态知识块（FAQ/产品口径），渲染时注入 {{knowledge}}；空 = 占位符替换为空串 */
+  knowledge: string
+  /** manual = 草稿生成后直接转人工待审（hold_reason='skill_review'），不入自动外发队列 */
+  reviewMode: SkillReviewMode
 }
 
 // ---------- 配置（设计 §8） ----------
@@ -170,17 +203,23 @@ export interface WelinkSafetySettings {
 
 export interface WelinkAgentSettings {
   agentSource: AgentSource
+  /** 模型服务根地址（OpenAI 兼容部署：本地 Ollama/vLLM、企业网关或公有云 MaaS 均可） */
   baseUrl: string
+  /** 接口路径，惯用 `/chat/completions`（baseUrl 已含 `/v1` 类前缀时只配这一段） */
   endpoint: string
-  /** 接口风格（LlmApiStyle）：决定 HTTP 请求体/鉴权/响应解析走哪套协议 */
-  apiStyle: LlmApiStyle
-  /** API 密钥：openai 风格作 `Authorization: Bearer`；simple 私有服务通常不需要，留空即可 */
+  /** API 密钥：作 `Authorization: Bearer` 头随请求发送；本地免鉴权服务留空 */
   apiKey: string
-  /** 大模型名称：openai 风格请求体的 `model` 字段（必填，缺失时调用直接报错不外发） */
+  /** 大模型名称：请求体的 `model` 字段（必填，缺失时调用直接报错不外发） */
   model: string
   timeoutMs: number
   maxContextMsgs: number
   promptTemplate: string
+  /** 规则未命中时是否允许大模型分类兜底（S-A：规则优先 + LLM 兜底 + fallback 终兜底） */
+  llmClassifyFallback: boolean
+  /** 用户自定义回复技能清单（不含兜底技能 —— 兜底即上方 promptTemplate 字段，D4） */
+  skills: WelinkSkill[]
+  /** 兜底技能（通用助手）的静态知识块：渲染兜底模板时注入 {{knowledge}}（D4） */
+  fallbackKnowledge: string
 }
 
 export interface WelinkSettings {
@@ -207,8 +246,8 @@ export interface WelinkSettings {
   agent: WelinkAgentSettings
 }
 
-/** 提示词模板占位符（设计 §11.6，UI 高亮说明用） */
-export const PROMPT_PLACEHOLDERS = ['{{context}}', '{{question}}', '{{sender}}', '{{target}}'] as const
+/** 提示词模板占位符（设计 §11.6，UI 高亮说明用；{{knowledge}} 为技能知识块，skill-routing） */
+export const PROMPT_PLACEHOLDERS = ['{{context}}', '{{question}}', '{{sender}}', '{{target}}', '{{knowledge}}'] as const
 
 /** S7 默认黑名单：防模型幻觉生成承诺性/资金类回复 */
 export const DEFAULT_BLACKLIST_PATTERNS = [
@@ -263,14 +302,16 @@ export const DEFAULT_WELINK_SETTINGS: WelinkSettings = {
   },
   agent: {
     agentSource: 'mock',
-    baseUrl: 'http://127.0.0.1:8080',
-    endpoint: '/chat',
-    apiStyle: 'simple',
+    baseUrl: 'http://127.0.0.1:11434',
+    endpoint: '/v1/chat/completions',
     apiKey: '',
     model: '',
     timeoutMs: 60_000,
     maxContextMsgs: 20,
     promptTemplate: DEFAULT_PROMPT_TEMPLATE,
+    llmClassifyFallback: true,
+    skills: [],
+    fallbackKnowledge: '',
   },
 }
 
@@ -371,15 +412,17 @@ export function normalizeWelinkSettings(input?: Partial<WelinkSettings> | null):
     agent: {
       agentSource: agent.agentSource === 'http' ? 'http' : 'mock',
       // baseUrl 必须能解析为 http(s) URL（评审 S-1）：防篡改的配置写进 file:/ftp:
-      // 之类的协议；解析失败回退默认值，运行期另有公网 IP 拦截（agent-http）
+      // 之类的协议；解析失败回退默认值，运行期另有公网 literal IP 拦截（agent-http）
       baseUrl: isHttpUrl(agent.baseUrl) ? agent.baseUrl.trim() : base.agent.baseUrl,
       endpoint: agent.endpoint ?? base.agent.endpoint,
-      apiStyle: agent.apiStyle === 'openai' ? 'openai' : 'simple',
       apiKey: typeof agent.apiKey === 'string' ? agent.apiKey.trim() : base.agent.apiKey,
       model: typeof agent.model === 'string' ? agent.model.trim() : base.agent.model,
       timeoutMs: clampNumber(agent.timeoutMs, 1000, 300_000, base.agent.timeoutMs),
       maxContextMsgs: clampNumber(agent.maxContextMsgs, 1, 200, base.agent.maxContextMsgs),
       promptTemplate: agent.promptTemplate?.trim() ? agent.promptTemplate : base.agent.promptTemplate,
+      llmClassifyFallback: agent.llmClassifyFallback !== false,
+      skills: normalizeSkills(agent.skills),
+      fallbackKnowledge: typeof agent.fallbackKnowledge === 'string' ? agent.fallbackKnowledge.trim() : '',
     },
   }
 }
@@ -405,6 +448,51 @@ function isHttpUrl(value: unknown): value is string {
   } catch {
     return false
   }
+}
+
+/** 技能 id slug 化：小写字母数字连字符（LLM 分类返回值与任务留痕的对齐键，S-H） */
+function slugifySkillId(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+/**
+ * 技能清单收敛（S-B）：非数组回空、截断到上限、id slug 化去重、逐字段清洗。
+ *
+ * 兜底 ID `fallback` 保留给内置兜底技能，用户技能撞车时自动改名；
+ * 无名条目直接丢弃（没有名字的技能在 UI 上无法辨识，也不该参与路由）。
+ */
+function normalizeSkills(value: unknown): WelinkSkill[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const out: WelinkSkill[] = []
+  // 上限按「有效条目」计：无效条目不占配额，先把 quota 吃满的截断法会放大手改数据的损耗
+  for (const raw of value) {
+    if (out.length >= MAX_WELINK_SKILLS) break
+    const item = (raw ?? {}) as Partial<WelinkSkill>
+    const name = typeof item.name === 'string' ? item.name.trim() : ''
+    if (!name) continue
+    let id = slugifySkillId(typeof item.id === 'string' ? item.id : '')
+    if (!id) id = `skill-${out.length + 1}`
+    while (id === FALLBACK_SKILL_ID || seen.has(id)) id = `${id}-2`
+    seen.add(id)
+    out.push({
+      id,
+      name,
+      description: typeof item.description === 'string' ? item.description.trim() : '',
+      enabled: item.enabled !== false,
+      keywords: Array.isArray(item.keywords)
+        ? item.keywords.filter((k): k is string => typeof k === 'string' && k.trim() !== '').map((k) => k.trim())
+        : [],
+      promptTemplate: typeof item.promptTemplate === 'string' ? item.promptTemplate : '',
+      knowledge: typeof item.knowledge === 'string' ? item.knowledge.trim() : '',
+      reviewMode: item.reviewMode === 'manual' ? 'manual' : 'auto',
+    })
+  }
+  return out
 }
 
 // ---------- 快速建群（migration v3） ----------
@@ -537,6 +625,19 @@ export const HOLD_REASON_LABEL: Record<string, string> = {
   manual_mode: '人工模式待审',
   blacklist: '命中敏感句式待审',
   stale_draft: '隔夜草稿待审',
+  skill_review: '技能策略待审',
+}
+
+/** 技能来源中文说明（回复历史技能徽标的 tooltip） */
+export const SKILL_SOURCE_LABEL: Record<SkillSource, string> = {
+  rule: '规则命中',
+  llm: '模型分类',
+  fallback: '兜底技能',
+}
+
+/** 技能来源说明的取值函数：空串（老数据/未分类）返回空串，UI 据此不渲染 tooltip */
+export function skillSourceLabelOf(source: SkillSource | ''): string {
+  return source ? (SKILL_SOURCE_LABEL[source] ?? '') : ''
 }
 
 /** 群任务状态机文案（UI 与测试共用；自 infra/db/group-ports 迁入，V2 同族治理） */

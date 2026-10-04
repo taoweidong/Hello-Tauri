@@ -43,7 +43,6 @@ export function agentClient(options: AgentClientOptions): AgentClient {
     source,
     settings.baseUrl,
     settings.endpoint,
-    settings.apiStyle,
     settings.model,
     settings.apiKey,
     settings.timeoutMs,
@@ -52,12 +51,11 @@ export function agentClient(options: AgentClientOptions): AgentClient {
   if (cached && cachedKey === key) return cached
 
   if (source === 'http' && settings.baseUrl.trim()) {
-    // 密钥只进请求头不进日志：这里只打风格与模型名
-    logger.info(`Agent 端口：内网 HTTP（${settings.baseUrl}${settings.endpoint} · ${settings.apiStyle} · model=${settings.model || '（未填）'}）`)
+    // 密钥只进请求头不进日志：这里只打模型名
+    logger.info(`Agent 端口：模型接口（${settings.baseUrl}${settings.endpoint} · model=${settings.model || '（未填）'}）`)
     cached = createHttpAgent({
       baseUrl: settings.baseUrl.trim(),
       endpoint: settings.endpoint,
-      apiStyle: settings.apiStyle,
       apiKey: settings.apiKey,
       model: settings.model,
       timeoutMs: settings.timeoutMs,
@@ -65,7 +63,7 @@ export function agentClient(options: AgentClientOptions): AgentClient {
     })
   } else {
     if (source === 'http') {
-      logger.warn('已选择内网 Agent 但未配置 baseUrl，本次回退模拟数据源')
+      logger.warn('已选择模型接口但未配置 baseUrl，本次回退模拟数据源')
     }
     cached = createMockAgent(options.mock)
   }
@@ -94,7 +92,6 @@ export function createAgentProbe(settings: WelinkAgentSettings): AgentClient {
     return createHttpAgent({
       baseUrl: settings.baseUrl.trim(),
       endpoint: settings.endpoint,
-      apiStyle: settings.apiStyle,
       apiKey: settings.apiKey,
       model: settings.model,
       timeoutMs: settings.timeoutMs,

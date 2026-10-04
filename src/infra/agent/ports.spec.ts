@@ -277,7 +277,7 @@ describe('infra/agent —— mock 客户端契约', () => {
   })
 })
 
-describe('infra/agent —— HTTP 客户端（真实实现的形状，用假 fetch 验证）', () => {
+describe('infra/agent —— HTTP 客户端（OpenAI 兼容协议，用假 fetch 验证）', () => {
   function jsonResponse(body: unknown, status = 200) {
     return {
       ok: status >= 200 && status < 300,
@@ -287,63 +287,115 @@ describe('infra/agent —— HTTP 客户端（真实实现的形状，用假 fet
     } as unknown as Response
   }
 
+  const baseOptions = {
+    baseUrl: 'http://127.0.0.1:11434',
+    endpoint: '/v1/chat/completions',
+    model: 'qwen3.8-flash',
+    timeoutMs: 1000,
+  } as const
+
+  function openaiReply(content: string) {
+    return {
+      id: 'chatcmpl-1',
+      choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }],
+      usage: { total_tokens: 42 },
+    }
+  }
+
   it('拼 URL 时消除 baseUrl 末尾与 endpoint 开头重复的斜杠', async () => {
-    const fetchMock = vi.fn(async (_url: string, _init?: unknown) => jsonResponse({ reply: 'ok' }))
+    const fetchMock = vi.fn(async (_url: string, _init?: unknown) => jsonResponse(openaiReply('ok')))
     vi.stubGlobal('fetch', fetchMock)
-    const agent = createHttpAgent({ baseUrl: 'http://10.0.0.1:8080/', endpoint: '/v1/complete', timeoutMs: 1000 })
+    const agent = createHttpAgent({ ...baseOptions, baseUrl: 'http://127.0.0.1:11434/', endpoint: '/v1/chat/completions' })
     await agent.complete('p')
-    expect(fetchMock.mock.calls[0]![0]).toBe('http://10.0.0.1:8080/v1/complete')
+    expect(fetchMock.mock.calls[0]![0]).toBe('http://127.0.0.1:11434/v1/chat/completions')
     vi.unstubAllGlobals()
   })
 
-  it('请求体是 { prompt }，content-type 为 JSON（D3 的最小协议）', async () => {
-    const fetchMock = vi.fn(async (_url: string, _init?: unknown) => jsonResponse({ reply: 'ok' }))
+  it('请求体是 { model, messages, stream:false }，content-type 为 JSON，apiKey 进 Bearer 头（trim 后）', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: unknown) => jsonResponse(openaiReply('好的')))
     vi.stubGlobal('fetch', fetchMock)
-    const agent = createHttpAgent({ baseUrl: 'http://x', endpoint: '/c', timeoutMs: 1000 })
-    await agent.complete('这里的提示词')
+    const agent = createHttpAgent({ ...baseOptions, apiKey: '  sk-test-123  ' })
+    await expect(agent.complete('这里的提示词')).resolves.toBe('好的')
+
     const init = fetchMock.mock.calls[0]![1] as unknown as RequestInit
     expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body as string)).toEqual({ prompt: '这里的提示词' })
+    const headers = init.headers as Record<string, string>
+    expect(headers['content-type']).toBe('application/json')
+    expect(headers.authorization).toBe('Bearer sk-test-123')
+    expect(JSON.parse(init.body as string)).toEqual({
+      model: 'qwen3.8-flash',
+      messages: [{ role: 'user', content: '这里的提示词' }],
+      stream: false,
+    })
     vi.unstubAllGlobals()
   })
 
-  it('响应字段名容错：reply / response / result / text / choices[0].message', async () => {
-    for (const body of [
-      { reply: 'r1' },
-      { response: 'r2' },
-      { result: 'r3' },
-      { text: 'r4' },
-      { data: { content: 'r5' } },
-      { choices: [{ message: { content: 'r6' } }] },
-    ]) {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => jsonResponse(body)),
-      )
-      const agent = createHttpAgent({ baseUrl: 'http://x', endpoint: '/c', timeoutMs: 1000 })
-      await expect(agent.complete('p')).resolves.toBeTruthy()
-      vi.unstubAllGlobals()
-    }
+  it('apiKey 为空则不带 Authorization 头（本地免鉴权服务）', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: unknown) => jsonResponse(openaiReply('ok')))
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = createHttpAgent({ ...baseOptions })
+    await agent.complete('p')
+    const headers = (fetchMock.mock.calls[0]![1] as unknown as RequestInit).headers as Record<string, string>
+    expect(headers.authorization).toBeUndefined()
+    vi.unstubAllGlobals()
+  })
+
+  it('model 缺失 → fail-fast 报错且不发请求（错误仍经 onCall 落语料）', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = createHttpAgent({ ...baseOptions, model: '   ' })
+    const seen: AgentCallRecord[] = []
+    agent.onCall((record) => seen.push(record))
+    await expect(agent.complete('p')).rejects.toThrow(/大模型名称/)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ status: 'error', response: '' })
+    vi.unstubAllGlobals()
+  })
+
+  it('严格解析 choices[0].message.content：思考型模型的 reasoning_content 不会混进回复', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          id: 'chatcmpl-2',
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', reasoning_content: '用户要求只回 ok', content: 'ok' },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+      ),
+    )
+    const agent = createHttpAgent({ ...baseOptions })
+    await expect(agent.complete('p')).resolves.toBe('ok')
+    vi.unstubAllGlobals()
+  })
+
+  it('响应不是 OpenAI 形状（无 choices）→ error 且提示端点可能不兼容', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ reply: '私有协议形状' })))
+    const agent = createHttpAgent({ ...baseOptions })
+    await expect(agent.complete('p')).rejects.toThrow(/未找到 choices/)
+    vi.unstubAllGlobals()
+  })
+
+  it('响应不是有效 JSON → error 且提示端点可能不兼容', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, text: async () => '<html>bad gateway</html>' }) as unknown as Response),
+    )
+    const agent = createHttpAgent({ ...baseOptions })
+    await expect(agent.complete('p')).rejects.toThrow(/不是有效的 JSON/)
+    vi.unstubAllGlobals()
   })
 
   it('HTTP 非 2xx → error 类（含状态码）', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => jsonResponse({ error: 'bad' }, 500)),
-    )
-    const agent = createHttpAgent({ baseUrl: 'http://x', endpoint: '/c', timeoutMs: 1000 })
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'bad' }, 500)))
+    const agent = createHttpAgent({ ...baseOptions })
     await expect(agent.complete('p')).rejects.toMatchObject({ kind: 'error' })
     await expect(agent.complete('p')).rejects.toThrow(/HTTP 500/)
-    vi.unstubAllGlobals()
-  })
-
-  it('响应里找不到正文字段 → error 类（不静默返回空串）', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => jsonResponse({ unrelated: 1 })),
-    )
-    const agent = createHttpAgent({ baseUrl: 'http://x', endpoint: '/c', timeoutMs: 1000 })
-    await expect(agent.complete('p')).rejects.toThrow(/未找到回复正文字段/)
     vi.unstubAllGlobals()
   })
 
@@ -354,7 +406,7 @@ describe('infra/agent —— HTTP 客户端（真实实现的形状，用假 fet
         throw new Error('ECONNREFUSED')
       }),
     )
-    const agent = createHttpAgent({ baseUrl: 'http://x', endpoint: '/c', timeoutMs: 1000 })
+    const agent = createHttpAgent({ ...baseOptions })
     const seen: AgentCallRecord[] = []
     agent.onCall((record) => seen.push(record))
     await expect(agent.complete('p')).rejects.toMatchObject({ kind: 'error' })
@@ -364,11 +416,8 @@ describe('infra/agent —— HTTP 客户端（真实实现的形状，用假 fet
   })
 
   it('并发的两次调用各自留痕（1:N 语料的前提）', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => jsonResponse({ reply: 'ok' })),
-    )
-    const agent = createHttpAgent({ baseUrl: 'http://x', endpoint: '/c', timeoutMs: 1000 })
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(openaiReply('ok'))))
+    const agent = createHttpAgent({ ...baseOptions })
     const seen: AgentCallRecord[] = []
     agent.onCall((record) => seen.push(record))
     await Promise.all([agent.complete('p1'), agent.complete('p2')])
@@ -377,12 +426,18 @@ describe('infra/agent —— HTTP 客户端（真实实现的形状，用假 fet
     vi.unstubAllGlobals()
   })
 
+  it('公网 literal IP 守卫（对话原文不得发往公网 literal IP；域名与内网地址放行）', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = createHttpAgent({ ...baseOptions, baseUrl: 'http://8.8.8.8' })
+    await expect(agent.complete('p')).rejects.toThrow(/公网/)
+    expect(fetchMock).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
   it('probeAgent 返回耗时与回复摘要（Settings 连通性按钮）', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => jsonResponse({ reply: 'ok' })),
-    )
-    const result = await probeAgent({ baseUrl: 'http://x', endpoint: '/c', timeoutMs: 1000 })
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(openaiReply('ok'))))
+    const result = await probeAgent({ ...baseOptions, timeoutMs: 1000 })
     expect(result.preview).toBe('ok')
     expect(result.latencyMs).toBeGreaterThanOrEqual(0)
     vi.unstubAllGlobals()
@@ -395,99 +450,7 @@ describe('infra/agent —— HTTP 客户端（真实实现的形状，用假 fet
         throw new Error('连不上')
       }),
     )
-    await expect(probeAgent({ baseUrl: 'http://x', endpoint: '/c', timeoutMs: 1000 })).rejects.toBeInstanceOf(
-      AgentError,
-    )
-    vi.unstubAllGlobals()
-  })
-})
-
-describe('infra/agent —— OpenAI 兼容风格（apiStyle=openai，对接真实大模型环境）', () => {
-  function jsonResponse(body: unknown, status = 200) {
-    return {
-      ok: status >= 200 && status < 300,
-      status,
-      json: async () => body,
-      text: async () => JSON.stringify(body),
-    } as unknown as Response
-  }
-
-  const openaiOptions = {
-    baseUrl: 'http://127.0.0.1:11434',
-    endpoint: '/v1/chat/completions',
-    apiStyle: 'openai',
-    model: 'qwen2.5-7b',
-    timeoutMs: 1000,
-  } as const
-
-  it('请求体是 { model, messages, stream:false }，apiKey 进 Bearer 头（trim 后）', async () => {
-    const fetchMock = vi.fn(async (_url: string, _init?: unknown) =>
-      jsonResponse({ choices: [{ message: { role: 'assistant', content: '好的' } }] }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    const agent = createHttpAgent({ ...openaiOptions, apiKey: '  sk-test-123  ' })
-    await expect(agent.complete('这里的提示词')).resolves.toBe('好的')
-
-    const init = fetchMock.mock.calls[0]![1] as unknown as RequestInit
-    expect(init.method).toBe('POST')
-    const headers = init.headers as Record<string, string>
-    expect(headers['content-type']).toBe('application/json')
-    expect(headers.authorization).toBe('Bearer sk-test-123')
-    expect(JSON.parse(init.body as string)).toEqual({
-      model: 'qwen2.5-7b',
-      messages: [{ role: 'user', content: '这里的提示词' }],
-      stream: false,
-    })
-    vi.unstubAllGlobals()
-  })
-
-  it('apiKey 为空则不带 Authorization 头（本地免鉴权服务）', async () => {
-    const fetchMock = vi.fn(async (_url: string, _init?: unknown) =>
-      jsonResponse({ choices: [{ message: { content: 'ok' } }] }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    const agent = createHttpAgent({ ...openaiOptions })
-    await agent.complete('p')
-    const headers = (fetchMock.mock.calls[0]![1] as unknown as RequestInit).headers as Record<string, string>
-    expect(headers.authorization).toBeUndefined()
-    vi.unstubAllGlobals()
-  })
-
-  it('model 缺失 → fail-fast 报错且不发请求（错误仍经 onCall 落语料）', async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
-    const agent = createHttpAgent({ ...openaiOptions, model: '   ' })
-    const seen: AgentCallRecord[] = []
-    agent.onCall((record) => seen.push(record))
-    await expect(agent.complete('p')).rejects.toThrow(/大模型名称/)
-    expect(fetchMock).not.toHaveBeenCalled()
-    expect(seen).toHaveLength(1)
-    expect(seen[0]).toMatchObject({ status: 'error', response: '' })
-    vi.unstubAllGlobals()
-  })
-
-  it('从 choices[0].message.content 提取正文（OpenAI 标准响应形状）', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        jsonResponse({
-          id: 'chatcmpl-1',
-          choices: [{ index: 0, message: { role: 'assistant', content: '结论：可以发布' }, finish_reason: 'stop' }],
-          usage: { total_tokens: 42 },
-        }),
-      ),
-    )
-    const agent = createHttpAgent({ ...openaiOptions })
-    await expect(agent.complete('p')).resolves.toBe('结论：可以发布')
-    vi.unstubAllGlobals()
-  })
-
-  it('公网 literal IP 守卫对 openai 风格同样生效（对话原文不得出内网）', async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
-    const agent = createHttpAgent({ ...openaiOptions, baseUrl: 'http://8.8.8.8' })
-    await expect(agent.complete('p')).rejects.toThrow(/公网/)
-    expect(fetchMock).not.toHaveBeenCalled()
+    await expect(probeAgent({ ...baseOptions, timeoutMs: 1000 })).rejects.toBeInstanceOf(AgentError)
     vi.unstubAllGlobals()
   })
 })
@@ -496,7 +459,6 @@ describe('infra/agent —— 宿主 HTTP 通道（transport 注入：桌面模�
   const openaiOptions = {
     baseUrl: 'https://llm.example.internal/compatible-mode/v1',
     endpoint: '/chat/completions',
-    apiStyle: 'openai',
     model: 'qwen3.8-flash',
     timeoutMs: 1234,
   } as const

@@ -34,11 +34,13 @@ import { AgentError } from '@/infra/agent'
 import { renderPrompt, sanitizeReply } from '@/infra/agent/prompt'
 import type { WelinkPort } from '@/infra/welink'
 import type { WelinkRepository } from '@/infra/db'
-import type { WelinkJob, WelinkSettings } from '@/types/welink'
+import type { WelinkJob, WelinkSettings, WelinkSkill } from '@/types/welink'
+import { FALLBACK_SKILL_ID } from '@/types/welink'
 import { logger } from '@/utils/logger'
 import { nowStamp } from '@/utils/time'
 import type { EventSink } from './events'
 import type { SafetyGate } from './safety-gate'
+import { routeSkill } from './skill-router'
 import { realTimers, type TimerApi } from './timers'
 
 /** 生成段最多尝试次数（耗尽 → failed） */
@@ -199,16 +201,52 @@ export function createPipeline(options: PipelineOptions): Pipeline {
     const conv = await options.repo.getConversation(job.targetId)
     const context = conv ? await options.repo.recentContext(conv.pk, settings.agent.maxContextMsgs) : []
     const trigger = context.find((message) => message.pk === job.triggerMsgPk) ?? null
+
+    // —— 技能路由（skill-routing）：规则 → LLM 兜底（可开关）→ 兜底技能 ——
+    //
+    // 分类只发生在生成段（无外发风险，D1）；兜底技能不落配置数组，运行时由
+    // `promptTemplate` 字段现拼（D4，老配置零迁移）。分类调用经同一 agent 客户端
+    // 发出，onCall → agent_logs 自动留痕；`onClassifyPrompt` 在调用发起前把归属
+    // 槽位登记进 promptOwners（按 prompt 精确匹配，分类与生成两条记录都归本 job）。
+    const agentSettings = settings.agent
+    const fallbackSkill: WelinkSkill = {
+      id: FALLBACK_SKILL_ID,
+      name: '通用助手',
+      description: '未命中任何技能时的通用企业沟通回复',
+      enabled: true,
+      keywords: [],
+      promptTemplate: agentSettings.promptTemplate,
+      knowledge: agentSettings.fallbackKnowledge,
+      reviewMode: 'auto',
+    }
+    const ownedSlots: Array<{ prompt: string; jobPk: number; claimed: boolean }> = []
+    const registerSlot = (slotPrompt: string) => {
+      const slot = { prompt: slotPrompt, jobPk, claimed: false }
+      ownedSlots.push(slot)
+      promptOwners.push(slot)
+    }
+    const decision = await routeSkill({
+      question: trigger?.content ?? job.triggerSummary,
+      context: context.filter((message) => message.pk !== job.triggerMsgPk),
+      candidates: [fallbackSkill, ...agentSettings.skills],
+      fallback: fallbackSkill,
+      llmClassify: agentSettings.llmClassifyFallback,
+      agent: options.agent,
+      onClassifyPrompt: registerSlot,
+    })
+
+    // 模板按命中技能切换；技能模板为空时回退兜底模板（归一化允许空串，D4）
+    const template = decision.skill.promptTemplate.trim() || agentSettings.promptTemplate
     const prompt = renderPrompt({
-      template: settings.agent.promptTemplate,
+      template,
+      knowledge: decision.skill.knowledge,
       target: conv,
       context: context.filter((message) => message.pk !== job.triggerMsgPk),
       trigger,
       targetFallback: job.targetTitle || job.targetId,
     })
+    registerSlot(prompt)
 
-    const slot = { prompt, jobPk, claimed: false }
-    promptOwners.push(slot)
     let draft = ''
     let failure = ''
     try {
@@ -216,8 +254,11 @@ export function createPipeline(options: PipelineOptions): Pipeline {
     } catch (error) {
       failure = error instanceof AgentError ? `${error.kind}：${error.message}` : String(error)
     } finally {
-      // 记录已由 onCall 异步落库；这里只回收归属槽，避免数组无限增长
-      promptOwners.splice(promptOwners.indexOf(slot), 1)
+      // 记录已由 onCall 异步落库；这里只回收归属槽（分类 + 生成两个），避免数组无限增长
+      for (const slot of ownedSlots) {
+        const at = promptOwners.indexOf(slot)
+        if (at >= 0) promptOwners.splice(at, 1)
+      }
     }
 
     if (failure) {
@@ -251,7 +292,13 @@ export function createPipeline(options: PipelineOptions): Pipeline {
     // 判的是清洗后的文本 —— 否则「包裹了一堆 ``` 的超长输出」会被清洗后变短，
     // 出现「库里合规、实际外发超长」的错位。
     const cleaned = sanitizeReply(draft)
-    const committed = await options.repo.commitDraft(jobPk, cleaned, prompt)
+    const committed = await options.repo.commitDraft(
+      jobPk,
+      cleaned,
+      prompt,
+      // 技能三列与草稿同条 UPDATE（skill-routing D5）：留痕与「要点3」原子一致
+      { id: decision.skill.id, name: decision.skill.name, source: decision.source },
+    )
     if (!committed) {
       // 并发下已被别的 worker 接管 —— 不重复入队，避免双发
       logger.warn(`草稿提交未生效（job ${jobPk}），可能已被其他 worker 处理`)
@@ -259,6 +306,15 @@ export function createPipeline(options: PipelineOptions): Pipeline {
     }
     if (cleaned !== draft) {
       logger.info(`草稿已清洗模型包裹痕迹（job ${jobPk}：${draft.length} → ${cleaned.length} 字）`)
+    }
+    // 技能要求人工审核（S-G）：与 S7 blacklist 的 hold 语义对齐 —— 草稿已落库、
+    // 停 ready + hold_reason 计入待审聚合，但**不入自动外发队列**；人工放行走
+    // sendNow（manualOverride 绕 manual 拦截，Gate 其余规则照走）。
+    if (decision.skill.reviewMode === 'manual') {
+      await options.repo.holdJob(jobPk, 'skill_review')
+      emitStatus(jobPk, 'discussing', 'ready', `技能「${decision.skill.name}」策略需人工审核`, 'skill_review')
+      logger.info(`技能策略转审（job ${jobPk} → ${decision.skill.name}）`)
+      return
     }
     emitStatus(jobPk, 'discussing', 'ready', '草稿已生成')
     sendQueue.push(jobPk)

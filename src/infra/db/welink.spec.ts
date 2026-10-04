@@ -42,6 +42,7 @@ vi.mock('@/utils/logger', () => ({
 }))
 
 import { migrationV2 } from '@/infra/db/migrations/welink'
+import { migrationV5 } from '@/infra/db/migrations/welink-skill'
 import { sqlWelinkRepository as repo } from '@/infra/db/repos/welink'
 
 /**
@@ -132,6 +133,25 @@ describe('infra/db/welink —— 迁移 v2', () => {
     expect(migrationV2.sql).toContain('idx_wrj_status')
     expect(migrationV2.sql).toContain('idx_wrl_target'.replace('wrl', 'wrj'))
     expect(migrationV2.sql).toContain('idx_wal_job')
+  })
+})
+
+describe('infra/db/welink —— 迁移 v5（技能路由留痕三列）', () => {
+  it('版本号与描述固定（衔接 v1–v4 序列，重复版本会被去重跳过）', () => {
+    expect(migrationV5.version).toBe(5)
+    expect(migrationV5.description).toBe('add_welink_job_skill_columns')
+  })
+
+  it('三列均为 TEXT NOT NULL DEFAULT \'\'（老数据读出空串，展示层按「—」处理）', () => {
+    for (const column of ['skill_id', 'skill_name', 'skill_source']) {
+      expect(migrationV5.sql).toMatch(new RegExp(`ALTER TABLE welink_reply_jobs ADD COLUMN ${column} TEXT NOT NULL DEFAULT ''`))
+    }
+  })
+
+  it('MIGRATIONS 注册表以 v5 收尾且版本号严格递增（唯一真值，禁止旁路声明）', async () => {
+    const { MIGRATIONS } = await import('@/infra/db')
+    expect(MIGRATIONS.at(-1)?.version).toBe(5)
+    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2, 3, 4, 5])
   })
 })
 
@@ -257,6 +277,16 @@ describe('infra/db/welink —— 要点3 原子性（draft 与 ready 同条 UPDA
     expect(sql).toContain('context_snapshot = ?3')
     expect(sql).toContain('WHERE id = ?4')
     expect(params.slice(0, 3)).toEqual(['草稿', expect.any(String), '上下文快照'])
+  })
+
+  it('commitDraft 带 skill 时技能三列并入同条 UPDATE（skill-routing：留痕与草稿原子一致）', async () => {
+    await repo.commitDraft(9, '草稿', '上下文快照', { id: 'fault-fix', name: '故障咨询', source: 'rule' })
+    const { sql, params } = lastExec()
+    expect(sql).toContain('skill_id = ?4')
+    expect(sql).toContain('skill_name = ?5')
+    expect(sql).toContain('skill_source = ?6')
+    expect(sql).toContain('WHERE id = ?7')
+    expect(params).toEqual(['草稿', expect.any(String), '上下文快照', 'fault-fix', '故障咨询', 'rule', 9])
   })
 
   it('commitDraft 条件不匹配（changes=0）返回 false', async () => {

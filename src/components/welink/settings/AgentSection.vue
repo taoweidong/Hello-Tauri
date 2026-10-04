@@ -7,9 +7,10 @@
  * 同一对象引用，父级 deep watch 照常触发热更新）。连通性测试结果经 `tested`
  * 事件上抛，由父级的结果框统一展示。
  *
- * 与旧版的行为差异：连接配置**不再随「模拟回复」来源隐藏** —— 大模型配置卡的价值
- * 就是让连接参数随时可见可改；mock 来源下字段仅展示 + 探测按钮禁用（对 mock 数据源
- * 发探测没有意义），并给出一行「切到内网 HTTP 后生效」的提示。
+ * 行为要点：连接配置**不随「模拟回复」来源隐藏** —— 大模型配置卡的价值就是让
+ * 连接参数随时可见可改；「回复来源」开关并入本表单第一行（它管辖的正是下方
+ * 连接参数），mock 来源下探测按钮禁用。协议只有一种（OpenAI 兼容，见类型层
+ * 注释），无接口风格选择。
  */
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -43,23 +44,6 @@ const agentUrlInsecure = computed(() => {
     .toLowerCase()
   return !['localhost', '127.0.0.1', '[::1]', '::1', '0.0.0.0'].includes(host)
 })
-
-/**
- * 两种接口风格的惯用 endpoint 默认值。
- *
- * 切换风格时只做「温和纠正」：当前路径为空、或恰好是另一种风格的默认值时，
- * 才自动换成新风格的默认值 —— 用户手填过自定义路径绝不覆盖。
- */
-const STYLE_ENDPOINT_DEFAULTS = { simple: '/chat', openai: '/v1/chat/completions' } as const
-
-function onAgentStyleChange(value: string | number | boolean | undefined) {
-  const style = value === 'openai' ? 'openai' : 'simple'
-  const current = agent.value.endpoint.trim()
-  const other = style === 'openai' ? STYLE_ENDPOINT_DEFAULTS.simple : STYLE_ENDPOINT_DEFAULTS.openai
-  if (!current || current === other) {
-    agent.value = { ...agent.value, endpoint: STYLE_ENDPOINT_DEFAULTS[style] }
-  }
-}
 
 const agentTesting = ref(false)
 
@@ -106,33 +90,30 @@ function insertPlaceholder(token: string) {
 </script>
 
 <template>
-  <!-- ⑥ Agent 连接配置（mock 来源下仅展示，不隐藏 —— 见组件头注释） -->
+  <!-- ⑥ 回复来源 + 连接配置（来源开关就管下方连接参数，同表单呈现；mock 来源下字段常显） -->
   <el-collapse-item name="agent" title="连接配置">
-    <p v-if="agent.agentSource !== 'http'" class="wc__hint wc__hint--block">
-      当前来源为「模拟回复」：下方连接参数暂不参与运行，切到「内网 HTTP」后生效。
-    </p>
     <el-form :model="agent" label-width="140px" class="wc__form" @submit.prevent>
-      <el-form-item label="服务地址">
-        <el-input v-model="agent.baseUrl" class="wc__control" placeholder="http://10.0.0.5:8080" />
-        <!-- S-3：请求体含完整聊天上下文，明文 HTTP 出内网即等于聊天记录裸奔 -->
-        <span v-if="agentUrlInsecure" class="wc__warn">
-          非回环地址 + 明文 HTTP：提示词（含聊天原文）会以明文离开本机，请确认在内网可信链路上
-        </span>
-      </el-form-item>
-      <el-form-item label="接口风格">
-        <el-radio-group v-model="agent.apiStyle" @change="onAgentStyleChange">
-          <el-radio-button value="simple">内网服务（私有协议）</el-radio-button>
-          <el-radio-button value="openai">OpenAI 兼容</el-radio-button>
+      <el-form-item label="回复来源">
+        <el-radio-group v-model="agent.agentSource">
+          <el-radio-button value="mock">模拟回复</el-radio-button>
+          <el-radio-button value="http">模型接口</el-radio-button>
         </el-radio-group>
         <span class="wc__hint">
-          OpenAI 兼容 = /chat/completions 协议（vLLM / Ollama / 企业网关等）；私有协议按「{prompt} → {reply}」直连
+          立即生效；模拟回复用于无模型环境的演示与测试，下方连接参数仅在「模型接口」下参与运行
         </span>
       </el-form-item>
-      <el-form-item v-if="agent.apiStyle === 'openai'" label="大模型名称">
-        <el-input v-model="agent.model" class="wc__control" placeholder="如 Qwen2.5-7B-Instruct / deepseek-r1:14b" />
-        <span v-if="!agent.model.trim()" class="wc__warn">OpenAI 兼容接口必填 model，缺失时每次生成都将失败</span>
+      <el-form-item label="服务地址">
+        <el-input v-model="agent.baseUrl" class="wc__control" placeholder="https://llm-gateway.example.com/v1" />
+        <!-- S-3：请求体含完整聊天上下文，明文 HTTP 离开本机即等于聊天记录裸奔 -->
+        <span v-if="agentUrlInsecure" class="wc__warn">
+          非回环地址 + 明文 HTTP：提示词（含聊天原文）会以明文离开本机，请确认链路可信或改用 https
+        </span>
       </el-form-item>
-      <el-form-item v-if="agent.apiStyle === 'openai'" label="API 密钥">
+      <el-form-item label="大模型名称">
+        <el-input v-model="agent.model" class="wc__control" placeholder="如 qwen3.8-flash / deepseek-r1:14b" />
+        <span v-if="!agent.model.trim()" class="wc__warn">必填 model，缺失时每次生成都将失败（本机直接报错，不发无效请求）</span>
+      </el-form-item>
+      <el-form-item label="API 密钥">
         <el-input
           v-model="agent.apiKey"
           class="wc__control"
@@ -144,11 +125,10 @@ function insertPlaceholder(token: string) {
         <span class="wc__hint">以 Authorization: Bearer 头随请求发送；仅存本机配置文件，不进日志、不进留痕语料</span>
       </el-form-item>
       <el-form-item label="接口路径">
-        <el-input
-          v-model="agent.endpoint"
-          class="wc__control"
-          :placeholder="agent.apiStyle === 'openai' ? '/v1/chat/completions' : '/chat'"
-        />
+        <el-input v-model="agent.endpoint" class="wc__control" placeholder="/v1/chat/completions" />
+        <span class="wc__hint">
+          OpenAI 兼容 /chat/completions 协议（Ollama / vLLM / 企业网关 / 公有云 MaaS）；服务地址已含 /v1 类前缀时只填 /chat/completions
+        </span>
       </el-form-item>
       <el-form-item label="超时">
         <el-input-number v-model="agent.timeoutMs" :min="1000" :max="300000" :step="1000" size="small" />
@@ -167,14 +147,17 @@ function insertPlaceholder(token: string) {
           :disabled="agent.agentSource !== 'http'"
           @click="testAgent"
         >连通性测试</el-button>
-        <span class="wc__hint">发送固定探测提示词，显示耗时与返回摘要（模拟回复来源下不可用）</span>
+        <span class="wc__hint">发送固定探测提示词，显示耗时与返回摘要（来源为模拟回复时按钮不可用）</span>
       </el-form-item>
     </el-form>
   </el-collapse-item>
 
-  <!-- ⑦ 提示词模板 -->
-  <el-collapse-item name="prompt" title="提示词模板">
+  <!-- ⑦ 兜底技能（skill-routing：原「提示词模板」语义收窄为内置兜底技能的模板与知识块，D4） -->
+  <el-collapse-item name="prompt" title="兜底技能（通用助手）">
     <div class="wc__prompt">
+      <p class="wc__lead">
+        未命中任何回复技能时使用本模板回复（老配置升级零迁移）；分类问题的专属模板请在「回复技能」分区配置。
+      </p>
       <div class="wc__prompt-bar">
         <span class="wc__hint">占位符：</span>
         <el-tag
@@ -200,6 +183,15 @@ function insertPlaceholder(token: string) {
         :title="`模板缺少占位符：${missingPlaceholders.join('、')}`"
         description="缺少的占位符不会被替换，模型将拿不到对应信息（如对话上下文或待回复消息），回复质量会明显下降。"
       />
+      <el-form-item label="知识块" class="wc__knowledge">
+        <el-input
+          v-model="agent.fallbackKnowledge"
+          type="textarea"
+          :rows="4"
+          placeholder="通用口径 / FAQ（可选），注入上方模板的 {{knowledge}} 占位符"
+        />
+        <span class="wc__hint">可信文本，只进提示词、永不作为回复正文外发；技能级知识块在「回复技能」分区配置</span>
+      </el-form-item>
       <p class="wc__hint">
         模板每次生成时读取，改完立即对下一条任务生效。提示词里「只输出正文」等约束是防模型输出前后缀噪声的关键。
       </p>
@@ -242,6 +234,17 @@ function insertPlaceholder(token: string) {
   gap: 6px;
   margin-bottom: 8px;
   flex-wrap: wrap;
+}
+
+.wc__lead {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--ht-text-3);
+  line-height: 1.7;
+}
+
+.wc__knowledge {
+  margin-top: 10px;
 }
 
 .wc__token {

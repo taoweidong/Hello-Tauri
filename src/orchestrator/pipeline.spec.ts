@@ -33,7 +33,9 @@ import {
   type WelinkJob,
   type WelinkMessage,
   type WelinkSettings,
+  type WelinkSkill,
 } from '@/types/welink'
+import type { SkillAttribution } from '@/infra/db/ports'
 
 // ---------------------------------------------------------------- 手动驱动的假时钟
 
@@ -113,6 +115,9 @@ function job(overrides: Partial<WelinkJob> = {}): WelinkJob {
     lastError: '',
     skipReason: '',
     holdReason: '',
+    skillId: '',
+    skillName: '',
+    skillSource: '',
     rating: null,
     createdAt: '2026-09-27 14:00:00',
     updatedAt: '2026-09-27 14:00:00',
@@ -223,14 +228,19 @@ function createFakeRepo(
       item.status = status
       return true
     }),
-    /** 要点3：draft 与 ready 同一条 UPDATE，且只在 discussing 时可写 */
-    commitDraft: vi.fn(async (pk: number, draft: string, contextSnapshot?: string) => {
+    /** 要点3：draft 与 ready 同一条 UPDATE，且只在 discussing 时可写；skill-routing 三列同条 */
+    commitDraft: vi.fn(async (pk: number, draft: string, contextSnapshot?: string, skill?: SkillAttribution) => {
       const item = jobs.get(pk)
       if (!item || item.status !== 'discussing') return false
       item.draft = draft
       item.status = 'ready'
       item.holdReason = ''
       if (contextSnapshot !== undefined) item.contextSnapshot = contextSnapshot
+      if (skill) {
+        item.skillId = skill.id
+        item.skillName = skill.name
+        item.skillSource = skill.source
+      }
       return true
     }),
     recordAttemptFailure: vi.fn(async (pk: number, status: WelinkJob['status'], error: string) => {
@@ -1295,5 +1305,117 @@ describe('orchestrator/pipeline —— 并发不变量（O1/D12）', () => {
     await h.pipeline.sendNow(2)
     await h.pipeline.drain()
     expect(h.port.send).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ---------------------------------------------------------------- 技能路由（skill-routing）
+
+describe('orchestrator/pipeline —— 技能路由接入（skill-routing）', () => {
+  function skill(overrides: Partial<WelinkSkill> = {}): WelinkSkill {
+    return {
+      id: 'fault-fix',
+      name: '故障咨询',
+      description: '系统报错类问题',
+      enabled: true,
+      keywords: ['报错'],
+      promptTemplate: '故障技能模板 {{question}}',
+      knowledge: '',
+      reviewMode: 'auto',
+      ...overrides,
+    }
+  }
+
+  function skillSettings(skills: WelinkSkill[], llmClassifyFallback = true): Partial<WelinkSettings> {
+    return { agent: { ...DEFAULT_WELINK_SETTINGS.agent, skills, llmClassifyFallback } }
+  }
+
+  it('未配置技能时行为与升级前一致：兜底模板即原 promptTemplate，零分类调用', async () => {
+    const h = harness({ jobs: [job()], sendImpl: async () => ({ msgUid: 'u1' }) })
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    expect(h.agent.complete).toHaveBeenCalledTimes(1)
+    expect(h.agent.calls[0]).toContain('【需要回复的消息】')
+    expect(jobOf(h, 1)).toMatchObject({ skillId: 'fallback', skillName: '通用助手', skillSource: 'fallback' })
+  })
+
+  it('规则命中：按技能模板渲染（含知识块），三列随草稿同条落库，不发起分类调用', async () => {
+    const fault = skill({
+      keywords: ['500'],
+      promptTemplate: '故障技能模板 {{knowledge}} {{question}}',
+      knowledge: '500 是服务端错误口径',
+    })
+    const h = harness({
+      jobs: [job()],
+      settings: skillSettings([fault]),
+      reply: (prompt) => (prompt.includes('故障技能模板') ? '故障回复' : '通用回复'),
+    })
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    expect(h.agent.complete).toHaveBeenCalledTimes(1)
+    expect(h.agent.calls[0]).toContain('故障技能模板')
+    expect(h.agent.calls[0]).toContain('500 是服务端错误口径')
+    // drain 跑完整链：Gate 默认放行 → sent
+    expect(jobOf(h, 1)).toMatchObject({
+      status: 'sent',
+      skillId: 'fault-fix',
+      skillName: '故障咨询',
+      skillSource: 'rule',
+    })
+  })
+
+  it('规则未命中 + LLM 分类命中：分类与生成两条 agent_logs，草稿用命中技能模板', async () => {
+    // 触发消息「看下接口报 500 的问题」不含「报错」关键词 → 走 LLM 分类
+    const fault = skill({ keywords: ['报错'] })
+    const h = harness({
+      jobs: [job()],
+      settings: skillSettings([fault]),
+      reply: (prompt) =>
+        prompt.startsWith('你是消息分类器') ? 'fault-fix' : prompt.includes('故障技能模板') ? '故障回复' : '通用回复',
+    })
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    expect(h.agent.complete).toHaveBeenCalledTimes(2)
+    expect(h.agent.calls[0].startsWith('你是消息分类器')).toBe(true)
+    expect(h.agent.calls[1]).toContain('故障技能模板')
+    expect(h.repo.mocks.insertAgentLog).toHaveBeenCalledTimes(2)
+    expect(jobOf(h, 1)).toMatchObject({ status: 'sent', skillId: 'fault-fix', skillSource: 'llm' })
+  })
+
+  it('reviewMode=manual 的技能：草稿落库后转审（skill_review），不入自动外发队列', async () => {
+    const reviewed = skill({ keywords: ['500'], reviewMode: 'manual' })
+    const h = harness({ jobs: [job()], settings: skillSettings([reviewed]) })
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    expect(h.repo.mocks.holdJob).toHaveBeenCalledWith(1, 'skill_review')
+    expect(jobOf(h, 1)).toMatchObject({ status: 'ready', draft: '收到，我看一下，稍后回复你。', holdReason: 'skill_review' })
+    expect(h.port.send).not.toHaveBeenCalled()
+    const transition = h.events.find(
+      (event) => event.type === 'jobStatusChanged' && (event as { holdReason?: string }).holdReason === 'skill_review',
+    )
+    expect(transition).toBeDefined()
+  })
+
+  it('skill_review 转审的草稿可人工放行（sendNow），Gate 其余规则照走', async () => {
+    const h = harness({ jobs: [job({ pk: 1, status: 'ready', draft: '技能草稿', holdReason: 'skill_review' })] })
+    h.pipeline.start()
+    await h.pipeline.sendNow(1)
+    await h.pipeline.drain()
+    expect(h.port.send).toHaveBeenCalledWith({ convId: 'G-1001', convType: 'group' }, '技能草稿')
+    expect(jobOf(h, 1).status).toBe('sent')
+  })
+
+  it('技能模板为空时回退兜底模板（归一化允许空串，D4）', async () => {
+    const empty = skill({ keywords: ['500'], promptTemplate: '  ' })
+    const h = harness({ jobs: [job()], settings: skillSettings([empty]) })
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    expect(h.agent.calls[0]).toContain('【需要回复的消息】')
+    expect(h.agent.calls[0]).not.toContain('故障技能模板')
+    expect(jobOf(h, 1).skillId).toBe('fault-fix')
   })
 })

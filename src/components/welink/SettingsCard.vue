@@ -147,7 +147,6 @@ async function testCli() {
 }
 
 const sourceLabel = computed(() => (draft.value.welinkSource === 'mock' ? '模拟数据' : '真实 CLI'))
-const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '模拟回复' : '内网 HTTP'))
 </script>
 
 <template>
@@ -159,7 +158,7 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
         {{ draft.enabled ? '已启用' : '未启用' }}
       </el-tag>
       <el-tag size="small" effect="plain" round>welink={{ sourceLabel }}</el-tag>
-      <el-tag size="small" effect="plain" round>agent={{ agentLabel }}</el-tag>
+      <!-- agent 来源标签随编辑权移交「大模型（Agent）」配置卡（卡头有同款生效值展示） -->
     </header>
 
     <div class="wc__body">

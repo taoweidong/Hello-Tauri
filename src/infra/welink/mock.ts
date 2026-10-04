@@ -160,6 +160,21 @@ export const DEMO_SCRIPT: Record<string, ScriptStep[]> = {
       convId: null,
       messages: [{ offsetSec: 5, senderId: 'E-2001', senderName: '李明', content: '好的，麻烦尽快，我这边等消息' }],
     },
+    {
+      // 技能路由演示段（skill-routing O13 扩展）：与首段不同的问题类型 ——
+      // 配置「进度查询」技能（关键词如 进度/到哪一步）后，可观察到同一演示里
+      // 路由到不同技能，且「Agent 回溯」能看到分类调用与生成调用两条留痕
+      convId: null,
+      messages: [
+        { offsetSec: 3, senderId: 'E-2001', senderName: '李明', content: '另外问下，昨天提的发布审批现在到哪一步了？' },
+      ],
+    },
+    {
+      convId: null,
+      messages: [
+        { offsetSec: 3, senderId: 'E-9003', senderName: '周涛', content: '@你 麻烦把最新的接口文档发我一份，谢谢', atMe: true },
+      ],
+    },
   ],
 }
 

@@ -16,6 +16,7 @@ import type {
   HoldReason,
   JobRating,
   JobStatus,
+  SkillSource,
   TriggerType,
   WelinkAgentLog,
   WelinkConversation,
@@ -33,6 +34,7 @@ import type {
   JobQuery,
   JobStats,
   MessageQuery,
+  SkillAttribution,
   WelinkRepository,
 } from '../ports'
 import { escapeLike } from '../like'
@@ -106,6 +108,9 @@ function jobFromRow(row: DbRow): WelinkJob {
     lastError: str(row.last_error),
     skipReason: str(row.skip_reason),
     holdReason: str(row.hold_reason),
+    skillId: str(row.skill_id),
+    skillName: str(row.skill_name),
+    skillSource: str(row.skill_source) as SkillSource | '',
     rating: (str(row.rating) === 'up' || str(row.rating) === 'down' ? str(row.rating) : null) as JobRating | null,
     createdAt: str(row.created_at),
     updatedAt: str(row.updated_at),
@@ -147,7 +152,8 @@ const MESSAGE_SELECT = `SELECT m.id, m.conv_pk, m.msg_uid, m.direction, m.sender
 /** job 行 + 触发消息摘要 + 目标会话标题（列表展示的一站式读路径） */
 const JOB_SELECT = `SELECT j.id, j.trigger_msg_pk, j.trigger_type, j.target_type, j.target_id,
        j.send_mode_used, j.context_snapshot, j.draft, j.status, j.attempts, j.last_error,
-       j.skip_reason, j.hold_reason, j.rating, j.created_at, j.updated_at, j.finished_at,
+       j.skip_reason, j.hold_reason, j.skill_id, j.skill_name, j.skill_source,
+       j.rating, j.created_at, j.updated_at, j.finished_at,
        COALESCE(substr(m.content, 1, 120), '') AS trigger_summary,
        COALESCE(c.title, '') AS target_title
   FROM welink_reply_jobs j
@@ -636,16 +642,24 @@ export const sqlWelinkRepository: WelinkRepository = {
     return result.changes > 0
   },
 
-  async commitDraft(pk, draft, contextSnapshot) {
+  async commitDraft(pk, draft, contextSnapshot, skill?: SkillAttribution) {
     // 要点3：draft 与 status='ready' 必须**同一条 UPDATE** —— 拆成两句就存在
     // 「草稿已写但状态未就绪」的中间态，而设计的前提是「库中无草稿不得外发」。
     // WHERE status='discussing' 是乐观并发：同一 job 被两个 worker 处理时只有先到者生效。
+    // 技能三列并入同条 UPDATE（skill-routing D5）：分类结果与草稿原子落库，避免
+    // 「草稿已就绪但留痕缺失」的中间态被回复历史读到。
     const now = nowStamp()
     const sets = ['draft = ?1', "status = 'ready'", 'updated_at = ?2', "hold_reason = ''"]
     const params: DbParam[] = [draft, now]
     if (contextSnapshot !== undefined) {
       params.push(contextSnapshot)
       sets.push(`context_snapshot = ?${params.length}`)
+    }
+    if (skill) {
+      params.push(skill.id, skill.name, skill.source)
+      sets.push(`skill_id = ?${params.length - 2}`)
+      sets.push(`skill_name = ?${params.length - 1}`)
+      sets.push(`skill_source = ?${params.length}`)
     }
     params.push(pk)
     const idParam = params.length

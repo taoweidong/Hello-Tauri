@@ -2,7 +2,7 @@ import { mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
 
-import { DEFAULT_WELINK_SETTINGS, type WelinkSettings } from '@/types/welink'
+import { DEFAULT_WELINK_SETTINGS, type WelinkSettings, type WelinkSkill } from '@/types/welink'
 import LlmSettingsCard from './LlmSettingsCard.vue'
 
 /**
@@ -65,17 +65,17 @@ describe('llm SettingsCard（大模型配置卡）', () => {
   })
 
   it('越界的超时值在入口被钳回下限，且改动经 300ms 防抖后整块上抛', async () => {
-    const wrapper = mountCard({ agentSource: 'http', baseUrl: 'http://x', apiStyle: 'openai', model: 'm', timeoutMs: 999_999 })
+    const wrapper = mountCard({ agentSource: 'http', baseUrl: 'http://x', model: 'm', timeoutMs: 999_999 })
     expect(pushes(wrapper)).toHaveLength(0)
-    await edit(wrapper, { agentSource: 'http', baseUrl: 'http://x', apiStyle: 'openai', model: 'm', timeoutMs: 500 })
+    await edit(wrapper, { agentSource: 'http', baseUrl: 'http://x', model: 'm', timeoutMs: 500 })
     expect(pushes(wrapper)).toHaveLength(1)
     expect(pushes(wrapper)[0]).toMatchObject({ agentSource: 'http', timeoutMs: 1000 })
   })
 
   it('热更新带全量 settings：其余域保持 store 当前值，不被 agent 块重置', async () => {
     store.settings = reactive({ ...DEFAULT_WELINK_SETTINGS, enabled: true, pollIntervalSec: 9 })
-    const wrapper = mountCard({ agentSource: 'http', baseUrl: 'http://x', apiStyle: 'simple', endpoint: '/chat' })
-    await edit(wrapper, { agentSource: 'http', baseUrl: 'http://x', apiStyle: 'simple', endpoint: '/chat2' })
+    const wrapper = mountCard({ agentSource: 'http', baseUrl: 'http://x', endpoint: '/chat' })
+    await edit(wrapper, { agentSource: 'http', baseUrl: 'http://x', endpoint: '/chat2' })
     expect(store.applySettings).toHaveBeenCalledTimes(1)
     const payload = store.applySettings.mock.calls[0]![0] as WelinkSettings
     expect(payload.enabled).toBe(true)
@@ -84,8 +84,8 @@ describe('llm SettingsCard（大模型配置卡）', () => {
   })
 
   it('父级回写自己刚上抛的同值不再触发新一轮 push（防逐键打断输入）', async () => {
-    const wrapper = mountCard({ agentSource: 'http', baseUrl: 'http://x', apiStyle: 'openai', model: 'm' })
-    await edit(wrapper, { agentSource: 'http', baseUrl: 'http://x:8080', apiStyle: 'openai', model: 'm' })
+    const wrapper = mountCard({ agentSource: 'http', baseUrl: 'http://x', model: 'm' })
+    await edit(wrapper, { agentSource: 'http', baseUrl: 'http://x:8080', model: 'm' })
     expect(pushes(wrapper)).toHaveLength(1)
 
     await edit(wrapper, pushes(wrapper)[0])
@@ -93,16 +93,54 @@ describe('llm SettingsCard（大模型配置卡）', () => {
   })
 
   it('误配置告警：openai + model 缺失 → 显示提示；来源 mock 或配置齐全 → 不显示', async () => {
-    const noModel = mountCard({ agentSource: 'http', baseUrl: 'http://x', apiStyle: 'openai', model: '   ' })
+    const noModel = mountCard({ agentSource: 'http', baseUrl: 'http://x', model: '   ' })
     await noModel.vm.$nextTick()
     expect(noModel.find('.llm__alert').exists()).toBe(true)
 
-    const ready = mountCard({ agentSource: 'http', baseUrl: 'http://x', apiStyle: 'openai', model: 'qwen' })
+    const ready = mountCard({ agentSource: 'http', baseUrl: 'http://x', model: 'qwen' })
     await ready.vm.$nextTick()
     expect(ready.find('.llm__alert').exists()).toBe(false)
 
     const mock = mountCard({ agentSource: 'mock' })
     await mock.vm.$nextTick()
     expect(mock.find('.llm__alert').exists()).toBe(false)
+  })
+
+  it('技能清单随 agent 块归一化透传：字段收敛（slug/清洗）但条目不丢', async () => {
+    const skill: WelinkSkill = {
+      id: 'Fault Fix',
+      name: '故障咨询',
+      description: '报错类',
+      enabled: false,
+      keywords: [' 报错 ', ''],
+      promptTemplate: '',
+      knowledge: ' KB ',
+      reviewMode: 'manual',
+    }
+    const wrapper = mountCard({ agentSource: 'http', baseUrl: 'http://x', model: 'm', skills: [skill] })
+    // 改动一个无关字段触发 push（edit 的语义是「用户改了配置」）
+    await edit(wrapper, { agentSource: 'http', baseUrl: 'http://x', model: 'm2', skills: [skill] })
+    expect(pushes(wrapper)).toHaveLength(1)
+    const pushed = pushes(wrapper)[0]
+    expect(pushed.model).toBe('m2')
+    expect(pushed.skills).toHaveLength(1)
+    expect(pushed.skills[0]).toMatchObject({
+      id: 'fault-fix',
+      name: '故障咨询',
+      keywords: ['报错'],
+      reviewMode: 'manual',
+      knowledge: 'KB',
+    })
+    expect(pushed.fallbackKnowledge).toBe('')
+  })
+
+  it('父级回写含技能清单的同值不再触发新一轮 push（防顶回扩展到 skills）', async () => {
+    const skill: WelinkSkill = { id: 'a', name: '故障咨询', description: '', enabled: true, keywords: [], promptTemplate: '', knowledge: '', reviewMode: 'auto' }
+    const wrapper = mountCard({ agentSource: 'http', baseUrl: 'http://x', model: 'm', skills: [skill] })
+    await edit(wrapper, { agentSource: 'http', baseUrl: 'http://x:8080', model: 'm', skills: [skill] })
+    expect(pushes(wrapper)).toHaveLength(1)
+
+    await edit(wrapper, pushes(wrapper)[0])
+    expect(pushes(wrapper)).toHaveLength(1)
   })
 })

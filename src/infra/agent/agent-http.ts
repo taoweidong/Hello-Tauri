@@ -1,34 +1,28 @@
 /**
  * Agent HTTP 实现（设计 §3.3 / §9）—— 真实对接的唯一改动面。
  *
- * 两种接口风格（`apiStyle`，见 `LlmApiStyle`）：
+ * 只支持一种协议：**OpenAI 兼容 chat/completions**（2026-10-04 二次决策，见
+ * `docs/design-llm-connection-2026-10-02.md` §12：私有 `{prompt}→{reply}` 协议
+ * 分支已随 `apiStyle` 维度一并移除，本地部署事实标准与公有云 MaaS 都是 OpenAI 形状）：
+ * `POST {baseUrl}{endpoint}`，请求体
+ * `{ model, messages: [{ role: 'user', content: <prompt> }], stream: false }`，
+ * 响应正文取 `choices[0].message.content`（严格解析，其余字段一律视为非兼容端点）。
  *
- *  * `simple` —— 内网 SDK 私有协议（设计 §3.2/D3）：
- *    `POST {baseUrl}{endpoint}`，请求体 `{ prompt }`，响应体 `{ reply }`
- *    （字段名容错见 pickReply）。
- *
- *  * `openai` —— OpenAI 兼容 chat/completions（内网本地部署的事实标准）：
- *    `POST {baseUrl}{endpoint}`，请求体
- *    `{ model, messages: [{ role: 'user', content: <prompt> }], stream: false }`，
- *    响应正文取 `choices[0].message.content`。
- *    [LLM-ASSUME] 已于 2026-10-04 对真实服务逐项核实（阿里云 MaaS compatible-mode，
- *    OpenAI 兼容端点；curl 实测记录见 `docs/design-llm-connection-2026-10-02.md` §11）：
- *      1. 路径 `{baseUrl}{endpoint}` ✅ —— 真实服务 baseUrl 含 `/compatible-mode/v1`
- *         前缀，endpoint 配 `/chat/completions`，拼接规则无需改动；
- *      2. 鉴权 `Authorization: Bearer <apiKey>` ✅（缺头时服务端回 401「No API-key
- *         provided」，头名无误；apiKey 非空才带头）；
- *      3. `model` 必填 ✅（服务端经 GET /models 提供模型清单；缺失仍按 D-D 本机
- *         fail-fast，不依赖服务端含糊的 400）；
- *      4. 非流式 `stream: false` ✅（一次性取全文，回复草稿要整体落库）；
- *      5. 响应 `choices[0].message.content` ✅；思考型模型（qwen3.8-flash 实测）在
- *         message 里另有 `reasoning_content` 字段 —— pickReply 的候选键不含它，
- *         只会命中 `content`，思考过程不会混进回复草稿；
- *      6. **CORS 假设不成立**（设计 §7 预判的最大风险点）：服务端不回
- *         Access-Control-Allow-Origin（预检 401），WebView 直发 `window.fetch` 会被
- *         浏览器层拦截 —— 桌面模式经 Bridge `http_post_json`（Rust 薄通道，见
- *         `src-tauri/src/http.rs`）在宿主进程内发请求，由工厂按运行时注入
- *         `transport`（`src/infra/agent/index.ts`）；浏览器模式仍强制 mock，
- *         不发真实请求。
+ * [LLM-ASSUME] 已于 2026-10-04 对真实服务逐项核实并关闭（阿里云 MaaS compatible-mode，
+ * curl 实测记录见 `docs/design-llm-connection-2026-10-02.md` §11）：
+ *   1. 路径 `{baseUrl}{endpoint}` ✅ —— 真实服务 baseUrl 含 `/compatible-mode/v1`
+ *      前缀，endpoint 配 `/chat/completions`，拼接规则无需改动；
+ *   2. 鉴权 `Authorization: Bearer <apiKey>` ✅（缺头时服务端回 401「No API-key
+ *      provided」，头名无误；apiKey 非空才带头）；
+ *   3. `model` 必填 ✅（缺失本机 fail-fast，不发无效请求）；
+ *   4. 非流式 `stream: false` ✅（一次性取全文，回复草稿要整体落库）；
+ *   5. 响应 `choices[0].message.content` ✅；思考型模型（qwen3.8-flash 实测）在
+ *      message 里另有 `reasoning_content` 字段 —— 只取 `content`，思考过程不会
+ *      混进回复草稿；
+ *   6. CORS：服务端不回 Access-Control-Allow-Origin，WebView 直发会被浏览器层
+ *      拦截 —— 桌面模式经 Bridge `http_post_json`（Rust 薄通道，见
+ *      `src-tauri/src/http.rs`）在宿主进程内发请求，由工厂按运行时注入
+ *      `transport`（`src/infra/agent/index.ts`）；浏览器模式仍强制 mock。
  *
  * 三个必须做对的细节：
  *  * **超时必须能中止**：`AbortController` 是唯一手段，只 `Promise.race` 的话
@@ -37,9 +31,8 @@
  *  * **onCall 恒触发**：失败也要留痕 —— 语料的价值恰恰在于「哪些提示词让模型挂了」。
  *
  * 零外联约束：只有用户自配的 `baseUrl` 会被访问（桌面模式经宿主通道发出），无遥测、
- * 无 CDN、无外部字体；API 密钥只进请求头，**绝不进日志**（工厂的 info 日志只打风格/模型名）。
+ * 无 CDN、无外部字体；API 密钥只进请求头，**绝不进日志**（工厂的 info 日志只打模型名）。
  */
-import type { LlmApiStyle } from '@/types/welink'
 import type { AgentCallRecord, AgentClient, AgentPort } from './port'
 import { AgentError } from './port'
 
@@ -58,11 +51,9 @@ export type AgentHttpTransport = (
 export interface HttpAgentOptions {
   baseUrl: string
   endpoint: string
-  /** 接口风格；缺省按 simple（私有 prompt-in/result-out 协议） */
-  apiStyle?: LlmApiStyle
-  /** API 密钥：openai 风格作 Bearer Token；空则不带 Authorization 头 */
+  /** API 密钥：作 Bearer Token；空则不带 Authorization 头（本地免鉴权服务） */
   apiKey?: string
-  /** 大模型名称：openai 风格必填（缺失 fail-fast），simple 风格忽略 */
+  /** 大模型名称：请求体 `model` 字段，必填（缺失 fail-fast） */
   model?: string
   /** 单次调用超时（设计 §8 默认 60s，本地推理单条可能 2–60s） */
   timeoutMs: number
@@ -70,32 +61,24 @@ export interface HttpAgentOptions {
   transport?: AgentHttpTransport
 }
 
-/** 从响应体里取回复正文（字段名容错：真实服务的字段名未知） */
+/** 从 OpenAI chat/completions 响应里取回复正文（严格解析：choices[0].message.content） */
 function pickReply(payload: unknown): string | null {
-  if (typeof payload === 'string') return payload
   if (!payload || typeof payload !== 'object') return null
-  const record = payload as Record<string, unknown>
-  for (const key of ['reply', 'response', 'result', 'text', 'content', 'answer', 'output', 'message']) {
-    const value = record[key]
-    if (typeof value === 'string') return value
-  }
-  // 某些服务把正文包在 data/choices 里
-  const nested = record.data ?? record.result
-  if (nested && typeof nested === 'object' && nested !== payload) return pickReply(nested)
-  if (Array.isArray(record.choices)) {
-    const first = record.choices[0] as Record<string, unknown> | undefined
-    if (first) return pickReply(first.message ?? first.text ?? first)
-  }
-  return null
+  const choices = (payload as Record<string, unknown>).choices
+  if (!Array.isArray(choices)) return null
+  const first = choices[0] as Record<string, unknown> | undefined
+  if (!first || typeof first.message !== 'object' || first.message === null) return null
+  const content = (first.message as Record<string, unknown>).content
+  return typeof content === 'string' ? content : null
 }
 
 /**
- * 内网约束守卫（质量评审 S-1）：Agent 是「内网本地部署的 SDK 服务」（设计 §1）。
- * 篡改 config.json 把 baseUrl 指向公网 literal IP，等于把含企业通信原文的
- * prompt 外带出去 —— literal 公网 IP 一律拒绝并给出可行动的错误；主机名不做
- * 判定（内网 DNS 无法在客户端分类），确有特殊部署场景时用域名即可通过。
+ * 公网 literal IP 守卫（质量评审 S-1）：模型服务由用户自配，公网**域名**（公有云
+ * MaaS、企业网关）与内网/回环地址都是合法输入；但篡改 config.json 把 baseUrl
+ * 指向一个公网 literal IP 仍等价于把含企业通信原文的 prompt 外带 —— literal
+ * 公网 IP 一律拒绝并给出可行动的错误；主机名不做判定（公网模型服务走域名）。
  */
-function assertIntranetHost(endpoint: string): void {
+function assertAllowedHost(endpoint: string): void {
   let host: string
   try {
     host = new URL(endpoint).hostname
@@ -105,7 +88,7 @@ function assertIntranetHost(endpoint: string): void {
   const literal = host.replace(/^\[|\]$/g, '') // IPv6 字面量 [::1] → ::1
   const isIpv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(literal)
   const isIpv6 = literal.includes(':')
-  if (!isIpv4 && !isIpv6) return // 主机名：交给 DNS/内网语义
+  if (!isIpv4 && !isIpv6) return // 主机名：合法输入（公网域名/内网 DNS 均走这里）
   const isLoopback = literal === 'localhost' || /^127\./.test(literal) || literal === '::1'
   const isPrivate =
     /^10\./.test(literal) ||
@@ -116,26 +99,21 @@ function assertIntranetHost(endpoint: string): void {
     /^fc|^fd/i.test(literal) // IPv6 unique local（fc00::/7）
   if (!isLoopback && !isPrivate) {
     throw new AgentError(
-      `Agent 地址指向公网（${host}）：本应用面向内网部署，拒绝把对话内容发往公网地址。请改为内网 IP 或主机名`,
+      `Agent 地址指向公网 IP（${host}）：为防对话原文被配置篡改外带，baseUrl 请使用域名（公网/内网均可）或内网/回环 IP`,
       'error',
     )
   }
 }
 
-/**
- * 按接口风格组装请求头与请求体。
- *
- * 拆成纯函数便于单测逐字段断言（openai 的 model/messages/鉴权头、simple 的
- * 最小 `{ prompt }` 协议），也让 complete() 的主流程保持线性。
- */
+/** 组装请求头与请求体（纯函数便于单测逐字段断言），也让 complete() 的主流程保持线性 */
 function buildRequestParts(prompt: string, options: HttpAgentOptions): { headers: Record<string, string>; body: string } {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
-  if (options.apiStyle === 'openai') {
-    const apiKey = options.apiKey?.trim() ?? ''
-    if (apiKey) headers.authorization = `Bearer ${apiKey}`
-    return { headers, body: JSON.stringify({ model: options.model, messages: [{ role: 'user', content: prompt }], stream: false }) }
+  const apiKey = options.apiKey?.trim() ?? ''
+  if (apiKey) headers.authorization = `Bearer ${apiKey}`
+  return {
+    headers,
+    body: JSON.stringify({ model: options.model, messages: [{ role: 'user', content: prompt }], stream: false }),
   }
-  return { headers, body: JSON.stringify({ prompt }) }
 }
 
 /** 单次请求的原始结果：fetch 与宿主通道统一到同一形状后再走共享的状态判定与解析 */
@@ -198,10 +176,10 @@ export function createHttpAgent(options: HttpAgentOptions): AgentClient {
       let record: AgentCallRecord
 
       try {
-        assertIntranetHost(endpoint)
-        // openai 风格 model 必填：服务端只会回一个含糊的 400/404，这里提前给出
-        // 可行动的错误（且经 onCall 落 R4 语料，回溯里能看到原因）
-        if (options.apiStyle === 'openai' && !options.model?.trim()) {
+        assertAllowedHost(endpoint)
+        // model 必填：服务端只会回一个含糊的 400/404，这里提前给出可行动的错误
+        // （且经 onCall 落 R4 语料，回溯里能看到原因）
+        if (!options.model?.trim()) {
           throw new AgentError('OpenAI 兼容接口需要在设置里填写「大模型名称」（model）', 'error')
         }
         const { headers, body } = buildRequestParts(prompt, options)
@@ -217,17 +195,15 @@ export function createHttpAgent(options: HttpAgentOptions): AgentClient {
           )
         }
 
-        // 先取全文再解析：非 JSON 响应兜底为 { reply: 全文 }（与 response.json()
-        // 失败后回读 text 的旧兜底等价，且不依赖「json() 失败后还能再读 body」）
         let payload: unknown
         try {
           payload = JSON.parse(outcome.text)
         } catch {
-          payload = { reply: outcome.text }
+          throw new AgentError('Agent 响应不是有效的 JSON（端点可能不是 OpenAI 兼容接口）', 'error')
         }
         const reply = pickReply(payload)
         if (reply === null) {
-          throw new AgentError('Agent 响应中未找到回复正文字段', 'error')
+          throw new AgentError('Agent 响应中未找到 choices[0].message.content（端点可能不是 OpenAI 兼容接口）', 'error')
         }
         record = { prompt, response: reply, status: 'ok', latencyMs, error: '' }
         return reply

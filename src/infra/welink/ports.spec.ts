@@ -337,7 +337,7 @@ describe('infra/welink —— mock 端口契约', () => {
     expect(port.sentMessages).toHaveLength(0)
   })
 
-  it('演示剧本（O13）：三段放完后静默（不再产出）', async () => {
+  it('演示剧本（O13）：各段放完后静默（不再产出）', async () => {
     const port = createMockWelinkPort()
     const conv = (await port.listConversations()).find((item) => item.convType === 'group')!
     port.playScript()
@@ -354,5 +354,12 @@ describe('infra/welink —— mock 端口契约', () => {
     const first = DEMO_SCRIPT.demo[0].messages
     expect(first.some((item) => item.content.includes('@所有人'))).toBe(true)
     expect(first.some((item) => item.atMe === true)).toBe(true)
+  })
+
+  it('剧本含多类型问题样本（skill-routing 演示：故障 / 进度 / 文档可路由到不同技能）', () => {
+    const contents = DEMO_SCRIPT.demo.flatMap((step) => step.messages.map((item) => item.content))
+    expect(contents.some((text) => text.includes('报 500'))).toBe(true)
+    expect(contents.some((text) => text.includes('到哪一步'))).toBe(true)
+    expect(contents.some((text) => text.includes('接口文档'))).toBe(true)
   })
 })

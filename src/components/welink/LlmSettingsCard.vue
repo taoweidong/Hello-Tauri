@@ -11,6 +11,10 @@
  * SettingsCard 对 agent 做**透传**（flushPush 用父级当前值回填），两卡并存
  * 不会互相重置草稿（评审 F-2 的双编辑器变体）。
  *
+ * 结构：AgentSection 两个折叠区块 —— 「连接配置」（第一行为回复来源开关，
+ * 默认展开）与「兜底技能（通用助手）」（默认收起，skill-routing：原提示词模板
+ * 语义收窄）；SkillsSection 一个折叠区块 —— 「回复技能」（默认收起）。
+ *
  * 双通道生效：
  *  * 持久化：emit → SettingsView 的 form.weLink → 「保存配置」落 config.json；
  *  * 热更新：applySettings 带全量 settings 应用（该函数不做字段级合并，只传
@@ -22,6 +26,7 @@ import { IconAlert } from '@/components/icons'
 import { useWelinkStore } from '@/stores/welink'
 import { normalizeWelinkSettings, type WelinkSettings } from '@/types/welink'
 import AgentSection from './settings/AgentSection.vue'
+import SkillsSection from './settings/SkillsSection.vue'
 
 const props = defineProps<{ modelValue: Partial<WelinkSettings['agent']> }>()
 const emit = defineEmits<{
@@ -37,7 +42,9 @@ function normalizeAgent(input: Partial<WelinkSettings['agent']>): WelinkSettings
 
 /** 归一化后的本地草稿：配置是可手改的 JSON，越界值必须在入口收敛 */
 const draft = ref<WelinkSettings['agent']>(normalizeAgent(props.modelValue))
-const activeGroup = ref<string[]>(['source', 'channel'])
+// 默认展开「连接配置」（AgentSection 的折叠项 name=agent，含回复来源开关）；
+// 「提示词模板」（name=prompt）默认收起
+const activeGroup = ref<string[]>(['agent'])
 
 /** 最近一次 push 出去的归一化结果（JSON）：父组件回写的同值不再重置草稿（评审 F-2 同款） */
 let lastPushedJson = ''
@@ -79,12 +86,10 @@ onBeforeUnmount(() => {
 // 注：baseUrl 无「为空」告警 —— normalizeWelinkSettings 会把空/非法地址回退为默认值，
 // 归一化草稿里 baseUrl 永不为空（原 SettingsCard 的同款告警实为死代码，随拆卡清理）。
 
-const modelMissing = computed(
-  () => draft.value.agentSource === 'http' && draft.value.apiStyle === 'openai' && !draft.value.model.trim(),
-)
+const modelMissing = computed(() => draft.value.agentSource === 'http' && !draft.value.model.trim())
 
-const sourceLabel = computed(() => (draft.value.agentSource === 'mock' ? '模拟回复' : '内网 HTTP'))
-const styleLabel = computed(() => (draft.value.apiStyle === 'openai' ? 'OpenAI 兼容' : '私有协议'))
+const sourceLabel = computed(() => (draft.value.agentSource === 'mock' ? '模拟回复' : '模型接口'))
+const modelLabel = computed(() => draft.value.model.trim() || '模型名未填')
 
 // ---------------- 连通性测试结果（按钮在 AgentSection 通道表单内，结果经 tested 事件上抛展示） ----------------
 
@@ -97,10 +102,7 @@ const testResult = ref<{ ok: boolean; text: string } | null>(null)
       <span>大模型（Agent）</span>
       <span class="spacer" />
       <el-tag size="small" effect="plain" round>{{ sourceLabel }}</el-tag>
-      <el-tag size="small" effect="plain" round>{{ styleLabel }}</el-tag>
-      <el-tag v-if="draft.apiStyle === 'openai'" size="small" effect="plain" round>
-        {{ draft.model.trim() || 'model 未填' }}
-      </el-tag>
+      <el-tag size="small" effect="plain" round>{{ modelLabel }}</el-tag>
     </header>
 
     <div class="llm__body">
@@ -110,26 +112,15 @@ const testResult = ref<{ ok: boolean; text: string } | null>(null)
         type="warning"
         :closable="false"
         show-icon
-        title="OpenAI 兼容接口未填写大模型名称（model）"
-        description="该风格下 model 为必填字段，缺失时每次生成都会在本机直接报错（不发出无效请求）。填写后重新保存即可生效。"
+        title="未填写大模型名称（model）"
+        description="model 为必填字段，缺失时每次生成都会在本机直接报错（不发出无效请求）。填写后重新保存即可生效。"
       />
 
       <el-collapse v-model="activeGroup">
-        <!-- ① 回复来源（真假的开关，原在 WeLink 助手卡总览，随 agent 块一起移交本卡） -->
-        <el-collapse-item name="source" title="回复来源">
-          <el-form :model="draft" label-width="140px" class="llm__form" @submit.prevent>
-            <el-form-item label="回复来源">
-              <el-radio-group v-model="draft.agentSource">
-                <el-radio-button value="mock">模拟回复</el-radio-button>
-                <el-radio-button value="http">内网 HTTP</el-radio-button>
-              </el-radio-group>
-              <span class="llm__hint">立即生效。模拟回复用于无模型环境的演示与测试；连接参数仅在「内网 HTTP」下参与运行</span>
-            </el-form-item>
-          </el-form>
-        </el-collapse-item>
-
-        <!-- ② 连接配置 + ③ 提示词模板（AgentSection，字段定义见该组件） -->
+        <!-- 连接配置 + 兜底技能（AgentSection：第一行是回复来源开关，后接连接字段） -->
         <AgentSection v-model="draft" @tested="testResult = $event" />
+        <!-- 回复技能（skill-routing：分类路由 + 专属模板 + 知识块 + 审核模式） -->
+        <SkillsSection v-model="draft" />
       </el-collapse>
 
       <!-- 连通性测试结果 -->
@@ -172,21 +163,6 @@ const testResult = ref<{ ok: boolean; text: string } | null>(null)
 
 .llm__alert {
   margin: 10px 0;
-}
-
-.llm__form {
-  padding-top: 6px;
-}
-
-.llm__form :deep(.el-form-item) {
-  margin-bottom: 14px;
-}
-
-.llm__hint {
-  margin-left: 10px;
-  font-size: 11.5px;
-  color: var(--ht-text-3);
-  line-height: 1.7;
 }
 
 .llm__test-text {

@@ -197,3 +197,22 @@ deepseek-v4-pro/flash 系列等）。本次接入模型 **`qwen3.8-flash`**（�
   transport 路径 4 条：透传断言 / 4xx → error / 通道故障 → error / 超时 → timeout）。
 * 剩余步骤（§8 SOP 4–7，需在桌面模式人工进行）：设置页「连通性测试」→ `sendMode=manual`
   试运行几条真实消息 → 观察「Agent 回溯」语料 → 质量稳定后开 `enabled` + `auto`。
+
+## 12. 协议收敛：只支持 OpenAI 兼容（2026-10-04 二次决策）
+
+真实对接当天确立：**放弃「内网私有 `{prompt}→{reply}` 协议（simple）」支持，全系统只对齐
+OpenAI 兼容 `/chat/completions` 一种协议**。理由：本地部署事实标准（Ollama / vLLM /
+LM Studio / 企业网关）与公有云 MaaS 全是 OpenAI 形状，私有协议分支没有真实消费方，
+只留下「双协议分支 + 风格切换 UI + 温和纠正逻辑」的维护成本。
+
+随决策落地的清理（`apiStyle` 维度整体移除）：
+
+| 层 | 改动 |
+| --- | --- |
+| 类型 | `LlmApiStyle` / `WelinkAgentSettings.apiStyle` 删除；normalize 静默忽略老配置残留键（无需迁移）；出厂默认改为 `http://127.0.0.1:11434` + `/v1/chat/completions`（Ollama 惯用形状） |
+| 适配器 | `agent-http.ts` 单协议重写：请求恒为 `{model, messages, stream:false}` + Bearer；响应**严格解析** `choices[0].message.content`（原字段名容错是 simple 时代的产物），非 OpenAI 形状 / 非 JSON 给出「端点可能不兼容」的可行动报错 |
+| UI | 接口风格选择器与温和纠正逻辑删除；大模型名称 / API 密钥常显；「内网 HTTP」措辞改「模型接口」 |
+| 守卫 | 公网 literal IP 拦截保留但换前提：模型服务允许公网**域名**（MaaS），literal IP 仍拒（防配置篡改外带对话原文） |
+
+影响：仍在用私有协议端点的存量配置对接后会收到「端点可能不是 OpenAI 兼容接口」错误 ——
+这是预期的引导信号。本机 `D:\TangYuan\config\config.json` 的残留 `apiStyle` 键已清理。

@@ -19,7 +19,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { IconRefresh } from '@/components/icons'
 import { useAppStore } from '@/stores/app'
 import { useWelinkStore } from '@/stores/welink'
-import { JOB_STATUS_LABEL, JOB_STATUS_TONE } from '@/types/welink'
+import { JOB_STATUS_LABEL, JOB_STATUS_TONE, skillSourceLabelOf } from '@/types/welink'
 import type { JobStatus, WelinkJob } from '@/types/welink'
 import { rowOf } from '@/utils/table'
 import { shortStamp } from '@/utils/welink-display'
@@ -356,6 +356,16 @@ function latency(job: WelinkJob): string {
       <el-table-column label="触发" width="150">
         <template #default="{ row }">
           <el-tag size="small" effect="plain">{{ TRIGGER_LABEL[row.triggerType] ?? row.triggerType }}</el-tag>
+          <!-- 技能徽标（skill-routing）：名称快照来自任务留痕，技能删除后历史不变脸 -->
+          <el-tag
+            v-if="row.skillName"
+            size="small"
+            effect="light"
+            class="cell-skill"
+            :title="skillSourceLabelOf(row.skillSource)"
+          >
+            {{ row.skillName }}
+          </el-tag>
           <div class="cell-dim" :title="row.triggerSummary">{{ row.triggerSummary || '（无摘要）' }}</div>
         </template>
       </el-table-column>
@@ -595,6 +605,13 @@ function latency(job: WelinkJob): string {
 .cell-reason.is-hold {
   color: var(--ht-warn);
   font-weight: 600;
+}
+
+.cell-skill {
+  margin-left: 4px;
+  max-width: 86px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cell-draft {

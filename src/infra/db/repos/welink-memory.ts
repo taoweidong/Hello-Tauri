@@ -10,9 +10,18 @@
  *  * 幂等去重、状态机并发锁、要点3 的原子性都照实现 —— 这些是被测试覆盖的语义，
  *    不能因为「反正是 mock」就省略。
  */
-import type { JobRating, WelinkAgentLog, WelinkConversation, WelinkJob, WelinkMessage } from '@/types/welink'
+import type { JobRating, SkillSource, WelinkAgentLog, WelinkConversation, WelinkJob, WelinkMessage } from '@/types/welink'
 import { nowStamp } from '@/utils/time'
-import type { ApplyResult, InboxQuery, InboxThread, JobQuery, JobStats, MessageQuery, WelinkRepository } from '../ports'
+import type {
+  ApplyResult,
+  InboxQuery,
+  InboxThread,
+  JobQuery,
+  JobStats,
+  MessageQuery,
+  SkillAttribution,
+  WelinkRepository,
+} from '../ports'
 
 const STORAGE_KEY = 'hello-tauri:welink'
 
@@ -35,6 +44,12 @@ function load(): MemoryState {
     const parsed = JSON.parse(raw) as MemoryState
     // 结构不完整时直接重建：调试模式的数据不值得为兼容老结构付出复杂度
     if (!parsed.seq || !Array.isArray(parsed.conversations)) return emptyState()
+    // 老结构 job（migration v5 之前）缺技能三列：补默认空串，读路径恒有值
+    for (const job of parsed.jobs ?? []) {
+      job.skillId ??= ''
+      job.skillName ??= ''
+      job.skillSource ??= ''
+    }
     return parsed
   } catch {
     return emptyState()
@@ -207,6 +222,9 @@ export const memoryWelinkRepository: WelinkRepository = {
         lastError: '',
         skipReason: '',
         holdReason: '',
+        skillId: '',
+        skillName: '',
+        skillSource: '',
         rating: null,
         createdAt: now,
         updatedAt: now,
@@ -316,6 +334,9 @@ export const memoryWelinkRepository: WelinkRepository = {
       lastError: '',
       skipReason: '',
       holdReason: '',
+      skillId: '',
+      skillName: '',
+      skillSource: '',
       rating: null,
       createdAt: now,
       updatedAt: now,
@@ -386,15 +407,17 @@ export const memoryWelinkRepository: WelinkRepository = {
     return true
   },
 
-  async commitDraft(pk, draft, contextSnapshot) {
+  async commitDraft(pk, draft, contextSnapshot, skill?: SkillAttribution) {
     const job = state.jobs.find((item) => item.pk === pk)
-    // 与 SQLite 实现同语义：仅 discussing 可提交，且 draft 与 ready 一起生效
+    // 与 SQLite 实现同语义：仅 discussing 可提交，且 draft 与 ready 一起生效；
+    // 技能三列同条写入（skill-routing D5，与 SQL 实现的原子口径一致）
     if (!job || job.status !== 'discussing') return false
     touchJob(pk, {
       draft,
       status: 'ready',
       holdReason: '',
       ...(contextSnapshot === undefined ? {} : { contextSnapshot }),
+      ...(skill ? { skillId: skill.id, skillName: skill.name, skillSource: skill.source as SkillSource } : {}),
     })
     return true
   },

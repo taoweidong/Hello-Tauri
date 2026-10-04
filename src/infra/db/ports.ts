@@ -16,6 +16,7 @@ import type {
   JobStatus,
   MessageDirection,
   NormalizedMessage,
+  SkillSource,
   SkipReason,
   TriggerType,
   WelinkAgentLog,
@@ -118,6 +119,18 @@ export interface JobDraft {
   targetId: string
   sendModeUsed: 'auto' | 'manual'
   contextSnapshot: string
+}
+
+/**
+ * 草稿提交时一并留痕的技能归属（skill-routing D5）。
+ *
+ * `name` 是快照：技能后续改名/删除，历史任务展示不变脸；
+ * 无外键 —— 技能配置存 config.json，SQLite 不建技能表。
+ */
+export interface SkillAttribution {
+  id: string
+  name: string
+  source: SkillSource
 }
 
 /** 一轮拉取的入库参数（`triggers` 由编排层按 §7.1 规则计算） */
@@ -246,9 +259,10 @@ export interface WelinkRepository {
   markStatus(pk: number, status: JobStatus, expect?: JobStatus): Promise<boolean>
   /**
    * 要点3 的原子保证：draft 与 status='ready' **同一条 UPDATE**。
+   * `skill` 传入时技能三列与草稿同条写入（skill-routing：分类结果与草稿原子落库）。
    * 返回是否生效（同一 job 被并发处理时后写者不得覆盖）。
    */
-  commitDraft(pk: number, draft: string, contextSnapshot?: string): Promise<boolean>
+  commitDraft(pk: number, draft: string, contextSnapshot?: string, skill?: SkillAttribution): Promise<boolean>
   /** 生成失败：attempts++ 与错误留痕（未耗尽时回 pending 由 worker 重试） */
   recordAttemptFailure(pk: number, status: JobStatus, error: string): Promise<void>
   /** 重发：failed → ready 入队（UI 手动重发） */

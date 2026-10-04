@@ -57,6 +57,7 @@ declare module 'vue' {
     RouterView: typeof import('vue-router')['RouterView']
     SafetySection: typeof import('./src/components/welink/settings/SafetySection.vue')['default']
     SettingsCard: typeof import('./src/components/welink/SettingsCard.vue')['default']
+    SkillsSection: typeof import('./src/components/welink/settings/SkillsSection.vue')['default']
     TemplateTab: typeof import('./src/components/group/TemplateTab.vue')['default']
     TimelinePanel: typeof import('./src/components/welink/messages/TimelinePanel.vue')['default']
     TraceTab: typeof import('./src/components/welink/TraceTab.vue')['default']

@@ -116,7 +116,7 @@ describe('infra/db/codehub —— 迁移 v4', () => {
     expect(migrationV4.sql).toContain('CREATE TABLE codehub_repos')
     expect(migrationV4.sql).toContain('CREATE TABLE codehub_mrs')
     expect(migrationV4.sql).toContain('CREATE TABLE codehub_sync_state')
-    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2, 3, 4])
+    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2, 3, 4, 5])
   })
 
   it('state 的 CHECK 枚举与 TS 的 CodeHubMrState 完全一致', () => {

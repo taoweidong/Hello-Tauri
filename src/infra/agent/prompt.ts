@@ -9,6 +9,8 @@
  *  * `{{question}}` 触发消息（本次要回复的那条）；
  *  * `{{sender}}` 触发者昵称；
  *  * `{{target}}` 目标会话名（群名 / 对方昵称）；
+ *  * `{{knowledge}}` 技能知识块（skill-routing）：用户自配的**可信**文本，不经消毒、
+ *    永不作为回复正文外发；空知识块替换为空串；
  *  * 未识别的 `{{xxx}}` **原样保留**：宁可让模型看到占位符，也不要静默吞掉
  *    用户的模板意图（UI 保存时会警告变量缺失）。
  */
@@ -23,6 +25,8 @@ export interface PromptInput {
   trigger: WelinkMessage | null
   /** 目标会话名兜底（会话已被删除时） */
   targetFallback?: string
+  /** 技能知识块（可信文本，不消毒；skill-routing） */
+  knowledge?: string
 }
 
 /**
@@ -80,8 +84,10 @@ export function renderPrompt(input: PromptInput): string {
     question,
     sender,
     target,
+    // 知识块是用户自配的可信文本（skill-routing S-I/D8）：不消毒，也不进回复正文
+    knowledge: input.knowledge ?? '',
   }
-  return input.template.replace(/\{\{(context|question|sender|target)\}\}/g, (_match, key: string) => values[key])
+  return input.template.replace(/\{\{(context|question|sender|target|knowledge)\}\}/g, (_match, key: string) => values[key])
 }
 
 /** 模板里缺失的变量（UI 保存时警告 + 单测断言用） */
@@ -92,7 +98,7 @@ export function missingPlaceholders(template: string): string[] {
 
 /** 模板里出现的未知变量（保留原样但提示用户） */
 export function unknownPlaceholders(template: string): string[] {
-  const known = new Set(['{{context}}', '{{question}}', '{{sender}}', '{{target}}'])
+  const known = new Set(['{{context}}', '{{question}}', '{{sender}}', '{{target}}', '{{knowledge}}'])
   const found = template.match(/\{\{[a-zA-Z_]+\}\}/g) ?? []
   return [...new Set(found.filter((token) => !known.has(token)))]
 }

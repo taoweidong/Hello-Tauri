@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_BLACKLIST_PATTERNS, DEFAULT_PROMPT_TEMPLATE, type WelinkMessage } from '@/types/welink'
-import { MAX_UNTRUSTED_CHARS, formatContextLine, renderPrompt, sanitizeUntrusted } from './prompt'
+import { MAX_UNTRUSTED_CHARS, formatContextLine, renderPrompt, sanitizeUntrusted, unknownPlaceholders } from './prompt'
 
 function message(overrides: Partial<WelinkMessage> = {}): WelinkMessage {
   return {
@@ -87,6 +87,27 @@ describe('infra/agent/prompt —— 渲染管线接入消毒', () => {
       trigger: message({ content: '{{target}}' }),
     })
     expect(prompt).toBe('T:{{target}}|G-1001')
+  })
+
+  it('{{knowledge}} 注入技能知识块全文（可信文本不消毒，skill-routing）', () => {
+    const prompt = renderPrompt({
+      template: '口径：{{knowledge}}\nQ:{{question}}',
+      target: null,
+      context: [],
+      trigger: message({ content: '报销流程是什么' }),
+      knowledge: '报销口径：\n1. 500 元以下走自助审批；\n2. 超过 3 个工作日未到账找财务王姐。',
+    })
+    // 知识块的多行结构原样保留（消毒会破坏格式）
+    expect(prompt).toContain('1. 500 元以下走自助审批；\n2. 超过 3 个工作日未到账找财务王姐。')
+  })
+
+  it('知识块缺省时 {{knowledge}} 替换为空串（老调用方零改动）', () => {
+    const prompt = renderPrompt({ template: 'A[{{knowledge}}]B', target: null, context: [], trigger: message() })
+    expect(prompt).toBe('A[]B')
+  })
+
+  it('{{knowledge}} 不在 unknownPlaceholders 之列（UI 不再误报未知变量）', () => {
+    expect(unknownPlaceholders('{{knowledge}}')).toEqual([])
   })
 })
 
