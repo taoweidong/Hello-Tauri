@@ -61,8 +61,9 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
   `grep -rn "MOCK-CLI\|CLI-ASSUME" src/` 逐项核对：`[MOCK-CLI]` = 模拟实现（对接后**保留**
   为测试替身与浏览器调试数据源）；`[CLI-ASSUME]` = 对真实 CLI 的假设（子命令/参数/字段名/
   编码/游标/占位 ID），对接时必须逐一核实，核实后更新或删除对应标签。
-  CodeHub 域的清单已整理成 `openspec/changes/personal-workbench/cli-assume-checklist.md`
-  （对接 codehub-cli 时按表逐项打勾）。
+  CodeHub 域的清单已整理成
+  `openspec/changes/archive/2026-10-04-personal-workbench/cli-assume-checklist.md`
+  （对接 codehub-cli 时按表逐项打勾；变更已归档，清单仍在此处维护）。
   大模型 HTTP 适配器同款约定：`[LLM-ASSUME]` = 对真实大模型服务的协议假设（路径/鉴权头/
   model 字段/消息结构/流式开关/响应形状/CORS），对接前 `grep -rn "LLM-ASSUME" src/` 逐项核实，
   清单见 `docs/design-llm-connection-2026-10-02.md`。
@@ -124,8 +125,9 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
 
 - `docs/design-welink-agent-2026-09-27.md` — WeLink × Agent 总设计（架构分层 §3、数据模型 §4、
   安全闸 §5A、时序 §6、快速建群 §15）；动 `src/infra/`、`src/orchestrator/`、welink 相关表结构前必读。
-- `openspec/changes/personal-workbench/design.md` + 同目录 `cli-assume-checklist.md` — CodeHub
-  检视域口径（D3 打桩先行、D5 截断降级、D6 token 注入、D7 工作台首页、D8 分层归位）与
-  对接真实 codehub-cli 时的逐项核对表。
+- `openspec/specs/codehub-review/spec.md`、`openspec/specs/workbench-home/spec.md` — CodeHub 检视域
+  与工作台首页的主规格（验收口径）。设计决策与核对表在归档变更
+  `openspec/changes/archive/2026-10-04-personal-workbench/`（`design.md` 的 D3 打桩先行、D5 截断降级、
+  D6 token 注入、D7 工作台首页、D8 分层归位，+ 同目录 `cli-assume-checklist.md`）。
 - `docs/` 其余为历史设计/质量报告，可按需查阅。
 - `README.md` — 打包与内网迁移细节（存储迁移、bootstrap 引导、离线依赖清单）。
