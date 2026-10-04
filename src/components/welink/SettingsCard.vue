@@ -9,8 +9,11 @@
  *
  * 三条校验（都对应可预见的误配置）：
  *  * 选真实 CLI 但路径为空 → 保存拦截（否则每次轮询都报错）；
- *  * 选内网 Agent 但 baseUrl 为空 → 提示会回退 mock（不拦截，但要说清）；
- *  * S2/S3 调到默认 2 倍以上 → 二次确认（放宽防滥发是最危险的一类改动）。
+ *  * 选真实 CLI 但 S2/S3 调到默认 2 倍以上 → 二次确认（放宽防滥发是最危险的一类改动）。
+ *
+ * agent 块（大模型连接）自 2026-10-04 起由独立的「大模型（Agent）」配置卡
+ * （LlmSettingsCard）承载 —— 它是该块的唯一编辑器；本卡 push 时对 agent **透传**
+ * 父级当前值，两卡并存不会互相重置草稿（评审 F-2 的双编辑器变体）。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -19,7 +22,6 @@ import { IconAlert, IconCheck } from '@/components/icons'
 import { bridge } from '@/api'
 import { useWelinkStore } from '@/stores/welink'
 import { normalizeWelinkSettings, type WelinkSettings } from '@/types/welink'
-import AgentSection from './settings/AgentSection.vue'
 import SafetySection from './settings/SafetySection.vue'
 import { decodeBase64Text } from '@/utils/b64'
 import { formatMs, formatSec } from '@/utils/welink-display'
@@ -70,10 +72,14 @@ function push() {
 function flushPush() {
   pushTimer = null
   const normalized = normalizeWelinkSettings(draft.value)
-  lastPushedJson = JSON.stringify(normalized)
-  emit('update:modelValue', normalized)
+  // agent 块的唯一编辑器是「大模型配置」卡：这里用父级当前值回填再 normalize ——
+  // 若按本卡草稿整块回写，会把它刚 push 的 agent 改动顶回去（双编辑器互踩）
+  const agent = normalizeWelinkSettings({ agent: props.modelValue.agent }).agent
+  const merged = { ...normalized, agent }
+  lastPushedJson = JSON.stringify(merged)
+  emit('update:modelValue', merged)
   // 热更新到运行中的编排层（未启动时是空操作）：改完参数不必重启就生效
-  welinkStore.applySettings(normalized)
+  welinkStore.applySettings(merged)
 }
 
 onBeforeUnmount(() => {
@@ -84,14 +90,6 @@ onBeforeUnmount(() => {
 
 /** 选真实 CLI 但路径为空：CLI 的等价值是「每次轮询都失败」，必须拦在保存前 */
 const cliPathMissing = computed(() => draft.value.welinkSource === 'cli' && !draft.value.cliPath.trim())
-const agentUrlMissing = computed(() => draft.value.agent.agentSource === 'http' && !draft.value.agent.baseUrl.trim())
-/** OpenAI 兼容风格必填 model（缺失时调用 fail-fast，每次生成都会失败）——提示但不拦截保存 */
-const agentModelMissing = computed(
-  () =>
-    draft.value.agent.agentSource === 'http' &&
-    draft.value.agent.apiStyle === 'openai' &&
-    !draft.value.agent.model.trim(),
-)
 
 const valid = computed(() => !cliPathMissing.value)
 watch(valid, (value) => emit('update:valid', value), { immediate: true })
@@ -111,7 +109,7 @@ const plan = computed(() => welinkStore.pollPlan(draft.value.pollIntervalSec))
 // ---------------- CLI / Agent 连通性 ----------------
 
 const cliTesting = ref(false)
-const testResult = ref<{ kind: 'cli' | 'agent'; ok: boolean; text: string } | null>(null)
+const testResult = ref<{ ok: boolean; text: string } | null>(null)
 
 /** 试跑 `welink-cli --help`：只验证「能起来 + 有输出」，不校验协议 */
 async function testCli() {
@@ -128,7 +126,6 @@ async function testCli() {
     const stderr = decodeBase64Text(result.stderr).text
     const firstLine = (stdout || stderr).split('\n').find((line) => line.trim()) ?? '（无输出）'
     testResult.value = {
-      kind: 'cli',
       ok: result.exitCode === 0,
       text:
         `退出码 ${result.exitCode ?? '(null)'} · 耗时 ${result.durationMs}ms\n` +
@@ -140,7 +137,6 @@ async function testCli() {
     )
   } catch (error) {
     testResult.value = {
-      kind: 'cli',
       ok: false,
       text: error instanceof Error ? error.message : String(error),
     }
@@ -176,24 +172,6 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
         title="已选择真实 CLI 但未填写路径，保存被拦截"
         description="保存会导致每次轮询都失败；请填写 welink-cli.exe 路径，或改回「模拟数据」。"
       />
-      <el-alert
-        v-else-if="agentUrlMissing"
-        class="wc__alert"
-        type="warning"
-        :closable="false"
-        show-icon
-        title="已选择内网 Agent 但 baseUrl 为空"
-        description="运行时会自动回退到「模拟回复」，回复内容不是模型生成的。填写地址后重新保存即可生效。"
-      />
-      <el-alert
-        v-else-if="agentModelMissing"
-        class="wc__alert"
-        type="warning"
-        :closable="false"
-        show-icon
-        title="OpenAI 兼容接口未填写大模型名称（model）"
-        description="该风格下 model 为必填字段，缺失时每次生成都会在本机直接报错（不发出无效请求）。填写后重新保存即可生效。"
-      />
 
       <el-collapse v-model="activeGroup">
         <!-- ① 总览 -->
@@ -210,19 +188,12 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
               </el-radio-group>
               <span class="wc__hint">立即生效</span>
             </el-form-item>
-            <el-form-item label="Agent 来源">
-              <el-radio-group v-model="draft.agent.agentSource">
-                <el-radio-button value="mock">模拟回复</el-radio-button>
-                <el-radio-button value="http">内网 HTTP</el-radio-button>
-              </el-radio-group>
-              <span class="wc__hint">立即生效</span>
-            </el-form-item>
             <el-form-item label="发送模式">
               <el-radio-group v-model="draft.sendMode">
                 <el-radio-button value="auto">自动外发</el-radio-button>
                 <el-radio-button value="manual">人工确认</el-radio-button>
               </el-radio-group>
-              <span class="wc__hint">manual = 草稿生成后停在「待审」，需在回复历史里确认发送</span>
+              <span class="wc__hint">manual = 草稿生成后停在「待审」，需在回复历史里确认发送；Agent 回复来源的切换在下方「大模型（Agent）」配置卡</span>
             </el-form-item>
           </el-form>
         </el-collapse-item>
@@ -292,8 +263,6 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
           </el-form>
         </el-collapse-item>
 
-        <AgentSection v-model="draft.agent" @tested="testResult = $event" />
-
       </el-collapse>
 
       <!-- 连通性测试结果 -->
@@ -303,7 +272,7 @@ const agentLabel = computed(() => (draft.value.agent.agentSource === 'mock' ? '�
         :type="testResult.ok ? 'success' : 'error'"
         :closable="true"
         show-icon
-        :title="testResult.kind === 'cli' ? 'CLI 试跑结果' : 'Agent 连通性结果'"
+        title="CLI 试跑结果"
         @close="testResult = null"
       >
         <pre class="wc__test-text">{{ testResult.text }}</pre>

@@ -9,7 +9,9 @@ import { useAppStore } from '@/stores/app'
 import { useCodehubStore } from '@/stores/codehub'
 import { logger } from '@/utils/logger'
 import type { AppSettings } from '@/types'
+import type { WelinkSettings } from '@/types/welink'
 import SettingsCard from '@/components/welink/SettingsCard.vue'
+import LlmSettingsCard from '@/components/welink/LlmSettingsCard.vue'
 import CodehubSettingsCard from '@/components/codehub/CodehubSettingsCard.vue'
 
 const appStore = useAppStore()
@@ -255,6 +257,14 @@ async function migrateDir() {
       @update:valid="(value: boolean) => (welinkValid = value)"
     />
 
+    <!-- 大模型（Agent）连接（design-llm-connection）：weLink.agent 块的唯一编辑器，
+         配置随「保存配置」写入 config.json，改动即时热更新到运行中的助手 -->
+    <LlmSettingsCard
+      :model-value="form.weLink?.agent ?? {}"
+      class="llm-card"
+      @update:model-value="(agent: WelinkSettings['agent']) => (form.weLink = { ...(form.weLink ?? {}), agent })"
+    />
+
     <!-- CodeHub 连接（personal-workbench）：配置持久化在这里，同步/刷新入口在检视页 -->
     <CodehubSettingsCard
       :model-value="form.codeHub ?? {}"
@@ -274,6 +284,10 @@ async function migrateDir() {
 }
 
 .welink-card {
+  margin-top: 14px;
+}
+
+.llm-card {
   margin-top: 14px;
 }
 

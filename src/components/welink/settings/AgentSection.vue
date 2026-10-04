@@ -1,10 +1,15 @@
 <script setup lang="ts">
 /**
- * 设置卡·Agent 通道 + 提示词模板分区（自 SettingsCard 拆出，quality-hardening-2026-10 4.2）。
+ * 大模型卡·连接配置 + 提示词模板分区（原 WeLink 助手卡分区，2026-10-04 随 agent 块
+ * 移交独立的 LlmSettingsCard 承载）。
  *
  * v-model 承载 `WelinkSettings['agent']`（嵌套字段就地改、模板操作整字段替换——
  * 同一对象引用，父级 deep watch 照常触发热更新）。连通性测试结果经 `tested`
- * 事件上抛，由父级的共享结果框统一展示（与 CLI 试跑共用一处）。
+ * 事件上抛，由父级的结果框统一展示。
+ *
+ * 与旧版的行为差异：连接配置**不再随「模拟回复」来源隐藏** —— 大模型配置卡的价值
+ * 就是让连接参数随时可见可改；mock 来源下字段仅展示 + 探测按钮禁用（对 mock 数据源
+ * 发探测没有意义），并给出一行「切到内网 HTTP 后生效」的提示。
  */
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -101,8 +106,11 @@ function insertPlaceholder(token: string) {
 </script>
 
 <template>
-  <!-- ⑥ Agent -->
-  <el-collapse-item v-if="agent.agentSource === 'http'" name="agent" title="Agent 通道">
+  <!-- ⑥ Agent 连接配置（mock 来源下仅展示，不隐藏 —— 见组件头注释） -->
+  <el-collapse-item name="agent" title="连接配置">
+    <p v-if="agent.agentSource !== 'http'" class="wc__hint wc__hint--block">
+      当前来源为「模拟回复」：下方连接参数暂不参与运行，切到「内网 HTTP」后生效。
+    </p>
     <el-form :model="agent" label-width="140px" class="wc__form" @submit.prevent>
       <el-form-item label="服务地址">
         <el-input v-model="agent.baseUrl" class="wc__control" placeholder="http://10.0.0.5:8080" />
@@ -152,8 +160,14 @@ function insertPlaceholder(token: string) {
         <span class="wc__hint">取该会话最近 N 条消息拼进提示词（客户端组装）</span>
       </el-form-item>
       <el-form-item label="">
-        <el-button size="small" :icon="IconRefresh" :loading="agentTesting" @click="testAgent">连通性测试</el-button>
-        <span class="wc__hint">发送固定探测提示词，显示耗时与返回摘要</span>
+        <el-button
+          size="small"
+          :icon="IconRefresh"
+          :loading="agentTesting"
+          :disabled="agent.agentSource !== 'http'"
+          @click="testAgent"
+        >连通性测试</el-button>
+        <span class="wc__hint">发送固定探测提示词，显示耗时与返回摘要（模拟回复来源下不可用）</span>
       </el-form-item>
     </el-form>
   </el-collapse-item>

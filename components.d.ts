@@ -48,6 +48,7 @@ declare module 'vue' {
     GroupHistoryTab: typeof import('./src/components/group/GroupHistoryTab.vue')['default']
     HistoryTab: typeof import('./src/components/welink/HistoryTab.vue')['default']
     InboxTab: typeof import('./src/components/welink/InboxTab.vue')['default']
+    LlmSettingsCard: typeof import('./src/components/welink/LlmSettingsCard.vue')['default']
     MessagesTab: typeof import('./src/components/welink/MessagesTab.vue')['default']
     MrDetailPanel: typeof import('./src/components/codehub/MrDetailPanel.vue')['default']
     MrStateBadge: typeof import('./src/components/codehub/MrStateBadge.vue')['default']
