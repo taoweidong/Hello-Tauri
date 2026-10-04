@@ -65,7 +65,11 @@ describe('stores/welink —— pollPlan（D-6：设置页显示的数字必须�
     vi.clearAllMocks()
   })
 
-  it('**未装载会话清单时不冒充「0 个会话」**（known=false）', async () => {
+  // 这两条用例各自 freshStore()：vi.resetModules() 会重导入整张 store 依赖图，
+  // 在全量并发（多 worker 满载）时偶发超过默认 5s 预算。给**纯导入型**用例单独
+  // 放宽到 20s —— 断言不变，只是给「加载」本身一个真实机器预算（个人工作台归档后
+  // 套件新增组件挂载用例，单 worker 负载上升，此预算按实测校准）。
+  it('**未装载会话清单时不冒充「0 个会话」**（known=false）', { timeout: 20_000 }, async () => {
     const store = await freshStore()
     const plan = store.pollPlan(5)
     expect(plan.known).toBe(false)
@@ -75,7 +79,7 @@ describe('stores/welink —— pollPlan（D-6：设置页显示的数字必须�
     expect(plan.periodMs).toBe(5000)
   })
 
-  it('装载后按监控会话数给出预估（known=true）', async () => {
+  it('装载后按监控会话数给出预估（known=true）', { timeout: 20_000 }, async () => {
     const store = await freshStore()
     repoMock.listConversations.mockResolvedValue([conversation(true), conversation(true), conversation(true)])
     await store.loadConversations()

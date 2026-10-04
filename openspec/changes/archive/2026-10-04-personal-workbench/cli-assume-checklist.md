@@ -1,5 +1,9 @@
 # codehub-cli 对接核对清单（personal-workbench 7.3）
 
+> **2026-10-04 起本清单已并入总指南** `docs/cli-integration-adaptation-2026-10-04.md`
+> （§4 吸收了本表全部条目，锚点改用符号名防行号漂移；welink-cli 同清单见总指南 §3）。
+> 后续对接以总指南为准维护，本文件保留归档原貌。
+
 `[CLI-ASSUME]` = 对真实 codehub-cli 的**假设**，对接前必须逐项核实，核实后更新或删除对应标签；
 `[MOCK-CLI]` = 模拟替身，对接后**保留**（单测替身 + 浏览器调试数据源）。
 

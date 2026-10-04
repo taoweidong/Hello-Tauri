@@ -12,7 +12,8 @@
  * 本期交付的核心目的：**在真实 welink-cli 未就绪时，把整条链路跑通并可演示**。
  * 因此这里的 mock 不是「返回几条死数据」，而是：
  *
- *  * 脚本化消息流：按会话维护游标，每次 `pull` 推进一批，含 @我 / 私聊 / 自发样本；
+ *  * 脚本化消息流：按会话维护游标，每次 `pull` 推进一批，含 @我 / 私聊 / 自发 /
+ *    非文本占位样本（第 2 批起图片）；
  *  * 可注入延迟与确定性故障（`failures` 计数、固定种子）—— 测试依赖确定性，
  *    随机故障会让 CI 随机变红；
  *  * 「演示剧本」（O13）：预置「新人群@我 → 私聊追问 → 对方回应」三段，
@@ -150,6 +151,8 @@ export const DEMO_SCRIPT: Record<string, ScriptStep[]> = {
     {
       convId: null,
       messages: [
+        // 私聊追问段带一条图片（占位存档、不触发回复）—— 演示「非文本只入档」的分流
+        { offsetSec: 2, senderId: 'E-2001', senderName: '李明', content: '[图片]', msgType: 'image' },
         { offsetSec: 4, senderId: 'E-2001', senderName: '李明', content: '补充一下：只有生产环境复现，测试环境正常' },
       ],
     },
@@ -169,8 +172,6 @@ export interface MockWelinkOptions {
   pullFailures?: number
   /** 发送失败注入：前 N 次 send 抛错（测试外发重试与防双发） */
   sendFailures?: number
-  /** 自动生成的消息池（非剧本模式下的常规轮询） */
-  ambient?: boolean
 }
 
 interface MockState {
@@ -216,11 +217,14 @@ export function createMockWelinkPort(options: MockWelinkOptions = {}): MockWelin
   let pullFailures = options.pullFailures ?? 0
   let sendFailures = options.sendFailures ?? 0
   const state = createState()
-  void options.ambient
 
   const sleep = (ms: number) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve())
 
-  /** 常规（非剧本）消息池：按会话类型给不同内容，保证 @我/私聊/自发都有样本 */
+  /**
+   * 常规（非剧本）消息池：按会话类型给不同内容，保证 @我/私聊/自发都有样本；
+   * 第 2 批起第 2 条轮换为图片样本 —— 非文本「占位存档」链路（R2 / 设计 §7.1）
+   * 在演示模式下可见（真实 welink-cli 的会话流必然含图片/文件，纯文本池是失真的）。
+   */
   function ambientBatch(conv: WelinkConversation, index: number): NormalizedMessage[] {
     const seq = index + 1
     const base: Array<Omit<NormalizedMessage, 'msgUid' | 'convId' | 'convType' | 'sentAt'>> = [
@@ -252,6 +256,16 @@ export function createMockWelinkPort(options: MockWelinkOptions = {}): MockWelin
         atMe: false,
       },
     ]
+    if (index > 0) {
+      base[1] = {
+        direction: 'in',
+        senderId: 'E-9003',
+        senderName: '周琳',
+        content: '[图片]',
+        msgType: 'image',
+        atMe: false,
+      }
+    }
     return base.slice(0, Math.max(1, Math.min(batchSize, 3))).map((item, itemIndex) => ({
       ...item,
       msgUid: `${conv.convId}-${seq}-${itemIndex}`,

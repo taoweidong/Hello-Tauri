@@ -9,7 +9,8 @@
  *  * 无游标/增量语义：list 每次返回全量夹具（同步幂等由快照覆盖写保证，行为等价）；
  *  * list 只给摘要、详情由 view 单查（这条分工同时是 [CLI-ASSUME]，核实前 mock 两侧
  *  * 夹具分开维护，见 MOCK_MR_DETAILS）；
- *  * 确定性故障注入（transport/parse 计数）是测试专用通道，真实 CLI 无此概念。
+ *  * 确定性故障注入（transport/parse 计数）与 degraded 注入是测试/演示专用通道，
+ *    真实 CLI 无此概念（degraded 的真实来源是宿主 2MB 输出截断，见 design D5）。
  *
  * 打桩期的核心目的：**在真实 codehub-cli 契约未核实时，把 UI/同步管线/快照行为
  * 全部锁定并可演示**（change design D3「打桩先行」）。
@@ -188,6 +189,8 @@ export interface MockCodeHubOptions {
   transportFailures?: number
   /** 确定性故障注入基数：接下来 N 次调用抛 parse */
   parseFailures?: number
+  /** degraded 注入基数：接下来 N 次 list 返回 degraded=true（演示降级条，默认 0） */
+  degradedCount?: number
 }
 
 export interface MockCodeHubPort extends CodeHubPort {
@@ -195,12 +198,24 @@ export interface MockCodeHubPort extends CodeHubPort {
   injectTransportFailure(count?: number): void
   /** 测试注入：模拟输出不可解析 */
   injectParseFailure(count?: number): void
+  /** 演示注入：接下来 N 次 list 标记「本轮可能不完整」（检视页降级条的触发信号） */
+  injectDegraded(count?: number): void
 }
 
 export function createMockCodeHubPort(options: MockCodeHubOptions = {}): MockCodeHubPort {
   let transportFailures = options.transportFailures ?? 0
   let parseFailures = options.parseFailures ?? 0
+  let degradedCount = options.degradedCount ?? 0
   const latencyMs = options.latencyMs ?? 0
+
+  /** 消费一次 degraded 注入：真实侧该标志来自宿主输出截断，mock 只能人为注入 */
+  const takeDegraded = (): boolean => {
+    if (degradedCount > 0) {
+      degradedCount -= 1
+      return true
+    }
+    return false
+  }
 
   const maybeFail = (): void => {
     if (transportFailures > 0) {
@@ -220,13 +235,14 @@ export function createMockCodeHubPort(options: MockCodeHubOptions = {}): MockCod
       maybeFail()
       await delay()
       const limit = Math.max(1, listOptions.limit ?? MOCK_MRS.length)
-      // 模拟数据源不存在宿主输出截断，degraded 恒 false（降级语义由真实适配器与编排层测）
+      // degraded 默认恒 false（模拟数据源不存在宿主 2MB 截断）；injectDegraded 可
+      // 注入「本轮可能不完整」，供检视页降级条与同步摘要告警路径演示（design D5）
       return {
         records: MOCK_MRS.filter(
           (record) =>
             record.summary.repoId === repoId && (!listOptions.state || record.summary.state === listOptions.state),
         ).slice(0, limit),
-        degraded: false,
+        degraded: takeDegraded(),
       }
     },
 
@@ -251,6 +267,9 @@ export function createMockCodeHubPort(options: MockCodeHubOptions = {}): MockCod
     },
     injectParseFailure(count = 1) {
       parseFailures += count
+    },
+    injectDegraded(count = 1) {
+      degradedCount += count
     },
   }
 }

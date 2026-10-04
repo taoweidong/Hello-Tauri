@@ -61,6 +61,17 @@ describe('codehub mock 端口', () => {
     await expect(port.listMergeRequests(MOCK_REPOS[0])).resolves.toMatchObject({ degraded: false })
   })
 
+  it('degraded 注入：接下来 N 次 list 标记「可能不完整」，用尽后恢复 false（降级条演示通道）', async () => {
+    const port = createMockCodeHubPort({ degradedCount: 1 })
+    await expect(port.listMergeRequests(MOCK_REPOS[0])).resolves.toMatchObject({ degraded: true })
+    await expect(port.listMergeRequests(MOCK_REPOS[0])).resolves.toMatchObject({ degraded: false })
+    port.injectDegraded(2)
+    await expect(port.listMergeRequests(MOCK_REPOS[0])).resolves.toMatchObject({ degraded: true })
+    // degraded 只影响 list 的完整性标志，记录本身照常完整返回（D5：完整元素照常入库）
+    const { records } = await port.listMergeRequests(MOCK_REPOS[0])
+    expect(records.length).toBeGreaterThan(0)
+  })
+
   it('故障注入同样作用于详情与连通验证通道', async () => {
     const port = createMockCodeHubPort()
     port.injectTransportFailure(2)
