@@ -6,10 +6,11 @@
  * 顺序即技能数组顺序（先配置先匹配），上移/下移表达优先级。兜底技能（通用助手）
  * 不在本区管理 —— 它的模板就是「兜底技能（通用助手）」分区（原提示词模板）。
  *
- * 编辑采用「行内展开」：同一时刻至多展开一个编辑器（editingId）。列表操作
- * （增删改/启停/排序）整字段替换 `agent.skills` 数组，父级 deep watch 照常触发热更新；
- * 操作函数显式暴露（defineExpose）供契约测试驱动，避免对桩掉的 EP 组件做脆交互。
- * id 不在 UI 侧手工生成：保存时留空交给 normalizeWelinkSettings 统一 slug 化去重。
+ * 编辑器独立渲染在列表下方，同一时刻至多一个（editingId/editingDraft）。
+ * 列表操作（增删改/启停/排序）整字段替换 `agent.skills` 数组，父级 deep watch
+ * 照常触发热更新；操作函数显式暴露（defineExpose）供契约测试驱动，避免对
+ * 桩掉的 EP 组件做脆交互。id 不在 UI 侧手工生成：保存时留空交给
+ * normalizeWelinkSettings 统一 slug 化去重。
  */
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -149,87 +150,88 @@ defineExpose({ startAdd, startEdit, saveEditor, closeEditor, removeSkill, setEna
 
       <ul class="sk__list">
         <li v-for="(skill, index) in skills" :key="skill.id" class="sk__row">
-          <template v-if="editingId === skill.id">
-            <!-- 行内编辑器：名称/说明/关键词/模板/知识块/审核 -->
-            <div class="sk__edit">
-              <el-form label-width="92px" @submit.prevent>
-                <el-form-item label="名称">
-                  <el-input v-model="editingDraft!.name" class="wc__control" placeholder="如：故障咨询" />
-                </el-form-item>
-                <el-form-item label="说明">
-                  <el-input
-                    v-model="editingDraft!.description"
-                    type="textarea"
-                    :rows="2"
-                    placeholder="什么问题该选这个技能 —— 这是大模型分类时的唯一选择依据"
-                  />
-                </el-form-item>
-                <el-form-item label="关键词">
-                  <el-input v-model="keywordsText" class="wc__control" placeholder="逗号分隔，如：报错, /接口.*异常/" />
-                  <span class="wc__hint">普通词包含匹配；/…/ 形式按正则解释（不区分大小写）</span>
-                </el-form-item>
-                <el-form-item label="模板">
-                  <div class="sk__tokens">
-                    <el-tag
-                      v-for="token in PROMPT_PLACEHOLDERS"
-                      :key="token"
-                      size="small"
-                      effect="plain"
-                      class="wc__token pressable"
-                      @click="insertPlaceholder(token)"
-                    >{{ token }}</el-tag>
-                  </div>
-                  <el-input v-model="editingDraft!.promptTemplate" type="textarea" :rows="6" class="wc__textarea" />
-                  <el-alert
-                    v-if="editingMissingPlaceholders.length"
-                    class="wc__alert"
-                    type="warning"
-                    :closable="false"
-                    show-icon
-                    :title="`模板缺少占位符：${editingMissingPlaceholders.join('、')}`"
-                  />
-                  <span class="wc__hint">留空 = 回退兜底技能模板</span>
-                </el-form-item>
-                <el-form-item label="知识块">
-                  <el-input
-                    v-model="editingDraft!.knowledge"
-                    type="textarea"
-                    :rows="4"
-                    placeholder="该类问题的固定口径 / FAQ，注入模板 {{knowledge}} 占位符"
-                  />
-                </el-form-item>
-                <el-form-item label="人工审核">
-                  <el-switch v-model="editingDraft!.reviewMode" active-value="manual" inactive-value="auto" />
-                  <span class="wc__hint">开启后该技能生成的草稿一律转人工待审，不自动外发</span>
-                </el-form-item>
-              </el-form>
-              <div class="sk__edit-bar">
-                <el-button size="small" @click="closeEditor">取消</el-button>
-                <el-button size="small" type="primary" @click="saveEditor">保存</el-button>
-              </div>
-            </div>
-          </template>
-
-          <template v-else>
-            <span class="sk__name" :class="{ 'sk__name--off': !skill.enabled }">{{ skill.name }}</span>
-            <el-tag v-if="skill.reviewMode === 'manual'" size="small" type="warning" effect="plain">需人工审核</el-tag>
-            <el-tag size="small" effect="plain" class="sk__meta">{{ skill.keywords.length }} 个关键词</el-tag>
-            <span class="spacer" />
-            <el-button link size="small" :disabled="index === 0" @click="move(skill.id, -1)">上移</el-button>
-            <el-button link size="small" :disabled="index === skills.length - 1" @click="move(skill.id, 1)">下移</el-button>
-            <el-switch
-              :model-value="skill.enabled"
-              size="small"
-              inline-prompt
-              active-text="启用"
-              inactive-text="停用"
-              @update:model-value="(value: string | number | boolean) => setEnabled(skill.id, Boolean(value))"
-            />
-            <el-button link type="primary" size="small" @click="startEdit(skill)">编辑</el-button>
-            <el-button link type="danger" size="small" :icon="IconTrash" @click="removeSkill(skill.id)">删除</el-button>
-          </template>
+          <span class="sk__name" :class="{ 'sk__name--off': !skill.enabled }">{{ skill.name }}</span>
+          <el-tag v-if="skill.reviewMode === 'manual'" size="small" type="warning" effect="plain">需人工审核</el-tag>
+          <el-tag size="small" effect="plain" class="sk__meta">{{ skill.keywords.length }} 个关键词</el-tag>
+          <span class="spacer" />
+          <el-button link size="small" :disabled="index === 0" @click="move(skill.id, -1)">上移</el-button>
+          <el-button link size="small" :disabled="index === skills.length - 1" @click="move(skill.id, 1)">下移</el-button>
+          <el-switch
+            :model-value="skill.enabled"
+            size="small"
+            inline-prompt
+            active-text="启用"
+            inactive-text="停用"
+            @update:model-value="(value: string | number | boolean) => setEnabled(skill.id, Boolean(value))"
+          />
+          <el-button link type="primary" size="small" @click="startEdit(skill)">编辑</el-button>
+          <el-button link type="danger" size="small" :icon="IconTrash" @click="removeSkill(skill.id)">删除</el-button>
         </li>
       </ul>
+
+      <!--
+        编辑器独立渲染在列表下方（新建与编辑共用一处）。
+        评审修复记录：最初把编辑器放在 v-for 行内、靠 `editingId === skill.id` 匹配渲染，
+        新建态（__new__ 不在清单里）编辑器永远不出现——GUI 走查发现，组件渲染探针钉住。
+      -->
+      <div v-if="editingDraft" class="sk__edit">
+        <div class="sk__edit-title">{{ editingId === NEW_ID ? '新建技能' : `编辑：${editingDraft.name || ''}` }}</div>
+        <el-form label-width="92px" @submit.prevent>
+          <el-form-item label="名称">
+            <el-input v-model="editingDraft.name" class="wc__control" placeholder="如：故障咨询" />
+          </el-form-item>
+          <el-form-item label="说明">
+            <el-input
+              v-model="editingDraft.description"
+              type="textarea"
+              :rows="2"
+              placeholder="什么问题该选这个技能 —— 这是大模型分类时的唯一选择依据"
+            />
+          </el-form-item>
+          <el-form-item label="关键词">
+            <el-input v-model="keywordsText" class="wc__control" placeholder="逗号分隔，如：报错, /接口.*异常/" />
+            <span class="wc__hint">普通词包含匹配；/…/ 形式按正则解释（不区分大小写）</span>
+          </el-form-item>
+          <el-form-item label="模板">
+            <div class="sk__tokens">
+              <el-tag
+                v-for="token in PROMPT_PLACEHOLDERS"
+                :key="token"
+                size="small"
+                effect="plain"
+                class="wc__token pressable"
+                @click="insertPlaceholder(token)"
+              >{{ token }}</el-tag>
+            </div>
+            <el-input v-model="editingDraft.promptTemplate" type="textarea" :rows="6" class="wc__textarea" />
+            <el-alert
+              v-if="editingMissingPlaceholders.length"
+              class="wc__alert"
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="`模板缺少占位符：${editingMissingPlaceholders.join('、')}`"
+            />
+            <span class="wc__hint">留空 = 回退兜底技能模板</span>
+          </el-form-item>
+          <el-form-item label="知识块">
+            <el-input
+              v-model="editingDraft.knowledge"
+              type="textarea"
+              :rows="4"
+              placeholder="该类问题的固定口径 / FAQ，注入模板 {{knowledge}} 占位符"
+            />
+          </el-form-item>
+          <el-form-item label="人工审核">
+            <el-switch v-model="editingDraft.reviewMode" active-value="manual" inactive-value="auto" />
+            <span class="wc__hint">开启后该技能生成的草稿一律转人工待审，不自动外发</span>
+          </el-form-item>
+        </el-form>
+        <div class="sk__edit-bar">
+          <el-button size="small" @click="closeEditor">取消</el-button>
+          <el-button size="small" type="primary" @click="saveEditor">保存</el-button>
+        </div>
+      </div>
     </div>
   </el-collapse-item>
 </template>

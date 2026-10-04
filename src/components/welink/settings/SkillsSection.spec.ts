@@ -2,12 +2,12 @@ import { mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
- * 「回复技能」分区契约测试（skill-routing 设计 §10）。
- *
  * EP 表单组件整体桩掉后 v-model 不可交互，因此编辑器草稿经暴露的 `editingDraft`
  * 驱动（见组件 defineExpose 注释），列表操作走暴露的同名函数 —— 断言的是
  * 「操作 → agent.skills 整字段更新」的对外契约，而不是内部实现。
  *
+ * `el-collapse-item` 用**渲染 slot 的桩**而不是空桩：分区全部内容都在它的默认
+ * slot 里，空桩会把整棵子树吞掉，任何 DOM 断言都会失真（回归钉用例因此假红过）。
  * 双向绑定断言用本地捕获的 `current()` 而不是 `wrapper.props`：update:modelValue
  * 的监听器里同步 setProps 读 props 仍是旧值（与真实父级「ref 赋值 → 下个 tick
  * 成为新 prop」同构，捕获变量正是真实父级的 draft ref）。
@@ -20,16 +20,16 @@ import { ElMessage } from 'element-plus'
 import { DEFAULT_WELINK_SETTINGS, MAX_WELINK_SKILLS, type WelinkSettings, type WelinkSkill } from '@/types/welink'
 import SkillsSection from './SkillsSection.vue'
 
-const EP_STUBS = [
-  'el-collapse-item',
-  'el-switch',
-  'el-button',
-  'el-tag',
-  'el-form',
-  'el-form-item',
-  'el-input',
-  'el-alert',
-]
+const EP_STUBS: Record<string, unknown> = {
+  'el-collapse-item': { template: '<div><slot /></div>' },
+  'el-switch': true,
+  'el-button': true,
+  'el-tag': true,
+  'el-form': true,
+  'el-form-item': true,
+  'el-input': true,
+  'el-alert': true,
+}
 
 function baseSkill(overrides: Partial<WelinkSkill> = {}): WelinkSkill {
   return {
@@ -55,7 +55,7 @@ function mountSection(skills: WelinkSkill[], llmClassifyFallback = true) {
         void wrapper.setProps({ modelValue: value })
       },
     },
-    global: { stubs: Object.fromEntries(EP_STUBS.map((name) => [name, true])) },
+    global: { stubs: EP_STUBS as never },
   })
   return { wrapper, current: () => current }
 }
@@ -88,6 +88,26 @@ describe('welink/settings/SkillsSection（回复技能分区）', () => {
     expect(skills).toHaveLength(1)
     expect(skills[0]).toMatchObject({ id: '', name: '进度查询', reviewMode: 'auto' })
     expect(ElMessage.warning).toHaveBeenCalledTimes(1)
+  })
+
+  it('startAdd 后编辑器必须出现在 DOM（回归钉：新建态不在 v-for 行内，曾因行内匹配漏渲染）', async () => {
+    const h = mountSection([])
+    ;(h.wrapper.vm as unknown as { startAdd: () => void }).startAdd()
+    await h.wrapper.vm.$nextTick()
+    expect(h.wrapper.findAll('.sk__edit').length).toBe(1)
+    expect(h.wrapper.find('.sk__edit').text()).toContain('新建技能')
+
+    // 保存后编辑器收起；编辑既有技能时标题带名称
+    ;(h.wrapper.vm as unknown as { editingDraft: WelinkSkill }).editingDraft = {
+      ...draftOf(h),
+      name: '进度查询',
+    }
+    ;(h.wrapper.vm as unknown as { saveEditor: () => void }).saveEditor()
+    await h.wrapper.vm.$nextTick()
+    expect(h.wrapper.findAll('.sk__edit').length).toBe(0)
+    ;(h.wrapper.vm as unknown as { startEdit: (s: WelinkSkill) => void }).startEdit(h.current().skills[0])
+    await h.wrapper.vm.$nextTick()
+    expect(h.wrapper.find('.sk__edit').text()).toContain('编辑：进度查询')
   })
 
   it('编辑现有技能：原 id 原位替换（不新增条目）', () => {
