@@ -7,6 +7,7 @@ import type {
   DbParam,
   DbRow,
   ExecResult,
+  HttpPostResult,
   LogLevel,
   Migration,
   MigrateReport,
@@ -60,6 +61,9 @@ export const tauriBridge: Bridge = {
   dbMigrate: (migrations: Migration[]) => invoke<number[]>('db_migrate', { migrations }),
   cliRun: (program: string, args: string[], timeoutMs?: number) =>
     invoke<CliResult>('cli_run', { program, args, timeoutMs }),
+  // headers 以二元组数组回传（serde Vec<(String, String)>），Rust 侧逐条塞进请求头
+  httpPostJson: (url: string, headers: Record<string, string>, body: string, timeoutMs: number) =>
+    invoke<HttpPostResult>('http_post_json', { url, headers: Object.entries(headers), body, timeoutMs }),
 
   // —— Windows 基础设施通道（命令实位 src-tauri/src/sysinfo.rs / shell.rs）——
   sysOverview: () => probe(() => invoke<SysOverview>('sys_overview')),

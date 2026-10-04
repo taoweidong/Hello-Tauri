@@ -8,10 +8,10 @@
  *  * 选 http 但 baseUrl 为空 → 回退 mock **并 warn** —— UI 会把这句警告显示成
  *    「已回退模拟数据源」提示，避免用户以为「改了配置没生效」。
  */
-import { platform as runtime } from '@/api'
+import { bridge, platform as runtime } from '@/api'
 import type { WelinkAgentSettings } from '@/types/welink'
 import { logger } from '@/utils/logger'
-import { createHttpAgent } from './agent-http'
+import { createHttpAgent, type AgentHttpTransport } from './agent-http'
 import { createMockAgent, type MockAgent } from './mock'
 import type { AgentClient } from './port'
 
@@ -22,6 +22,18 @@ export interface AgentClientOptions {
   settings: WelinkAgentSettings
   /** mock 参数（测试注入延迟/故障/模板） */
   mock?: Parameters<typeof createMockAgent>[0]
+}
+
+/**
+ * 桌面模式把 HTTP 请求交给宿主通道（Rust `http_post_json`）：大模型服务不回
+ * CORS 头，WebView 的 window.fetch 会被浏览器层拦截（2026-10-04 对接实测，
+ * 记录见 docs/design-llm-connection-2026-10-02.md §11）。浏览器模式强制 mock，
+ * 不需要通道；测试不注入时走 window.fetch。
+ */
+function hostTransport(): AgentHttpTransport | undefined {
+  return runtime === 'tauri'
+    ? (url, headers, body, timeoutMs) => bridge.httpPostJson(url, headers, body, timeoutMs)
+    : undefined
 }
 
 export function agentClient(options: AgentClientOptions): AgentClient {
@@ -49,6 +61,7 @@ export function agentClient(options: AgentClientOptions): AgentClient {
       apiKey: settings.apiKey,
       model: settings.model,
       timeoutMs: settings.timeoutMs,
+      transport: hostTransport(),
     })
   } else {
     if (source === 'http') {
@@ -85,6 +98,7 @@ export function createAgentProbe(settings: WelinkAgentSettings): AgentClient {
       apiKey: settings.apiKey,
       model: settings.model,
       timeoutMs: settings.timeoutMs,
+      transport: hostTransport(),
     })
   }
   return createMockAgent()

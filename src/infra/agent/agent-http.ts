@@ -11,15 +11,24 @@
  *    `POST {baseUrl}{endpoint}`，请求体
  *    `{ model, messages: [{ role: 'user', content: <prompt> }], stream: false }`，
  *    响应正文取 `choices[0].message.content`。
- *    [LLM-ASSUME] 对接真实大模型环境前逐一核实（同 MOCK-CLI 约定，grep "LLM-ASSUME"）：
- *      1. 路径为 `/v1/chat/completions` 类 chat/completions 端点（用户自配 endpoint）；
- *      2. 鉴权为 `Authorization: Bearer <apiKey>`（apiKey 非空才带头，本地免鉴权服务留空即可）；
- *      3. `model` 必填 —— 缺失时调用方 fail-fast 报错，不发无效请求；
- *      4. 非流式（`stream: false`），一次性取全文（回复草稿要整体落库，流式无意义）；
- *      5. 响应解析 `choices[0].message.content`（pickReply 已兼容，含 data/嵌套容错）；
- *      6. 渲染后的完整提示词作为**单条 user 消息**发送 —— 端口契约是
- *         `complete(prompt)`（D3：上下文客户端组装），拆 system/user 角色留给真实
- *         对接时按服务端要求再加，不在本期协议里预留。
+ *    [LLM-ASSUME] 已于 2026-10-04 对真实服务逐项核实（阿里云 MaaS compatible-mode，
+ *    OpenAI 兼容端点；curl 实测记录见 `docs/design-llm-connection-2026-10-02.md` §11）：
+ *      1. 路径 `{baseUrl}{endpoint}` ✅ —— 真实服务 baseUrl 含 `/compatible-mode/v1`
+ *         前缀，endpoint 配 `/chat/completions`，拼接规则无需改动；
+ *      2. 鉴权 `Authorization: Bearer <apiKey>` ✅（缺头时服务端回 401「No API-key
+ *         provided」，头名无误；apiKey 非空才带头）；
+ *      3. `model` 必填 ✅（服务端经 GET /models 提供模型清单；缺失仍按 D-D 本机
+ *         fail-fast，不依赖服务端含糊的 400）；
+ *      4. 非流式 `stream: false` ✅（一次性取全文，回复草稿要整体落库）；
+ *      5. 响应 `choices[0].message.content` ✅；思考型模型（qwen3.8-flash 实测）在
+ *         message 里另有 `reasoning_content` 字段 —— pickReply 的候选键不含它，
+ *         只会命中 `content`，思考过程不会混进回复草稿；
+ *      6. **CORS 假设不成立**（设计 §7 预判的最大风险点）：服务端不回
+ *         Access-Control-Allow-Origin（预检 401），WebView 直发 `window.fetch` 会被
+ *         浏览器层拦截 —— 桌面模式经 Bridge `http_post_json`（Rust 薄通道，见
+ *         `src-tauri/src/http.rs`）在宿主进程内发请求，由工厂按运行时注入
+ *         `transport`（`src/infra/agent/index.ts`）；浏览器模式仍强制 mock，
+ *         不发真实请求。
  *
  * 三个必须做对的细节：
  *  * **超时必须能中止**：`AbortController` 是唯一手段，只 `Promise.race` 的话
@@ -27,12 +36,24 @@
  *  * **超时与错误分类**：`AbortError` → `timeout`，其余 → `error`（R4 语料靠这个区分）；
  *  * **onCall 恒触发**：失败也要留痕 —— 语料的价值恰恰在于「哪些提示词让模型挂了」。
  *
- * 零联网约束：只有用户自配的内网 `baseUrl` 会被访问，无遥测、无 CDN、无外部字体；
- * API 密钥只进请求头，**绝不进日志**（工厂的 info 日志只打风格/模型名）。
+ * 零外联约束：只有用户自配的 `baseUrl` 会被访问（桌面模式经宿主通道发出），无遥测、
+ * 无 CDN、无外部字体；API 密钥只进请求头，**绝不进日志**（工厂的 info 日志只打风格/模型名）。
  */
 import type { LlmApiStyle } from '@/types/welink'
 import type { AgentCallRecord, AgentClient, AgentPort } from './port'
 import { AgentError } from './port'
+
+/**
+ * 宿主 HTTP 通道（组合点注入）：桌面模式的 WebView 直发会被大模型服务的
+ * CORS 缺失拦截，由工厂（index.ts）注入经 Bridge `http_post_json` 走 Rust 的
+ * 实现；浏览器模式强制 mock 不注入，测试默认走 window.fetch。
+ */
+export type AgentHttpTransport = (
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  timeoutMs: number,
+) => Promise<{ status: number; body: string }>
 
 export interface HttpAgentOptions {
   baseUrl: string
@@ -45,6 +66,8 @@ export interface HttpAgentOptions {
   model?: string
   /** 单次调用超时（设计 §8 默认 60s，本地推理单条可能 2–60s） */
   timeoutMs: number
+  /** 宿主 HTTP 通道；缺省用 window.fetch（测试/浏览器调试） */
+  transport?: AgentHttpTransport
 }
 
 /** 从响应体里取回复正文（字段名容错：真实服务的字段名未知） */
@@ -115,6 +138,50 @@ function buildRequestParts(prompt: string, options: HttpAgentOptions): { headers
   return { headers, body: JSON.stringify({ prompt }) }
 }
 
+/** 单次请求的原始结果：fetch 与宿主通道统一到同一形状后再走共享的状态判定与解析 */
+interface HttpOutcome {
+  status: number
+  text: string
+}
+
+async function postViaFetch(url: string, headers: Record<string, string>, body: string, signal: AbortSignal): Promise<HttpOutcome> {
+  const response = await fetch(url, { method: 'POST', headers, body, signal })
+  return { status: response.status, text: await response.text() }
+}
+
+/**
+ * 经宿主通道发请求。超时由 complete() 的 timer 触发 abort signal：
+ * 监听器立刻以 AbortError 竞出（→ timeout 分类）；宿主侧另带同值超时兜底，
+ * 即便 TS 层已放弃，Rust 侧的请求也不会无限期占用连接。
+ */
+function postViaTransport(
+  transport: AgentHttpTransport,
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  timeoutMs: number,
+  signal: AbortSignal,
+): Promise<HttpOutcome> {
+  return new Promise<HttpOutcome>((resolve, reject) => {
+    const onAbort = () => reject(new DOMException('已中止', 'AbortError'))
+    if (signal.aborted) {
+      onAbort()
+      return
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    transport(url, headers, body, timeoutMs).then(
+      (outcome) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve({ status: outcome.status, text: outcome.body })
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      },
+    )
+  })
+}
+
 export function createHttpAgent(options: HttpAgentOptions): AgentClient {
   const endpoint = `${options.baseUrl.replace(/\/+$/, '')}${options.endpoint.startsWith('/') ? '' : '/'}${options.endpoint}`
   const handlers: Array<(record: AgentCallRecord) => void> = []
@@ -138,23 +205,26 @@ export function createHttpAgent(options: HttpAgentOptions): AgentClient {
           throw new AgentError('OpenAI 兼容接口需要在设置里填写「大模型名称」（model）', 'error')
         }
         const { headers, body } = buildRequestParts(prompt, options)
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers,
-          body,
-          signal: controller.signal,
-        })
+        const outcome = options.transport
+          ? await postViaTransport(options.transport, endpoint, headers, body, options.timeoutMs, controller.signal)
+          : await postViaFetch(endpoint, headers, body, controller.signal)
         const latencyMs = Date.now() - started
 
-        if (!response.ok) {
-          const detail = await response.text().catch(() => '')
+        if (outcome.status < 200 || outcome.status >= 300) {
           throw new AgentError(
-            `Agent 返回 HTTP ${response.status}${detail ? `：${detail.slice(0, 200)}` : ''}`,
+            `Agent 返回 HTTP ${outcome.status}${outcome.text ? `：${outcome.text.slice(0, 200)}` : ''}`,
             'error',
           )
         }
 
-        const payload = await response.json().catch(async () => ({ reply: await response.text() }))
+        // 先取全文再解析：非 JSON 响应兜底为 { reply: 全文 }（与 response.json()
+        // 失败后回读 text 的旧兜底等价，且不依赖「json() 失败后还能再读 body」）
+        let payload: unknown
+        try {
+          payload = JSON.parse(outcome.text)
+        } catch {
+          payload = { reply: outcome.text }
+        }
         const reply = pickReply(payload)
         if (reply === null) {
           throw new AgentError('Agent 响应中未找到回复正文字段', 'error')

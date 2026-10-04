@@ -47,6 +47,12 @@ describe('webBridge 契约', () => {
     await expect(webBridge.openStorageDir()).rejects.toThrow(/浏览器/)
   })
 
+  it('httpPostJson 在浏览器模式明确报错（业务路径不会走到：agent 工厂 web 强制 mock）', async () => {
+    await expect(webBridge.httpPostJson('https://llm.example.internal/v1', {}, '{}', 1000)).rejects.toThrow(
+      /浏览器.*mock/,
+    )
+  })
+
   it('appInfo 提供完整 AppInfo 形状', async () => {
     const info = await webBridge.appInfo()
     expect(info).toMatchObject({

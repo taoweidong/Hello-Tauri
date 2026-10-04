@@ -45,6 +45,8 @@ describe('bridge 运行时选择', () => {
       'dbMigrate',
       // M1 通道层：WeLink CLI 外部进程调用（Rust cli_run 的桥接口）
       'cliRun',
+      // 大模型对接：宿主 HTTP 通道（WebView fetch 受 CORS 拦截，http_post_json 的桥接口）
+      'httpPostJson',
       // windows-infra-foundation：系统信息 + Shell 交互（永不 reject 语义）
       'sysOverview',
       'sysEnvVar',

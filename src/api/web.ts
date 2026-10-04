@@ -5,6 +5,7 @@ import type {
   DbParam,
   DbRow,
   ExecResult,
+  HttpPostResult,
   LogLevel,
   Migration,
   ProbeResult,
@@ -108,6 +109,14 @@ export const webBridge: Bridge = {
   //    不经过 CLI，因此本方法永远不会被业务路径调用。保留它只为 Bridge 契约两侧对齐。
   async cliRun(_program: string, _args: string[], _timeoutMs?: number): Promise<CliResult> {
     throw new Error('浏览器调试模式不支持执行本地命令，WeLink/CodeHub 数据源请使用 mock')
+  },
+
+  // —— HTTP JSON POST 通道：浏览器没有宿主进程语义。这里**明确报错**而不是降级为
+  //    window.fetch —— 浏览器直发必然撞上大模型服务的 CORS 缺失（本通道存在的
+  //    原因就是绕开它），假装可用只会给出误导性失败。业务路径不会走到这里：
+  //    infra/agent 工厂在 web 模式强制 mock（web.spec 有同款契约测试）。
+  async httpPostJson(_url: string, _headers: Record<string, string>, _body: string, _timeoutMs: number): Promise<HttpPostResult> {
+    throw new Error('浏览器调试模式不支持宿主 HTTP 通道，Agent 数据源请使用 mock')
   },
 
   // —— Windows 基础设施通道 ——

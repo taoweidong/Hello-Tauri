@@ -491,3 +491,90 @@ describe('infra/agent —— OpenAI 兼容风格（apiStyle=openai，对接真�
     vi.unstubAllGlobals()
   })
 })
+
+describe('infra/agent —— 宿主 HTTP 通道（transport 注入：桌面模式经 Rust 绕过 CORS）', () => {
+  const openaiOptions = {
+    baseUrl: 'https://llm.example.internal/compatible-mode/v1',
+    endpoint: '/chat/completions',
+    apiStyle: 'openai',
+    model: 'qwen3.8-flash',
+    timeoutMs: 1234,
+  } as const
+
+  it('请求经 transport 发出：URL/头/体/超时逐字段透传，不触碰 window.fetch', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const transport = vi.fn(
+      async (_url: string, _headers: Record<string, string>, _body: string, _timeoutMs: number) => ({
+        status: 200,
+        body: JSON.stringify({ choices: [{ message: { role: 'assistant', content: '好的' } }] }),
+      }),
+    )
+    const agent = createHttpAgent({ ...openaiOptions, apiKey: 'sk-1', transport })
+    await expect(agent.complete('这里的提示词')).resolves.toBe('好的')
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(transport).toHaveBeenCalledTimes(1)
+    const [url, headers, body, timeoutMs] = transport.mock.calls[0]!
+    expect(url).toBe('https://llm.example.internal/compatible-mode/v1/chat/completions')
+    expect(headers).toMatchObject({ 'content-type': 'application/json', authorization: 'Bearer sk-1' })
+    expect(JSON.parse(body)).toEqual({
+      model: 'qwen3.8-flash',
+      messages: [{ role: 'user', content: '这里的提示词' }],
+      stream: false,
+    })
+    expect(timeoutMs).toBe(1234)
+    vi.unstubAllGlobals()
+  })
+
+  it('transport 返回 4xx → error 类（含状态码与服务端报文），onCall 留痕', async () => {
+    const transport = vi.fn(async () => ({
+      status: 401,
+      body: JSON.stringify({ error: { message: 'No API-key provided.' } }),
+    }))
+    const agent = createHttpAgent({ ...openaiOptions, transport })
+    const seen: AgentCallRecord[] = []
+    agent.onCall((record) => seen.push(record))
+    await expect(agent.complete('p')).rejects.toThrow(/HTTP 401/)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.status).toBe('error')
+  })
+
+  it('transport reject（DNS/TLS 等通道故障）→ error 类并留痕', async () => {
+    const transport = vi.fn(async () => {
+      throw new Error('TLS 握手失败')
+    })
+    const agent = createHttpAgent({ ...openaiOptions, transport })
+    const seen: AgentCallRecord[] = []
+    agent.onCall((record) => seen.push(record))
+    await expect(agent.complete('p')).rejects.toThrow(/TLS 握手失败/)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ status: 'error', response: '' })
+  })
+
+  it('transport 永不返回 + 超时中止 → timeout 分类（AbortError 经 signal 竞出）', async () => {
+    vi.useFakeTimers()
+    try {
+      const transport = vi.fn(
+        (_url: string, _headers: Record<string, string>, _body: string, _timeoutMs: number) =>
+          new Promise<{ status: number; body: string }>(() => {}),
+      )
+      const agent = createHttpAgent({ ...openaiOptions, transport })
+      const seen: AgentCallRecord[] = []
+      agent.onCall((record) => seen.push(record))
+      const pending = agent.complete('p')
+      // 先同步挂上 rejection 处理器，再推进时钟 —— 否则拒绝发生在断言挂接前，
+      // vitest 会把它记成 unhandled rejection（结果仍正确，但污染运行报告）
+      let rejection: { kind?: string } | undefined
+      pending.catch((error: { kind?: string }) => {
+        rejection = error
+      })
+      await vi.advanceTimersByTimeAsync(1234)
+      expect(rejection).toMatchObject({ kind: 'timeout' })
+      expect(seen).toHaveLength(1)
+      expect(seen[0]!.status).toBe('timeout')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

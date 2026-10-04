@@ -85,6 +85,14 @@ export interface CliResult {
   durationMs: number
 }
 
+/** HTTP JSON POST 通道结果（`http_post_json` 回传）。4xx/5xx 不算通道故障，原样回传由调用方按业务判定 */
+export interface HttpPostResult {
+  /** HTTP 状态码 */
+  status: number
+  /** 响应正文（UTF-8） */
+  body: string
+}
+
 /** 存储根迁移结果（需重启生效） */
 export interface MigrateReport {
   from: string

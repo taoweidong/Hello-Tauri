@@ -1,7 +1,7 @@
 # 大模型连接配置基础服务 — 方案分析与实施记录
 
 - 日期：2026-10-02
-- 状态：**已实施**（基础设施就绪，真实大模型环境待对接）
+- 状态：**已实施并完成真实对接**（2026-10-04 阿里云 MaaS compatible-mode，记录见 §11）
 - 关联：`docs/design-welink-agent-2026-09-27.md` §3.2（AgentPort）/ §3.3（切换与 Mock）/ §8（配置）/ §11.6（Settings UI）
 
 ---
@@ -144,3 +144,56 @@ onCall 恒留痕（失败样本也是 R4 语料）、回复正文清洗（`sanit
 | `src/infra/agent/ports.spec.ts` | openai 风格 5 条用例 |
 | `src/types/welink.spec.ts` | 新增：连接配置归一化 5 条用例 |
 | `AGENTS.md` | 模拟替身标注约定纳入 `[LLM-ASSUME]` |
+
+## 11. 真实对接记录（2026-10-04，阿里云 MaaS compatible-mode）
+
+真实服务：`https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`（OpenAI 兼容
+端点；模型清单经 `GET /models` 实测：qwen3.8-max/plus/flash、qwen3.6-flash、glm-5.2/5.3、
+deepseek-v4-pro/flash 系列等）。本次接入模型 **`qwen3.8-flash`**（自动回复场景优先时延，
+设置页可随时改）。API 密钥只落本机数据根 `config.json`（D-E 约定），不入仓库不入日志。
+
+### 11.1 §7 假设逐项核实结果
+
+| # | 假设 | 结果（curl 实测） |
+| --- | --- | --- |
+| 1 | 路径 `{baseUrl}{endpoint}` | ✅ baseUrl 含 `/compatible-mode/v1` 前缀，endpoint 配 `/chat/completions`，拼接规则不变 |
+| 2 | `Authorization: Bearer <apiKey>` | ✅（缺头时回 401「No API-key provided」，头名无误） |
+| 3 | `model` 必填 | ✅（保持 D-D 本机 fail-fast，不依赖服务端含糊 400） |
+| 4 | 非流式 `stream: false` | ✅（一次性取全文） |
+| 5 | 响应 `choices[0].message.content` | ✅；思考型模型（qwen3.8-flash）message 里另有 `reasoning_content` —— pickReply 候选键不含它，只会命中 `content`，思考过程不会混进回复草稿 |
+| 6 | CORS | ❌ **不成立**：服务端不回 `Access-Control-Allow-Origin`（预检 401、无 CORS 头），WebView 直发 `window.fetch` 会被浏览器层拦截 → 见 11.2 |
+
+消息结构（原假设 6「单条 user 消息」）实测成立，未拆 system/user。
+
+### 11.2 CORS 处置：宿主 HTTP 通道（Rust 薄命令）
+
+§7 三选一里「服务端开 CORS」「同源反代」均不可行（服务不受控），按第二选项落地：
+
+* **Rust 新增第 25 个命令 `http_post_json`**（`src-tauri/src/http.rs`，Bridge `httpPostJson`）：
+  通用 JSON POST 薄通道，与 `cli_run` 同构 —— URL/头/体全由 TS 组装，Rust 无业务规则；
+  收到 HTTP 响应（含 4xx/5xx）不算错误，仅传输层故障（DNS/TLS/超时）reject；超时宿主侧
+  强制生效；响应正文 2MB 截断（同 cli.rs `MAX_OUTPUT` 防洪泛思路）。
+* **TLS**：reqwest（tauri 传递依赖）显式开 `native-tls` 特性 —— TLS 交给系统 schannel
+  （Windows 组件，不新增可分发 DLL，证书走系统库）。依赖树新增三个纯装配 crate：
+  `hyper-tls` / `native-tls` / `schannel`（**内网离线缓存需补这三个**）。
+* **`agent-http.ts` 新增可选 `transport`**（组合点注入）：`infra/agent` 工厂在 tauri 运行时
+  注入 Bridge 通道，测试与浏览器调试保持 `window.fetch`；端口契约与两种 apiStyle 不变，
+  openai/simple 两种风格都经此通道。TS 层超时分类照旧（AbortError → timeout）。
+* web 侧 `httpPostJson` 诚实抛错：浏览器模式强制 mock 不发真实请求（业务路径到不了）。
+
+### 11.3 本机配置落位与遗留修复
+
+* `D:\TangYuan\config\config.json` → `weLink.agent`：`agentSource=http`、`apiStyle=openai`、
+  baseUrl/endpoint 如上、`model=qwen3.8-flash`、`timeoutMs=60000`、`apiKey=***`。总开关
+  `enabled` 保持出厂 `false` —— 由用户在设置页按 SOP 步骤 5–7 逐步开启。
+* **配置界面**：Settings 页新增独立的「大模型（Agent）」配置卡（`LlmSettingsCard.vue`，
+  `weLink.agent` 块的唯一编辑器）—— 服务地址/接口风格/大模型名称/API 密钥/接口路径/超时/
+  上下文条数/提示词模板全部常显可改（原先藏在 WeLink 助手卡 collapse 深处、mock 来源时
+  整块不可见）；回复来源（mock/http）开关随块移交；WeLink 助手卡对 agent 块做**透传**
+  回写，双卡并存不互踩（契约测试 `LlmSettingsCard.spec.ts` 4 条）。
+* `%APPDATA%\com.taowd.hello-tauri\bootstrap.json` 曾被 2026-09-28 一次中断的 uitest 运行
+  遗留指向沙箱目录（崩溃导致备份恢复逻辑未执行），已恢复指向 `D:\TangYuan`。
+* 验证：`cargo check` 通过；`npm run check` 全绿（lint + typecheck + 962 用例，含新增
+  transport 路径 4 条：透传断言 / 4xx → error / 通道故障 → error / 超时 → timeout）。
+* 剩余步骤（§8 SOP 4–7，需在桌面模式人工进行）：设置页「连通性测试」→ `sendMode=manual`
+  试运行几条真实消息 → 观察「Agent 回溯」语料 → 质量稳定后开 `enabled` + `auto`。

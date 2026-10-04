@@ -24,6 +24,14 @@ serde_json = "1"
 # 与 +crt-static 兼容性已 PoC 实测通过（产物零可分发 DLL）。
 rusqlite = { version = "0.37", features = ["bundled"] }
 
+# Agent 大模型 HTTP 通道（src-tauri/src/http.rs）。reqwest 已是 tauri 的传递依赖，
+# 这里显式声明只为打开 native-tls 特性：TLS 走系统 schannel（Windows 组件，不新增
+# 可分发 DLL，证书走系统库，兼容企业代理）。大模型服务不回 CORS 头，WebView 的
+# window.fetch 会被浏览器层拦截，请求必须在宿主进程内发出 —— 对接记录见
+# docs/design-llm-connection-2026-10-02.md §11。内网缓存需新增：hyper-tls、
+# native-tls、schannel 三个 crate（都只依赖树内已有项）。
+reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
+
 # 仅用于 GetLocalTime（本地时区日志时间戳）+ Windows 基础设施通道
 # （sysinfo.rs / shell.rs：注册表、磁盘、网卡、ShellExecute、剪贴板、托盘气球通知）。
 # 选它而非 chrono：chrono 会拉入 iana-time-zone，该 crate 不在内网缓存中，

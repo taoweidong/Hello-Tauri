@@ -2,6 +2,7 @@ mod cli;
 mod commands;
 mod db;
 mod fs;
+mod http;
 mod logging;
 mod shell;
 mod storage;
@@ -36,6 +37,8 @@ pub fn run() {
             db::db_transaction,
             db::db_migrate,
             cli::cli_run,
+            // —— HTTP JSON POST 通道（大模型对接：WebView fetch 受 CORS 拦截，宿主代发）——
+            http::http_post_json,
             // —— Windows 基础设施通道（windows-infra-foundation）——
             sysinfo::sys_overview,
             sysinfo::sys_env_var,

@@ -5,6 +5,7 @@ import type {
   DbParam,
   DbRow,
   ExecResult,
+  HttpPostResult,
   LogLevel,
   Migration,
   MigrateReport,
@@ -77,6 +78,20 @@ export interface Bridge {
    *  * 只有通道故障（程序名不在白名单、进程起不来）才 reject。
    */
   cliRun(program: string, args: string[], timeoutMs?: number): Promise<CliResult>
+
+  // —— HTTP JSON POST 通道（大模型对接，与 cliRun 同构的薄通道：Rust 只转发） ——
+
+  /**
+   * 以宿主进程身份 POST JSON。大模型服务不回 CORS 头（2026-10-04 对阿里云 MaaS
+   * 实测），WebView 的 `window.fetch` 会被浏览器层拦截，请求必须在宿主进程内发出；
+   * URL/头/体全部由 TS 侧组装（`src/infra/agent/agent-http.ts`），Rust 无业务规则。
+   *
+   * 契约（两侧实现必须一致，同 cliRun）：
+   *  * 收到 HTTP 响应（含 4xx/5xx）**不算失败**：状态码与正文原样回传，由调用方按业务判定；
+   *  * 只有传输层故障（DNS 失败、TLS 握手失败、超时）才 reject；
+   *  * 超时在宿主侧强制生效（TS 侧另有同值超时做错误分类）。
+   */
+  httpPostJson(url: string, headers: Record<string, string>, body: string, timeoutMs: number): Promise<HttpPostResult>
 
   // —— Windows 基础设施通道（windows-infra-foundation）——
   //

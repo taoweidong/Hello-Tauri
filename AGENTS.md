@@ -39,8 +39,9 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
   是唯一例外（桌面实现），`web.ts` 是浏览器实现（localStorage），`index.ts` 运行时按
   `__TAURI_INTERNALS__` 自动选择。
 - **Rust 无业务规则**：`src-tauri/src/` 只有「开窗口 + 存储读写 + SQLite 通用通道 +
-  CLI 子进程（welink-cli / codehub-cli 共用一条通道）+ Windows 基础设施只读通道」共 24 个
-  命令（commands 9 / db 4 / fs 2 / cli 1 / sysinfo 4 / shell 4）。新增功能全部写在 `src/` 的
+  CLI 子进程（welink-cli / codehub-cli 共用一条通道）+ HTTP JSON POST 通道（大模型对接，
+  WebView fetch 受 CORS 拦截由宿主代发）+ Windows 基础设施只读通道」共 25 个
+  命令（commands 9 / db 4 / fs 2 / cli 1 / http 1 / sysinfo 4 / shell 4）。新增功能全部写在 `src/` 的
   TypeScript 中，不要动 Rust；新增宿主能力 = 薄桥接命令 + Bridge 双侧实现 + infra
   端口-适配器（同 windows-infra 模式）。
 - **SQLite 表结构归 TS 管**：迁移写在 `src/infra/db/migrations/`，经通用命令
@@ -61,12 +62,16 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
   `grep -rn "MOCK-CLI\|CLI-ASSUME" src/` 逐项核对：`[MOCK-CLI]` = 模拟实现（对接后**保留**
   为测试替身与浏览器调试数据源）；`[CLI-ASSUME]` = 对真实 CLI 的假设（子命令/参数/字段名/
   编码/游标/占位 ID），对接时必须逐一核实，核实后更新或删除对应标签。
-  CodeHub 域的清单已整理成
+  **对接适配总指南**（两 CLI 的假设汇总核对表 + mock 能力清单 + 对接 SOP）：
+  `docs/cli-integration-adaptation-2026-10-04.md` —— 拿到真实接口文档后从它入手；
+  CodeHub 逐项清单的原始归档在
   `openspec/changes/archive/2026-10-04-personal-workbench/cli-assume-checklist.md`
-  （对接 codehub-cli 时按表逐项打勾；变更已归档，清单仍在此处维护）。
+  （已并入总指南 §4，归档原貌保留）。
   大模型 HTTP 适配器同款约定：`[LLM-ASSUME]` = 对真实大模型服务的协议假设（路径/鉴权头/
   model 字段/消息结构/流式开关/响应形状/CORS），对接前 `grep -rn "LLM-ASSUME" src/` 逐项核实，
-  清单见 `docs/design-llm-connection-2026-10-02.md`。
+  核实后更新或删除对应标签，清单与对接记录见 `docs/design-llm-connection-2026-10-02.md`
+  （2026-10-04 已完成阿里云 MaaS compatible-mode 真实对接：协议逐项核实通过，唯一不成立的
+  CORS 走 Rust 宿主通道 `http_post_json` 处置，密钥只存本机数据根 config.json、不入仓库）。
   Windows 基础设施模块（`src/infra/windows/`）同款约定：`[MOCK-WIN]` = 模拟实现（保留为
   测试替身与浏览器调试数据源）；`[WIN-ASSUME]` = 对真实 Windows 行为的假设（登记命令的
   参数语法、剪贴板属主语义、气球通知转 toast 等），改动前 `grep -rn "MOCK-WIN\|WIN-ASSUME" src/`
