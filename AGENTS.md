@@ -96,8 +96,10 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
 - **日志**：业务代码经 `src/utils/logger.ts` 唯一出口（控制台 + 落盘 `append_log`）。
 - **测试**：与源码同目录 `*.spec.ts`。覆盖率阈值是**防回退基线**而非目标——`orchestrator/**`
   92% lines、`infra/db/**` 72% lines，抬线前先补测试。`src/**/mock.ts` 视为测试替身，不计覆盖率。
-- **`__APP_VERSION__`** 是 Vite `define` 注入的构建期常量；改动版本注入时要同步
-  `vite.config.ts` 与 `vitest.config.ts` 两处。
+- **版本元数据**：`__APP_VERSION__` / `__GIT_COMMIT__`（HEAD 前 6 位）/ `__BUILD_TIME__`
+  （打包时间）是构建期注入常量，真值统一在 `scripts/version-meta.mjs`（vite / vitest /
+  build.mjs 三处共享，界面显示与 exe 文件名时间戳同源）；改注入逻辑时核对这三个消费方，
+  不要在源码里硬编码版本串。
 - 注释、文档、commit message 均使用中文；`.workbuddy/skills/` 下有 rust/typescript/vitest/
   code-review/frontend-design 项目级技能可供参考。
 

@@ -120,7 +120,9 @@ npm run tauri:dev      # 桌面开发模式，需要 Rust 工具链
 npm run pack
 ```
 
-脚本依次执行：类型检查 → 前端构建 → `cargo build --release --features tauri/custom-protocol`（生产模式，资源内嵌）→ PE 导入表单文件校验 → 拷贝为 `release/Hello-Tauri-0.1.0-x64.exe`。桌面编译不使用 `tauri build`，原因见下文。
+脚本依次执行：类型检查 → 前端构建 → `cargo build --release --features tauri/custom-protocol`（生产模式，资源内嵌）→ PE 导入表单文件校验 → 拷贝为 `release/Hello-Tauri-<版本>-x64-<打包时间>.exe`（如 `Hello-Tauri-0.1.0-x64-20261006-1530.exe`）。桌面编译不使用 `tauri build`，原因见下文。
+
+打包时间同时内嵌在应用里：侧栏底部与「关于」页会显示版本号、基于的 git 节点（HEAD 前 6 位）与打包时间，与 exe 文件名里的时间戳同源（构建期常量，见 `scripts/version-meta.mjs`）。
 
 也可以直接**双击 `scripts\pack.bat`**（或把它发给同事）：脚本会自动把 `%USERPROFILE%\.cargo\bin` 补进 PATH、检测 Node.js 安装位置、在 `node_modules` 缺失时自动还原依赖，再执行与 `npm run pack` 完全相同的流程；不需要预先配好环境变量，也不下载任何额外组件（依赖还原优先在线，失败自动回退本地缓存离线安装）。双击运行时窗口会在结束后保留以便查看结果，从命令行调用则不阻塞。
 
@@ -154,7 +156,7 @@ exe 不依赖任何随附 DLL，由两项构建配置共同保证（均写在 `.
 配置写得再对也以产物实测为准。也可用 `dumpbin` 自行核对（应只见 `kernel32`/`user32`/`ntdll` 等系统 DLL）：
 
 ```bash
-dumpbin /dependents release\Hello-Tauri-0.1.0-x64.exe
+dumpbin /dependents release\Hello-Tauri-0.1.0-x64-20261006-1530.exe
 ```
 
 **目标机器唯一前提**：系统自带 WebView2 运行时（Win10 1803+ 与 Win11 已内置）。不需要 VC++ Redistributable，也不需要 Node.js / Rust。

@@ -84,10 +84,12 @@ export default tseslint.config(
         Buffer: 'readonly',
         __dirname: 'readonly',
         global: 'readonly',
-        // Vite `define` 注入的构建期常量（R-3：版本号单一来源）。
-        // 运行时并不存在这个全局，是构建时被字面量替换掉的 —— 但 ESLint 看不到
+        // Vite `define` 注入的构建期常量（R-3：版本元数据，真值在 scripts/version-meta.mjs）。
+        // 运行时并不存在这些全局，是构建时被字面量替换掉的 —— 但 ESLint 看不到
         // 替换过程，只看到「用了未定义的变量」。声明为 readonly 才能过 no-undef。
         __APP_VERSION__: 'readonly',
+        __GIT_COMMIT__: 'readonly',
+        __BUILD_TIME__: 'readonly',
         // `unplugin-auto-import` 注入的 Vue / vue-router / pinia API（P-1 按需引入）
         ...autoImportGlobals,
       },

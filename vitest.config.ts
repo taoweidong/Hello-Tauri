@@ -1,18 +1,21 @@
 import { fileURLToPath, URL } from 'node:url'
-import { readFileSync } from 'node:fs'
 
 import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 
-// 与 vite.config.ts 同源注入版本号（R-3）。测试环境不会走 vite 的 define，
-// 不同步的话任何 import 到 web.ts / 视图的用例都会因 __APP_VERSION__ 未定义而炸。
-const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
+import { APP_VERSION, BUILD_TIME, GIT_COMMIT } from './scripts/version-meta.mjs'
+
+// 与 vite.config.ts 同源注入版本元数据（R-3，真值集中在 scripts/version-meta.mjs）。
+// 测试环境不会走 vite 的 define，不同步的话任何 import 到 web.ts / 视图的用例
+// 都会因 __APP_VERSION__ 等常量未定义而炸。
 
 export default defineConfig({
   plugins: [vue()],
   // @ts-expect-error vitest 的 defineConfig 类型未透出 define 字段，运行时是支持的
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+    __GIT_COMMIT__: JSON.stringify(GIT_COMMIT),
+    __BUILD_TIME__: JSON.stringify(BUILD_TIME),
   },
   resolve: {
     alias: {

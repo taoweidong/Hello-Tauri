@@ -10,6 +10,10 @@ const appStore = useAppStore()
  */
 const fallbackVersion = __APP_VERSION__
 
+/** git 节点（HEAD 前 6 位）与打包时间：构建期注入常量（真值逻辑见 scripts/version-meta.mjs）。 */
+const gitCommit = __GIT_COMMIT__
+const buildTime = __BUILD_TIME__
+
 const stack = [
   { name: '前端框架', value: 'Vue 3 + TypeScript + Vite' },
   { name: 'UI 组件库', value: 'Element Plus' },
@@ -46,6 +50,10 @@ const structure = [
           <dd>{{ appStore.settings.description || '-' }}</dd>
           <dt>版本</dt>
           <dd class="num">v{{ appStore.info?.version ?? fallbackVersion }}</dd>
+          <dt>Git 节点</dt>
+          <dd class="num">{{ gitCommit || '-' }}</dd>
+          <dt>打包时间</dt>
+          <dd>{{ buildTime || '-' }}</dd>
           <dt>Tauri</dt>
           <dd class="num">{{ appStore.info?.tauriVersion ?? '-' }}</dd>
           <dt>系统平台</dt>

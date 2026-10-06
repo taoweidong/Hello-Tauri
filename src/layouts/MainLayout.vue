@@ -29,6 +29,23 @@ const groups = navGroups()
  */
 const fallbackVersion = __APP_VERSION__
 
+/** git 节点（HEAD 前 6 位）与打包时间：同为构建期注入常量（见 vite-env.d.ts）。 */
+const gitCommit = __GIT_COMMIT__
+const buildTime = __BUILD_TIME__
+
+/** 版本展示文案：`v0.1.0 · a1b2c3`，非 git 环境降级为 `v0.1.0` */
+const versionLabel = computed(() => {
+  const base = `v${appStore.info?.version ?? fallbackVersion}`
+  return gitCommit ? `${base} · ${gitCommit}` : base
+})
+
+/** 悬停提示：底部空间有限，被省略号截断时完整信息仍可从 tooltip 获取 */
+const versionTip = computed(() => {
+  const parts = [`版本 ${versionLabel.value}`]
+  if (buildTime) parts.push(`打包于 ${buildTime}`)
+  return parts.join(' · ')
+})
+
 /** 侧栏角标：助手有未回复待办时给个提示（读 store 聚合值，不额外查询） */
 const welinkBadge = computed(() => welinkStore.unreadTotal + welinkStore.reviewCount)
 
@@ -100,8 +117,8 @@ function go(path: string) {
       </nav>
 
       <div class="rail__foot">
-        <span v-show="!collapsed" class="rail__env"
-          >{{ platformLabel }}模式 · v{{ appStore.info?.version ?? fallbackVersion }}</span
+        <span v-show="!collapsed" class="rail__env" :title="versionTip"
+          >{{ platformLabel }}模式 · {{ versionLabel }}</span
         >
         <button
           class="rail__toggle pressable"
@@ -156,6 +173,9 @@ function go(path: string) {
 .shell {
   display: grid;
   grid-template-columns: 216px 1fr;
+  /* 行高钉死为容器高（minmax 下限 0 防长内容反撑），否则隐式 auto 行被内容
+     撑高后整页溢出 #app，文档级滚动条会把固定侧栏一起卷走 */
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   transition: grid-template-columns 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
@@ -338,6 +358,8 @@ function go(path: string) {
   color: var(--ht-rail-text);
   white-space: nowrap;
   overflow: hidden;
+  /* 版本行加节点后更长，超宽时省略号截断（完整信息在 title 提示里） */
+  text-overflow: ellipsis;
   opacity: 0.85;
 }
 
@@ -375,6 +397,7 @@ function go(path: string) {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   height: 100%;
 }
 

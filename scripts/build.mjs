@@ -8,6 +8,8 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, utimesSync
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { GIT_COMMIT, formatBuildStamp, formatBuildTime } from './version-meta.mjs'
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const isWindows = process.platform === 'win32'
 
@@ -34,9 +36,9 @@ function run(command, args, label, env) {
   }
 }
 
-function runNpm(args, label) {
+function runNpm(args, label, env) {
   const [command, commandArgs] = npmSpawn(args)
-  run(command, commandArgs, label)
+  run(command, commandArgs, label, env)
 }
 
 const cargo = spawnSync('cargo', ['--version'], { encoding: 'utf8', windowsHide: true })
@@ -65,6 +67,12 @@ process.stdout.write(`\n▶ Rust 工具链：${host}（MSVC，WebView2Loader 静
 
 const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
+// 打包时间一次定死：exe 文件名里的时间戳与前端界面显示的「打包时间」都取这一刻
+// —— 经 BUILD_TIME 环境变量传给前端构建，scripts/version-meta.mjs 会优先读它，
+// 保证侧栏/关于页显示的时间与产物文件名永远一致。git 节点取 HEAD 前 6 位。
+const packStart = new Date()
+const buildTime = formatBuildTime(packStart)
+
 // 版本一致性硬校验（评审 B-3）：exe 文件名版本来自 package.json，应用元数据版本
 // 来自 tauri.conf.json —— 两处漏改会出现「文件名 0.2.0、关于页 0.1.0」且全链绿灯。
 // package.json 是唯一真值，打包入口直接拒绝不一致。
@@ -78,7 +86,7 @@ if (tauriConf.version !== version) {
 }
 
 runNpm(['run', 'typecheck'], '类型检查 (vue-tsc)')
-runNpm(['run', 'build:web'], '前端构建 (vite)')
+runNpm(['run', 'build:web'], '前端构建 (vite)', { BUILD_TIME: buildTime })
 
 // 桌面编译不用 `tauri build`，直接 `cargo build --features tauri/custom-protocol`。原因：
 //   1. tauri build 的 Rust 子进程会自行注入 CARGO_TARGET_<TRIPLE>_RUSTFLAGS（实测把
@@ -211,12 +219,13 @@ const dllCount = assertSingleFile(binary)
 
 const outDir = join(root, 'release')
 mkdirSync(outDir, { recursive: true })
-const outFile = join(outDir, `Hello-Tauri-${version}-x64.exe`)
+const outFile = join(outDir, `Hello-Tauri-${version}-x64-${formatBuildStamp(packStart)}.exe`)
 copyFileSync(binary, outFile)
 
 const sizeMb = (statSync(outFile).size / 1024 / 1024).toFixed(2)
 process.stdout.write(
   `\n✔ 打包完成\n  文件：${outFile}\n  大小：${sizeMb} MB\n` +
+    `  打包时间：${buildTime}\n  Git 节点：${GIT_COMMIT || '（非 git 环境，未记录）'}\n` +
     `  单文件校验：通过（外部依赖 ${dllCount} 个，均为 Windows 系统自带 DLL）\n` +
     '  说明：目标机器无需安装 Node.js / Rust / VC++ 运行库。\n' +
     '        唯一前提是系统自带 WebView2 运行时（Win10 1803+ 与 Win11 已内置）。\n',

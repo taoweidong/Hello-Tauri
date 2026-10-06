@@ -1,5 +1,4 @@
 import { fileURLToPath, URL } from 'node:url'
-import { readFileSync } from 'node:fs'
 
 import vue from '@vitejs/plugin-vue'
 import AutoImport from 'unplugin-auto-import/vite'
@@ -7,23 +6,27 @@ import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { defineConfig } from 'vite'
 
+import { APP_VERSION, BUILD_TIME, GIT_COMMIT } from './scripts/version-meta.mjs'
+
 const devHost = process.env.TAURI_DEV_HOST
 
 /**
- * 版本号单一来源（R-3）。
+ * 版本元数据单一来源（R-3）。
  *
  * 此前 `0.1.0` 硬编码在 5 处（`web.ts`、`MainLayout.vue`、`AboutView.vue`、
  * `tauri.conf.json`、`Cargo.toml`），发版时要手工同步 —— 漏一处就出现
  * 「界面显示 0.1.0 但关于页写 0.2.0」这种一眼假的信息。
  *
- * 现在以 `package.json` 为唯一真值，构建期注入常量：
- *  * 前端：`__APP_VERSION__`（见 `src/vite-env.d.ts` 的声明）
+ * 现在以 `package.json` 为版本唯一真值，连同 git 节点、打包时间一起集中在
+ * `scripts/version-meta.mjs` 计算一份（`vitest.config.ts` 与 `scripts/build.mjs`
+ * 同样从那里取），构建期注入常量：
+ *  * 前端：`__APP_VERSION__` / `__GIT_COMMIT__`（HEAD 前 6 位）/ `__BUILD_TIME__`
+ *    （打包时间，与 exe 文件名时间戳同源），声明见 `src/vite-env.d.ts`
  *  * Rust 侧：`tauri.conf.json` 的 version 由 tauri 自身读取，无法共享同一份
  *    文件，因此保留在那里，由 `scripts/build.mjs` 打包入口做一致性硬校验
  *    （评审 B-3：此处注释曾声称 verify.mjs 有该断言，实际不存在——不实注释
  *    制造的兜底假象比没有兜底更危险，现已在 build.mjs 落地）。
  */
-const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
 
 export default defineConfig({
   base: './',
@@ -60,7 +63,9 @@ export default defineConfig({
     }),
   ],
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+    __GIT_COMMIT__: JSON.stringify(GIT_COMMIT),
+    __BUILD_TIME__: JSON.stringify(BUILD_TIME),
   },
   resolve: {
     alias: {
