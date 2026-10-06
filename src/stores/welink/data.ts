@@ -13,6 +13,7 @@ import type { PollSummary } from '@/orchestrator/events'
 import type { InboxQuery, JobQuery, WelinkRepository } from '@/infra/db'
 import type { JobRating, WelinkAgentLog, WelinkJob, WelinkSettings } from '@/types/welink'
 import { createAgentProbe } from '@/infra/agent'
+import { createRagProbe } from '@/infra/rag'
 
 export interface WelinkDataDeps {
   jobIndex: ShallowRef<Map<number, WelinkJob>>
@@ -42,6 +43,7 @@ export interface WelinkData {
   searchMessages(keyword: string, from?: string, to?: string, limit?: number, offset?: number): ReturnType<WelinkRepository['searchMessages']>
   playDemoScript(): Promise<boolean>
   probeAgent(agent: WelinkSettings['agent']): Promise<string>
+  probeRag(rag: WelinkSettings['rag']): Promise<{ latencyMs: number; preview: string }>
 }
 
 export function createWelinkData(deps: WelinkDataDeps): WelinkData {
@@ -169,6 +171,26 @@ export function createWelinkData(deps: WelinkDataDeps): WelinkData {
     return probe.complete('连通性测试：请只回复「ok」两个字符。')
   }
 
+  /**
+   * RAG 检索探测（设置页「测试检索」）。
+   *
+   * 与 probeAgent 同款立场：走 `createRagProbe` 独立实例——共享运行期环境兜底
+   * （浏览器强制 mock，探测结论与真实链路一致），不进全局缓存；检索探测不发
+   * 生成调用，不产生任何留痕。
+   */
+  async function probeRag(rag: WelinkSettings['rag']): Promise<{ latencyMs: number; preview: string }> {
+    const chunks = await createRagProbe({ ...rag }).retrieve({
+      query: '连通性测试：VPN 连不上怎么处理',
+      topK: rag.topK,
+    })
+    return {
+      latencyMs: 0,
+      preview: chunks.length
+        ? chunks.map((chunk) => `[${chunk.score.toFixed(2)}] ${chunk.content}`).join(' / ').slice(0, 120)
+        : '（服务可达，本次零命中）',
+    }
+  }
+
   return {
     listJobs,
     countJobs,
@@ -186,5 +208,6 @@ export function createWelinkData(deps: WelinkDataDeps): WelinkData {
     searchMessages,
     playDemoScript,
     probeAgent,
+    probeRag,
   }
 }

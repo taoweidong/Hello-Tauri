@@ -357,6 +357,7 @@ export const useWelinkStore = defineStore('welink', () => {
     playDemoScript: data.playDemoScript,
     // 诊断（Agent 连通性探测，V1 治理后 UI 经 store 使用）
     probeAgent: data.probeAgent,
+    probeRag: data.probeRag,
     // 工具
     jobOf: (pk: number): WelinkJob | null => jobIndex.value.get(pk) ?? null,
     skipLabel: skipLabelOf,

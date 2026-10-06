@@ -25,6 +25,8 @@ export type JobRating = 'up' | 'down'
 export type WelinkSource = 'mock' | 'cli'
 /** Agent 端口实现 */
 export type AgentSource = 'mock' | 'http'
+/** RAG 检索端口实现（外挂 HTTP 检索服务） */
+export type RagSource = 'mock' | 'http'
 /** 技能命中来源（`welink_reply_jobs.skill_source`，空串 = 本变更前的老数据） */
 export type SkillSource = 'rule' | 'llm' | 'fallback'
 /** 技能草稿处置：auto = 正常走安全闸；manual = 生成后转人工待审（O7） */
@@ -176,6 +178,8 @@ export interface WelinkSkill {
   knowledge: string
   /** manual = 草稿生成后直接转人工待审（hold_reason='skill_review'），不入自动外发队列 */
   reviewMode: SkillReviewMode
+  /** 知识检索绑定（RAG）：enabled = 生成前按该技能检索知识库；filter 传给检索服务做范围过滤 */
+  retrieval: { enabled: boolean; filter?: string }
 }
 
 // ---------- 配置（设计 §8） ----------
@@ -244,10 +248,39 @@ export interface WelinkSettings {
   panicked: boolean
   safety: WelinkSafetySettings
   agent: WelinkAgentSettings
+  /** 知识检索（RAG）：外挂 HTTP 检索服务，生成段按技能检索后经 {{retrieved}} 注入 */
+  rag: WelinkRagSettings
 }
 
-/** 提示词模板占位符（设计 §11.6，UI 高亮说明用；{{knowledge}} 为技能知识块，skill-routing） */
-export const PROMPT_PLACEHOLDERS = ['{{context}}', '{{question}}', '{{sender}}', '{{target}}', '{{knowledge}}'] as const
+/** RAG 检索服务连接配置（设计 docs/design-welink-rag-retrieval-2026-10-05.md §6.1） */
+export interface WelinkRagSettings {
+  ragSource: RagSource
+  /** RAG 服务根地址（应用只查不建索引） */
+  baseUrl: string
+  /** 检索接口路径，惯用 `/search` */
+  endpoint: string
+  /** API 密钥：Bearer 头随请求发送；免鉴权服务留空 */
+  apiKey: string
+  timeoutMs: number
+  /** 每次检索取回的片段数（1–10） */
+  topK: number
+  /** 相关度阈值（0–1），低于阈值的片段丢弃 */
+  minScore: number
+  /** 注入提示词的检索文本总上限（字符） */
+  maxChars: number
+  /** 兜底技能（通用助手）是否也检索 */
+  fallbackRetrieve: boolean
+}
+
+/** 提示词模板占位符（设计 §11.6，UI 高亮说明用；{{knowledge}} 技能静态口径、{{retrieved}} RAG 检索事实） */
+export const PROMPT_PLACEHOLDERS = [
+  '{{context}}',
+  '{{question}}',
+  '{{sender}}',
+  '{{target}}',
+  '{{knowledge}}',
+  '{{retrieved}}',
+] as const
 
 /** S7 默认黑名单：防模型幻觉生成承诺性/资金类回复 */
 export const DEFAULT_BLACKLIST_PATTERNS = [
@@ -312,6 +345,17 @@ export const DEFAULT_WELINK_SETTINGS: WelinkSettings = {
     llmClassifyFallback: true,
     skills: [],
     fallbackKnowledge: '',
+  },
+  rag: {
+    ragSource: 'mock',
+    baseUrl: 'http://127.0.0.1:8081',
+    endpoint: '/search',
+    apiKey: '',
+    timeoutMs: 10_000,
+    topK: 4,
+    minScore: 0,
+    maxChars: 1200,
+    fallbackRetrieve: false,
   },
 }
 
@@ -424,6 +468,7 @@ export function normalizeWelinkSettings(input?: Partial<WelinkSettings> | null):
       skills: normalizeSkills(agent.skills),
       fallbackKnowledge: typeof agent.fallbackKnowledge === 'string' ? agent.fallbackKnowledge.trim() : '',
     },
+    rag: normalizeRagSettings(input?.rag),
   }
 }
 
@@ -490,9 +535,41 @@ function normalizeSkills(value: unknown): WelinkSkill[] {
       promptTemplate: typeof item.promptTemplate === 'string' ? item.promptTemplate : '',
       knowledge: typeof item.knowledge === 'string' ? item.knowledge.trim() : '',
       reviewMode: item.reviewMode === 'manual' ? 'manual' : 'auto',
+      retrieval: normalizeRetrieval(item.retrieval),
     })
   }
   return out
+}
+
+/** 技能检索绑定收敛：老配置缺省 = 不检索（零迁移） */
+function normalizeRetrieval(value: unknown): WelinkSkill['retrieval'] {
+  const raw = (value ?? {}) as { enabled?: unknown; filter?: unknown }
+  const filter = typeof raw.filter === 'string' ? raw.filter.trim() : ''
+  return {
+    enabled: raw.enabled === true,
+    ...(filter ? { filter } : {}),
+  }
+}
+
+/** RAG 连接配置收敛（D-C）：与 agent 块同款三层兜底；minScore 是 0–1 浮点不做取整 */
+function normalizeRagSettings(value: unknown): WelinkRagSettings {
+  const base = DEFAULT_WELINK_SETTINGS.rag
+  const rag = (value ?? {}) as Partial<WelinkRagSettings>
+  const minScore =
+    typeof rag.minScore === 'number' && Number.isFinite(rag.minScore)
+      ? Math.min(1, Math.max(0, rag.minScore))
+      : base.minScore
+  return {
+    ragSource: rag.ragSource === 'http' ? 'http' : 'mock',
+    baseUrl: isHttpUrl(rag.baseUrl) ? rag.baseUrl.trim() : base.baseUrl,
+    endpoint: rag.endpoint ?? base.endpoint,
+    apiKey: typeof rag.apiKey === 'string' ? rag.apiKey.trim() : base.apiKey,
+    timeoutMs: clampNumber(rag.timeoutMs, 1000, 60_000, base.timeoutMs),
+    topK: clampNumber(rag.topK, 1, 10, base.topK),
+    minScore,
+    maxChars: clampNumber(rag.maxChars, 200, 4000, base.maxChars),
+    fallbackRetrieve: rag.fallbackRetrieve === true,
+  }
 }
 
 // ---------- 快速建群（migration v3） ----------

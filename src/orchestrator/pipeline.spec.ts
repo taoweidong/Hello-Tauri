@@ -36,6 +36,7 @@ import {
   type WelinkSkill,
 } from '@/types/welink'
 import type { SkillAttribution } from '@/infra/db/ports'
+import type { RagClient, RagChunk, RagQuery } from '@/infra/rag'
 
 // ---------------------------------------------------------------- 手动驱动的假时钟
 
@@ -356,6 +357,8 @@ function harness(
     sendImpl?: (text: string) => Promise<{ msgUid: string }>
     /** 外发端口是否挂起等 `port.releaseAll()`（测「严格串行」用） */
     manualSend?: boolean
+    /** RAG 检索假件（rag-retrieval；不传 = 不装配检索，行为与升级前一致） */
+    rag?: RagClient
     now?: string
   } = {},
 ): Harness {
@@ -447,6 +450,7 @@ function harness(
     repo: repo.repo,
     gate,
     agent,
+    rag: config.rag,
     port: () => port,
     settings: () => settings,
     emit: (event) => events.push(event),
@@ -1321,6 +1325,7 @@ describe('orchestrator/pipeline —— 技能路由接入（skill-routing）', (
       promptTemplate: '故障技能模板 {{question}}',
       knowledge: '',
       reviewMode: 'auto',
+      retrieval: { enabled: false },
       ...overrides,
     }
   }
@@ -1417,5 +1422,154 @@ describe('orchestrator/pipeline —— 技能路由接入（skill-routing）', (
     expect(h.agent.calls[0]).toContain('【需要回复的消息】')
     expect(h.agent.calls[0]).not.toContain('故障技能模板')
     expect(jobOf(h, 1).skillId).toBe('fault-fix')
+  })
+})
+
+// ---------------------------------------------------------------- 知识检索注入（rag-retrieval）
+
+describe('orchestrator/pipeline —— 知识检索注入（rag-retrieval）', () => {
+  /** 可控的 RAG 假件：记录查询，按脚本返回片段或抛错 */
+  function fakeRag(script: () => RagChunk[] | Error): RagClient & { queries: RagQuery[] } {
+    const queries: RagQuery[] = []
+    return {
+      queries,
+      async retrieve(query: RagQuery) {
+        queries.push(query)
+        const result = script()
+        if (result instanceof Error) throw result
+        return result
+      },
+      onCall() {},
+    }
+  }
+
+  const CHUNKS: RagChunk[] = [
+    { content: '报 500 先查网关日志确认上游超时', score: 0.92, source: 'ts.md' },
+    { content: '低相关片段会被阈值过滤', score: 0.2, source: 'noise.md' },
+  ]
+
+  function skill(overrides: Partial<WelinkSkill> = {}): WelinkSkill {
+    return {
+      id: 'fault-fix',
+      name: '故障咨询',
+      description: '系统报错类问题',
+      enabled: true,
+      keywords: ['500'],
+      promptTemplate: '故障技能模板 {{retrieved}} {{question}}',
+      knowledge: '',
+      reviewMode: 'auto',
+      retrieval: { enabled: true },
+      ...overrides,
+    }
+  }
+
+  it('检索命中：片段经阈值过滤拼装进 prompt（带来源与相关度头）', async () => {
+    const rag = fakeRag(() => CHUNKS)
+    const h = harness({
+      jobs: [job()],
+      settings: { agent: { ...DEFAULT_WELINK_SETTINGS.agent, skills: [skill()] } },
+      rag,
+      sendImpl: async () => ({ msgUid: 'u1' }),
+    })
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    // query = 触发消息内容；低分片段被 minScore=0 之外的阈值滤掉需显式配置，默认 0 不过滤
+    expect(rag.queries).toHaveLength(1)
+    expect(rag.queries[0].query).toContain('报 500')
+    expect(h.agent.calls[0]).toContain('【知识1】(来源 ts.md, 相关度 0.92)')
+    expect(h.agent.calls[0]).toContain('报 500 先查网关日志')
+    expect(h.agent.calls[0]).toContain('低相关片段会被阈值过滤')
+  })
+
+  it('minScore 过滤低分片段；maxChars 截断注入总量', async () => {
+    const rag = fakeRag(() => CHUNKS)
+    const h = harness({
+      jobs: [job()],
+      settings: {
+        agent: { ...DEFAULT_WELINK_SETTINGS.agent, skills: [skill()] },
+        rag: { ...DEFAULT_WELINK_SETTINGS.rag, minScore: 0.5, maxChars: 200 },
+      },
+      rag,
+      sendImpl: async () => ({ msgUid: 'u1' }),
+    })
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    const prompt = h.agent.calls[0]
+    expect(prompt).toContain('【知识1】')
+    expect(prompt).not.toContain('低相关片段')
+    expect(prompt.length).toBeLessThan(200 + 600) // 截断后 prompt 不会无限膨胀
+  })
+
+  it('检索失败：空串降级、生成继续（草稿照常落库外发）', async () => {
+    const rag = fakeRag(() => new Error('RAG 服务不可用'))
+    const h = harness({
+      jobs: [job()],
+      settings: { agent: { ...DEFAULT_WELINK_SETTINGS.agent, skills: [skill()] } },
+      rag,
+      sendImpl: async () => ({ msgUid: 'u1' }),
+    })
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    expect(h.agent.calls[0]).not.toContain('【知识1】')
+    expect(h.agent.calls[0]).toContain('故障技能模板') // 生成未被阻断
+    expect(jobOf(h, 1).status).toBe('sent')
+  })
+
+  it('技能未启用检索：不发起检索调用（老配置零迁移语义）', async () => {
+    const rag = fakeRag(() => CHUNKS)
+    const h = harness({
+      jobs: [job()],
+      settings: { agent: { ...DEFAULT_WELINK_SETTINGS.agent, skills: [skill({ retrieval: { enabled: false } })] } },
+      rag,
+      sendImpl: async () => ({ msgUid: 'u1' }),
+    })
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    expect(rag.queries).toHaveLength(0)
+    expect(jobOf(h, 1).status).toBe('sent')
+  })
+
+  it('兜底技能检索由 rag.fallbackRetrieve 全局开关控制（D8）', async () => {
+    const rag = fakeRag(() => CHUNKS)
+    // 关：未命中技能 → 兜底 → 不检索
+    const h1 = harness({
+      jobs: [job()],
+      settings: { rag: { ...DEFAULT_WELINK_SETTINGS.rag, fallbackRetrieve: false } },
+      rag,
+      sendImpl: async () => ({ msgUid: 'u1' }),
+    })
+    h1.pipeline.start()
+    h1.pipeline.enqueue(1)
+    await h1.pipeline.drain()
+    expect(rag.queries).toHaveLength(0)
+    // 开：兜底也检索
+    const h2 = harness({
+      jobs: [job({ pk: 2 })],
+      settings: { rag: { ...DEFAULT_WELINK_SETTINGS.rag, fallbackRetrieve: true } },
+      rag,
+      sendImpl: async () => ({ msgUid: 'u2' }),
+    })
+    h2.pipeline.start()
+    h2.pipeline.enqueue(2)
+    await h2.pipeline.drain()
+    expect(rag.queries).toHaveLength(1)
+    expect(h2.agent.calls[0]).not.toContain('【知识1】') // 默认兜底模板不含 {{retrieved}} → 已发起检索但不注入（D-D）
+  })
+
+  it('未装配 rag（options.rag 缺省）：即便技能启用检索也零开销跳过', async () => {
+    const h = harness({
+      jobs: [job()],
+      settings: { agent: { ...DEFAULT_WELINK_SETTINGS.agent, skills: [skill()] } },
+      sendImpl: async () => ({ msgUid: 'u1' }),
+    })
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    expect(h.agent.calls[0]).not.toContain('【知识1】')
+    expect(jobOf(h, 1).status).toBe('sent')
   })
 })

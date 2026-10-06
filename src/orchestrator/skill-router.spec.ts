@@ -33,6 +33,7 @@ function skill(overrides: Partial<WelinkSkill> = {}): WelinkSkill {
     promptTemplate: '故障技能模板 {{question}}',
     knowledge: '',
     reviewMode: 'auto',
+    retrieval: { enabled: false },
     ...overrides,
   }
 }

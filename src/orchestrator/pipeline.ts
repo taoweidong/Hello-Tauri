@@ -32,9 +32,10 @@
 import type { AgentClient, AgentCallRecord } from '@/infra/agent'
 import { AgentError } from '@/infra/agent'
 import { renderPrompt, sanitizeReply } from '@/infra/agent/prompt'
+import type { RagClient, RagChunk } from '@/infra/rag'
 import type { WelinkPort } from '@/infra/welink'
 import type { WelinkRepository } from '@/infra/db'
-import type { WelinkJob, WelinkSettings, WelinkSkill } from '@/types/welink'
+import type { WelinkJob, WelinkRagSettings, WelinkSettings, WelinkSkill } from '@/types/welink'
 import { FALLBACK_SKILL_ID } from '@/types/welink'
 import { logger } from '@/utils/logger'
 import { nowStamp } from '@/utils/time'
@@ -56,6 +57,8 @@ export interface PipelineOptions {
   repo: WelinkRepository
   gate: SafetyGate
   agent: AgentClient
+  /** RAG 检索客户端（rag-retrieval；缺省 = 不检索，测试兼容老用例） */
+  rag?: RagClient
   /** 消息端口获取函数（外发需要 send）。默认走端口工厂；测试注入 mock */
   port: (settings: WelinkSettings) => WelinkPort
   settings: () => WelinkSettings
@@ -218,6 +221,7 @@ export function createPipeline(options: PipelineOptions): Pipeline {
       promptTemplate: agentSettings.promptTemplate,
       knowledge: agentSettings.fallbackKnowledge,
       reviewMode: 'auto',
+      retrieval: { enabled: settings.rag.fallbackRetrieve },
     }
     const ownedSlots: Array<{ prompt: string; jobPk: number; claimed: boolean }> = []
     const registerSlot = (slotPrompt: string) => {
@@ -235,11 +239,34 @@ export function createPipeline(options: PipelineOptions): Pipeline {
       onClassifyPrompt: registerSlot,
     })
 
+    // —— 知识检索（rag-retrieval D-E/D-H）：技能路由后按绑定取知识片段 ——
+    // 检索是增强不是依赖：失败/超时/零命中一律空串降级（logger.warn），不重试、
+    // 不阻断生成主链路；检索结果注入 prompt 后随 onCall 落 R4 语料可回溯。
+    const ragSettings = settings.rag
+    const retrievalOn =
+      decision.skill.id === FALLBACK_SKILL_ID
+        ? ragSettings.fallbackRetrieve
+        : (decision.skill.retrieval?.enabled ?? false)
+    let retrieved = ''
+    if (retrievalOn && options.rag) {
+      try {
+        const chunks = await options.rag.retrieve({
+          query: trigger?.content ?? job.triggerSummary,
+          filter: decision.skill.retrieval?.filter,
+          topK: ragSettings.topK,
+        })
+        retrieved = formatRetrieved(chunks, ragSettings)
+      } catch (error) {
+        logger.warn(`知识检索失败，降级无检索生成（job ${jobPk}）：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
     // 模板按命中技能切换；技能模板为空时回退兜底模板（归一化允许空串，D4）
     const template = decision.skill.promptTemplate.trim() || agentSettings.promptTemplate
     const prompt = renderPrompt({
       template,
       knowledge: decision.skill.knowledge,
+      retrieved,
       target: conv,
       context: context.filter((message) => message.pk !== job.triggerMsgPk),
       trigger,
@@ -694,4 +721,25 @@ export function createPipeline(options: PipelineOptions): Pipeline {
       return true
     },
   }
+}
+
+/**
+ * 检索片段拼装（rag-retrieval D-I）：minScore 过滤 + maxChars 截断。
+ * 结构头（【知识N】+ 来源 + 相关度）由本端生成，防知识正文伪造行结构；
+ * 内容是企业内部可信知识，不做 sanitizeUntrusted（对齐 D8），但永不作为
+ * 回复正文外发。
+ */
+function formatRetrieved(chunks: RagChunk[], rag: WelinkRagSettings): string {
+  const parts: string[] = []
+  let total = 0
+  let index = 0
+  for (const chunk of chunks) {
+    if (chunk.score < rag.minScore) continue
+    index += 1
+    const block = `【知识${index}】(来源 ${chunk.source || '未知'}, 相关度 ${chunk.score.toFixed(2)})\n${chunk.content}`
+    if (total + block.length > rag.maxChars) break
+    parts.push(block)
+    total += block.length
+  }
+  return parts.join('\n\n')
 }

@@ -41,6 +41,7 @@ function baseSkill(overrides: Partial<WelinkSkill> = {}): WelinkSkill {
     promptTemplate: '',
     knowledge: '',
     reviewMode: 'auto',
+    retrieval: { enabled: false },
     ...overrides,
   }
 }
@@ -147,6 +148,29 @@ describe('welink/settings/SkillsSection（回复技能分区）', () => {
     await h.wrapper.vm.$nextTick()
     vm.move('b', 1)
     expect(h.current().skills.map((skill) => skill.id)).toEqual(['a', 'b'])
+  })
+
+  it('技能检索绑定随编辑器保存（rag-retrieval）：enabled/filter 透传到 skills', async () => {
+    const h = mountSection([baseSkill()])
+    const vm = h.wrapper.vm as unknown as Record<string, (...args: unknown[]) => void>
+    vm.startEdit(baseSkill())
+    ;(h.wrapper.vm as unknown as { editingDraft: WelinkSkill }).editingDraft = {
+      ...draftOf(h),
+      retrieval: { enabled: true, filter: ' 故障 ' },
+    }
+    vm.saveEditor()
+    const saved = h.current().skills[0]
+    // filter 的 trim 收敛在父级 normalizeWelinkSettings（types 层已钉），组件层透传原值
+    expect(saved.retrieval).toEqual({ enabled: true, filter: ' 故障 ' })
+  })
+
+  it('新建技能草稿默认不检索（rag-retrieval 零迁移语义）', async () => {
+    const h = mountSection([])
+    const vm = h.wrapper.vm as unknown as Record<string, (...args: unknown[]) => void>
+    vm.startAdd()
+    expect((h.wrapper.vm as unknown as { editingDraft: WelinkSkill }).editingDraft.retrieval).toEqual({
+      enabled: false,
+    })
   })
 
   it('到达数量上限后「添加技能」被拦截并提示', () => {

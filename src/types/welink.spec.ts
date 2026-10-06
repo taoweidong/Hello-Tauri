@@ -125,3 +125,40 @@ describe('types/welink —— 回复技能归一化（skill-routing）', () => {
     expect(skillSourceLabelOf('')).toBe('')
   })
 })
+
+describe('types/welink —— RAG 连接配置归一化（rag-retrieval）', () => {
+  /** normalize 的入参声明是浅 Partial，构造手改 JSON 形状的输入需窄化 */
+  function normalizeRag(rag: Record<string, unknown>) {
+    return normalizeWelinkSettings({ rag } as unknown as Partial<WelinkSettings>).rag
+  }
+
+  it('老配置缺 rag 块零迁移：mock 来源 + 兜底技能不检索', () => {
+    const merged = normalizeWelinkSettings({ agent: { agentSource: 'mock' } } as unknown as Partial<WelinkSettings>).rag
+    expect(merged.ragSource).toBe('mock')
+    expect(merged.fallbackRetrieve).toBe(false)
+    expect(merged.endpoint).toBe('/search')
+  })
+
+  it('数值越界收敛：timeout/topK/maxChars 夹回边界，minScore 保留小数', () => {
+    const merged = normalizeRag({ timeoutMs: 5, topK: 99, maxChars: 1_000_000, minScore: 0.87 })
+    expect(merged.timeoutMs).toBe(1000)
+    expect(merged.topK).toBe(10)
+    expect(merged.maxChars).toBe(4000)
+    expect(merged.minScore).toBe(0.87)
+  })
+
+  it('非法地址回退默认、错型 minScore 兜底、fallbackRetrieve 仅显式 true', () => {
+    const merged = normalizeRag({ baseUrl: 'ftp://x', minScore: 'high', fallbackRetrieve: 'yes' })
+    expect(merged.baseUrl).toBe('http://127.0.0.1:8081')
+    expect(merged.minScore).toBe(0)
+    expect(merged.fallbackRetrieve).toBe(false)
+    expect(normalizeRag({ fallbackRetrieve: true }).fallbackRetrieve).toBe(true)
+  })
+
+  it('skill.retrieval 零迁移：老技能无检索字段 → enabled=false，filter 空省略', () => {
+    const merged = normalizeAgent({ skills: [{ id: 'a', name: 'A', retrieval: { enabled: true, filter: ' 标签X ' } }] })
+    expect(merged.skills[0].retrieval).toEqual({ enabled: true, filter: '标签X' })
+    const legacy = normalizeAgent({ skills: [{ id: 'b', name: 'B' }] })
+    expect(legacy.skills[0].retrieval).toEqual({ enabled: false })
+  })
+})

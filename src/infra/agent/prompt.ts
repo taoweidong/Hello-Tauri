@@ -11,6 +11,9 @@
  *  * `{{target}}` 目标会话名（群名 / 对方昵称）；
  *  * `{{knowledge}}` 技能知识块（skill-routing）：用户自配的**可信**文本，不经消毒、
  *    永不作为回复正文外发；空知识块替换为空串；
+ *  * `{{retrieved}}` 检索事实占位符（rag-retrieval）：生成前按技能检索知识库的
+ *    命中片段，由 pipeline 拼装（`【知识N】(来源, 相关度)` 头 + 正文）；可信文本
+ *    不消毒；空命中替换为空串；
  *  * 未识别的 `{{xxx}}` **原样保留**：宁可让模型看到占位符，也不要静默吞掉
  *    用户的模板意图（UI 保存时会警告变量缺失）。
  */
@@ -27,6 +30,8 @@ export interface PromptInput {
   targetFallback?: string
   /** 技能知识块（可信文本，不消毒；skill-routing） */
   knowledge?: string
+  /** RAG 检索命中片段（pipeline 拼装好的文本，可信不消毒；rag-retrieval） */
+  retrieved?: string
 }
 
 /**
@@ -84,10 +89,15 @@ export function renderPrompt(input: PromptInput): string {
     question,
     sender,
     target,
-    // 知识块是用户自配的可信文本（skill-routing S-I/D8）：不消毒，也不进回复正文
+    // 知识块与检索片段都是用户侧可信文本（skill-routing S-I/D8、rag-retrieval D-I）：
+    // 不消毒，也不进回复正文
     knowledge: input.knowledge ?? '',
+    retrieved: input.retrieved ?? '',
   }
-  return input.template.replace(/\{\{(context|question|sender|target|knowledge)\}\}/g, (_match, key: string) => values[key])
+  return input.template.replace(
+    /\{\{(context|question|sender|target|knowledge|retrieved)\}\}/g,
+    (_match, key: string) => values[key],
+  )
 }
 
 /** 模板里缺失的变量（UI 保存时警告 + 单测断言用） */
@@ -98,7 +108,7 @@ export function missingPlaceholders(template: string): string[] {
 
 /** 模板里出现的未知变量（保留原样但提示用户） */
 export function unknownPlaceholders(template: string): string[] {
-  const known = new Set(['{{context}}', '{{question}}', '{{sender}}', '{{target}}', '{{knowledge}}'])
+  const known = new Set(['{{context}}', '{{question}}', '{{sender}}', '{{target}}', '{{knowledge}}', '{{retrieved}}'])
   const found = template.match(/\{\{[a-zA-Z_]+\}\}/g) ?? []
   return [...new Set(found.filter((token) => !known.has(token)))]
 }

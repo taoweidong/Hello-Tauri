@@ -12,6 +12,8 @@ import type { AppSettings } from '@/types'
 import type { WelinkSettings } from '@/types/welink'
 import SettingsCard from '@/components/welink/SettingsCard.vue'
 import LlmSettingsCard from '@/components/welink/LlmSettingsCard.vue'
+import RagSettingsCard from '@/components/welink/RagSettingsCard.vue'
+import KnowledgeCard from '@/components/welink/KnowledgeCard.vue'
 import CodehubSettingsCard from '@/components/codehub/CodehubSettingsCard.vue'
 
 const appStore = useAppStore()
@@ -264,6 +266,16 @@ async function migrateDir() {
       class="llm-card"
       @update:model-value="(agent: WelinkSettings['agent']) => (form.weLink = { ...(form.weLink ?? {}), agent })"
     />
+
+    <!-- 知识检索（RAG）连接（rag-retrieval）：weLink.rag 块的唯一编辑器 -->
+    <RagSettingsCard
+      :model-value="form.weLink?.rag ?? {}"
+      class="rag-card"
+      @update:model-value="(rag: WelinkSettings['rag']) => (form.weLink = { ...(form.weLink ?? {}), rag })"
+    />
+
+    <!-- 本地知识库（knowledge-base）：knowledge/*.md 的管理面，桌面模式可用 -->
+    <KnowledgeCard class="kb-card" />
 
     <!-- CodeHub 连接（personal-workbench）：配置持久化在这里，同步/刷新入口在检视页 -->
     <CodehubSettingsCard

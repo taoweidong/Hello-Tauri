@@ -13,6 +13,7 @@
  */
 import { welink, type WelinkRepository } from '@/infra/db'
 import { agentClient, type AgentClient } from '@/infra/agent'
+import { ragClient } from '@/infra/rag'
 import { welinkClient, type WelinkPort } from '@/infra/welink'
 import type { WelinkSettings } from '@/types/welink'
 import { logger } from '@/utils/logger'
@@ -100,11 +101,13 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
     now: options.now,
   })
   const agentInstance = resolveAgent ?? agentClient({ settings: currentSettings.agent })
+  const ragInstance = ragClient({ settings: currentSettings.rag })
 
   const pipeline = createPipeline({
     repo,
     gate,
     agent: agentInstance,
+    rag: ragInstance,
     port: resolvePort,
     settings: () => currentSettings,
     emit,

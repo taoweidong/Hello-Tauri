@@ -68,6 +68,7 @@ function startAdd() {
     promptTemplate: '',
     knowledge: '',
     reviewMode: 'auto',
+    retrieval: { enabled: false },
   }
 }
 
@@ -220,6 +221,16 @@ defineExpose({ startAdd, startEdit, saveEditor, closeEditor, removeSkill, setEna
               type="textarea"
               :rows="4"
               placeholder="该类问题的固定口径 / FAQ，注入模板 {{knowledge}} 占位符"
+            />
+          </el-form-item>
+          <el-form-item label="知识检索">
+            <el-switch v-model="editingDraft.retrieval.enabled" size="small" />
+            <span class="wc__hint">生成前按此技能检索知识库（RAG），命中片段经模板的 retrieved 占位符注入</span>
+            <el-input
+              v-if="editingDraft.retrieval.enabled"
+              v-model="editingDraft.retrieval.filter"
+              class="kb__control"
+              placeholder="过滤条件（可选，如分类标签），原样透传给检索服务"
             />
           </el-form-item>
           <el-form-item label="人工审核">

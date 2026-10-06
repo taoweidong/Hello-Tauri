@@ -109,6 +109,23 @@ describe('infra/agent/prompt —— 渲染管线接入消毒', () => {
   it('{{knowledge}} 不在 unknownPlaceholders 之列（UI 不再误报未知变量）', () => {
     expect(unknownPlaceholders('{{knowledge}}')).toEqual([])
   })
+
+  it('{{retrieved}} 注入检索事实片段（rag-retrieval）：可信文本不消毒', () => {
+    const prompt = renderPrompt({
+      template: '已知：{{retrieved}}\nQ:{{question}}',
+      target: null,
+      context: [],
+      trigger: message({ content: '报销流程' }),
+      retrieved: '【知识1】(来源 faq.md, 相关度 0.92)\n报销：500 元以下走自助审批。',
+    })
+    expect(prompt).toContain('【知识1】(来源 faq.md, 相关度 0.92)')
+    expect(prompt).toContain('500 元以下走自助审批')
+  })
+
+  it('{{retrieved}} 缺省替换为空串（老调用方与旧模板零变化）', () => {
+    expect(renderPrompt({ template: 'A[{{retrieved}}]B', target: null, context: [], trigger: message() })).toBe('A[]B')
+    expect(unknownPlaceholders('{{retrieved}}')).toEqual([])
+  })
 })
 
 describe('infra/agent/prompt —— 默认模板与黑名单的防注入配置', () => {
