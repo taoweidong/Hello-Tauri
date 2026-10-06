@@ -72,6 +72,10 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
   核实后更新或删除对应标签，清单与对接记录见 `docs/design-llm-connection-2026-10-02.md`
   （2026-10-04 已完成阿里云 MaaS compatible-mode 真实对接：协议逐项核实通过，唯一不成立的
   CORS 走 Rust 宿主通道 `http_post_json` 处置，密钥只存本机数据根 config.json、不入仓库）。
+  RAG 检索适配器同款约定：`[RAG-ASSUME]` = 对真实 RAG 检索服务的协议假设（端点/鉴权/请求体
+  query+top_k+filter/响应形状与字段容错/score 语义/CORS），对接前 `grep -rn "RAG-ASSUME" src/`
+  逐项核实，核实后更新或删除对应标签，清单与对接 SOP 见
+  `docs/design-welink-rag-retrieval-2026-10-05.md`（应用只查不建索引，mock 先行）。
   Windows 基础设施模块（`src/infra/windows/`）同款约定：`[MOCK-WIN]` = 模拟实现（保留为
   测试替身与浏览器调试数据源）；`[WIN-ASSUME]` = 对真实 Windows 行为的假设（登记命令的
   参数语法、剪贴板属主语义、气球通知转 toast 等），改动前 `grep -rn "MOCK-WIN\|WIN-ASSUME" src/`
@@ -132,6 +136,12 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
 
 - `docs/design-welink-agent-2026-09-27.md` — WeLink × Agent 总设计（架构分层 §3、数据模型 §4、
   安全闸 §5A、时序 §6、快速建群 §15）；动 `src/infra/`、`src/orchestrator/`、welink 相关表结构前必读。
+- `docs/design-welink-skill-routing-2026-10-04.md` — 问题分类与技能路由设计（决策 S-A~S-J）；
+  动 `src/orchestrator/skill-router.ts`、pipeline 生成段、技能编辑 UI 前必读。
+- `docs/design-welink-rag-retrieval-2026-10-05.md` — RAG 检索增强与本地知识库设计（决策 D-A~D-J、
+  `[RAG-ASSUME]` 假设清单与对接 SOP）；动 `src/infra/rag/`、pipeline 检索注入段、RAG/知识库配置卡前必读。
+- `openspec/specs/welink-auto-reply/spec.md` — 自动回复主规格（16 条需求，含技能路由与检索增强）；
+  `openspec/specs/knowledge-base/spec.md` — 知识库管理主规格；改动经 delta 流程对照。
 - `openspec/specs/codehub-review/spec.md`、`openspec/specs/workbench-home/spec.md` — CodeHub 检视域
   与工作台首页的主规格（验收口径）。设计决策与核对表在归档变更
   `openspec/changes/archive/2026-10-04-personal-workbench/`（`design.md` 的 D3 打桩先行、D5 截断降级、

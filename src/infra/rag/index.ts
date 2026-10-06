@@ -9,7 +9,7 @@ import type { WelinkRagSettings } from '@/types/welink'
 import { logger } from '@/utils/logger'
 import { createHttpRag, probeRagOnce, type RagHttpTransport } from './rag-http'
 import { createMockRag, type MockRag } from './mock'
-import type { RagClient } from './port'
+import { RagError, type RagClient } from './port'
 
 let cached: RagClient | null = null
 let cachedKey = ''
@@ -89,6 +89,10 @@ export function createRagProbe(settings: WelinkRagSettings): RagClient {
 
 /** 检索连通性测试（设置页按钮用） */
 export function probeRag(settings: WelinkRagSettings): Promise<{ latencyMs: number; preview: string }> {
+  // http 来源但地址未填：给可行动错误，而不是回退 mock 报「成功」误导配置者
+  if (settings.ragSource === 'http' && !settings.baseUrl.trim()) {
+    return Promise.reject(new RagError('已选择检索服务但未填写服务地址，请先补全 baseUrl', 'transport'))
+  }
   if (runtime === 'tauri' && settings.ragSource === 'http' && settings.baseUrl.trim()) {
     return probeRagOnce({
       baseUrl: settings.baseUrl.trim(),

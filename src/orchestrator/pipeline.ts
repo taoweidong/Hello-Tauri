@@ -261,6 +261,12 @@ export function createPipeline(options: PipelineOptions): Pipeline {
           topK: ragSettings.topK,
         })
         retrieved = formatRetrieved(chunks, ragSettings)
+        // 运行日志可见检索结果（UI 可见性 P2-7：不看 prompt 全文也知道命中了几条）
+        if (retrieved) {
+          logger.info(`知识检索命中 ${chunks.length} 条（job ${jobPk} · 技能「${decision.skill.name}」）`)
+        } else {
+          logger.info(`知识检索零命中，按无检索生成（job ${jobPk} · 技能「${decision.skill.name}」）`)
+        }
       } catch (error) {
         logger.warn(`知识检索失败，降级无检索生成（job ${jobPk}）：${error instanceof Error ? error.message : String(error)}`)
       }
@@ -741,10 +747,14 @@ function formatRetrieved(chunks: RagChunk[], rag: WelinkRagSettings): string {
   for (const chunk of chunks) {
     if (chunk.score < rag.minScore) continue
     index += 1
-    const block = `【知识${index}】(来源 ${chunk.source || '未知'}, 相关度 ${chunk.score.toFixed(2)})\n${chunk.content}`
-    if (total + block.length > rag.maxChars) break
-    parts.push(block)
-    total += block.length
+    const head = `【知识${index}】(来源 ${chunk.source || '未知'}, 相关度 ${chunk.score.toFixed(2)})\n`
+    const budget = rag.maxChars - total
+    if (budget <= head.length) break
+    // 首块超限时硬截断正文（保底注入部分知识而非空串）；后续块按相关性优先装满
+    const body =
+      head.length + chunk.content.length > budget ? `${chunk.content.slice(0, budget - head.length - 1)}…` : chunk.content
+    parts.push(head + body)
+    total += head.length + body.length
   }
   return parts.join('\n\n')
 }

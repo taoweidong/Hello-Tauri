@@ -193,7 +193,10 @@ export function createHttpRag(options: HttpRagOptions): RagClient {
         try {
           payload = JSON.parse(outcome.text)
         } catch {
-          throw new RagError('RAG 响应不是有效的 JSON（端点可能不是约定的检索接口）', 'parse')
+          throw new RagError(
+            'RAG 响应不是有效的 JSON（端点可能不是约定的检索接口，或响应超过宿主 2MB 上限被截断）',
+            'parse',
+          )
         }
         const chunks = pickChunks(payload)
         if (chunks === null) {

@@ -322,8 +322,39 @@ describe('M3 全链路：mock 端口 → 内存库 → mock Agent → SafetyGate
     expect(job.draft).toBe('收到，我看一下')
   })
 
-  it('Agent 留痕归属到正确的 job（R4：onCall 1:N 语料不能张冠李戴）', async () => {
-    const h = await harness()
+  it('M3 全链路（rag）：启用检索的技能命中 mock 语料，片段注入生成 prompt（rag 装配回归闸）', async () => {
+    const h = await harness({
+      agent: {
+        ...DEFAULT_WELINK_SETTINGS.agent,
+        skills: [
+          {
+            id: 'fault-fix',
+            name: '故障咨询',
+            description: '系统报错类问题',
+            enabled: true,
+            keywords: ['500'],
+            promptTemplate: '故障模板 {{retrieved}} {{question}}',
+            knowledge: '',
+            reviewMode: 'auto',
+            retrieval: { enabled: true },
+          },
+        ],
+      },
+    })
+    h.port.push('G-1001', [{ content: '@我 线上接口 500 了，帮忙看下' }])
+
+    h.runtime.pipeline.start()
+    await h.runtime.pullNow()
+    await h.runtime.pipeline.drain()
+    await settle()
+
+    // rag 实例由 runtime 经 ragClient 工厂装配（测试环境 → mock 语料，'500' 键命中）
+    expect(h.agent.calls[0]).toContain('【知识1】')
+    expect(h.agent.calls[0]).toContain('接口返回 500 时先查网关日志')
+    expect(h.port.sent).toHaveLength(1)
+  })
+
+  it('Agent 留痕归属到正确的 job（R4：onCall 1:N 语料不能张冠李戴）', async () => {    const h = await harness()
     h.port.push('G-1001', [{ content: '@我 帮忙看下' }])
 
     h.runtime.pipeline.start()

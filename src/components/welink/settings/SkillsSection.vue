@@ -152,6 +152,7 @@ defineExpose({ startAdd, startEdit, saveEditor, closeEditor, removeSkill, setEna
       <ul class="sk__list">
         <li v-for="(skill, index) in skills" :key="skill.id" class="sk__row">
           <span class="sk__name" :class="{ 'sk__name--off': !skill.enabled }">{{ skill.name }}</span>
+          <el-tag v-if="skill.retrieval?.enabled" size="small" effect="plain">检索</el-tag>
           <el-tag v-if="skill.reviewMode === 'manual'" size="small" type="warning" effect="plain">需人工审核</el-tag>
           <el-tag size="small" effect="plain" class="sk__meta">{{ skill.keywords.length }} 个关键词</el-tag>
           <span class="spacer" />
