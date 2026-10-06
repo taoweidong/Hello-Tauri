@@ -1,0 +1,274 @@
+<mxfile host="app.diagrams.net" modified="2026-10-05T00:00:00Z" agent="Qoder architecture-visualization" version="24.7.2" type="device">
+  <diagram id="p1-context" name="L1 系统上下文">
+    <mxGraphModel dx="1400" dy="820" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="ctx.title" value="Hello-Tauri —— L1 系统上下文（当前态 · 2026-10-05 · 真源：system-model.structurizr.dsl）" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="30" width="1120" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctx.boundarySys" value="系统边界：Hello-Tauri 个人工作台（单文件离线 exe，仅 Windows）" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#6c8ebf;dashed=1;verticalAlign=top;fontSize=12;fontStyle=1;align=left;" vertex="1" parent="1">
+          <mxGeometry x="330" y="250" width="420" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx.boundaryExt" value="外部世界（本机之外的进程与服务）" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;dashed=1;verticalAlign=top;fontSize=12;fontStyle=1;align=left;" vertex="1" parent="1">
+          <mxGeometry x="880" y="150" width="440" height="620" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctx.actor.user" value="内网办公用户&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;[high] router/index.ts:62-106&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="360" width="200" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctx.sys.hello" value="Hello-Tauri 个人工作台&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;三大技术域 + 聚合工作台首页&lt;br&gt;[high] AGENTS.md:3-8, lib.rs:13-54&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="390" y="330" width="300" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctx.ext.welinkcli" value="welink-cli.exe&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;WeLink 消息 / 建群 CLI（本地子进程）&lt;br&gt;[high] welink-cli.ts:34-63, cli.rs:36&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="930" y="190" width="350" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx.ext.codehubcli" value="codehub-cli.exe（内网 CodeHub）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MR 列表 / 单条 view / auth status，纯只读&lt;br&gt;[medium] 35 处 [CLI-ASSUME] 未核实 → codehub-cli.ts:208-242&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="930" y="300" width="350" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx.ext.llm" value="大模型服务（阿里云 MaaS compatible-mode）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;OpenAI 兼容 chat/completions，宿主代发绕 CORS&lt;br&gt;[high] agent-http.ts:11-15&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="930" y="420" width="350" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx.ext.win" value="Windows 操作系统能力&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;System32 只读诊断 + 系统信息 + 剪贴板/通知/打开&lt;br&gt;[high] cli.rs:36-56, sysinfo.rs, shell.rs&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="930" y="530" width="350" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx.ext.rag" value="知识检索服务（RAG）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;retrieve → chunks(content/score/source)；草稿上下文供给&lt;br&gt;[low] 6 处 [RAG-ASSUME] 未核实 → infra/rag/rag-http.ts:6,105&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="930" y="640" width="350" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx.ext.data" value="本机数据根（文件系统）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;config.json / app.db / table.json / logs / knowledge/*.md&lt;br&gt;[high] storage.rs:13-17, KnowledgeCard.vue:26&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="930" y="740" width="350" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctx.e1" value="操作工作台与三大业务域页面 [high]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#6c8ebf;" edge="1" parent="1" source="ctx.actor.user" target="ctx.sys.hello">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx.e2" value="cli_run 子进程：list / pull / send / doctor / create-group" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#666666;" edge="1" parent="1" source="ctx.sys.hello" target="ctx.ext.welinkcli">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx.e3" value="cli_run 子进程（只读，无外发）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;dashed=1;strokeColor=#666666;" edge="1" parent="1" source="ctx.sys.hello" target="ctx.ext.codehubcli">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx.e4" value="http_post_json：生成回复草稿（Bearer 密钥只存本机）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#666666;" edge="1" parent="1" source="ctx.sys.hello" target="ctx.ext.llm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx.e5" value="仅放行 ALLOWED_STEMS 白名单内的只读程序" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#666666;" edge="1" parent="1" source="ctx.sys.hello" target="ctx.ext.win">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx.e6" value="读写持久化数据" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#666666;" edge="1" parent="1" source="ctx.sys.hello" target="ctx.ext.data">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx.e7" value="http_post_json：知识检索取回片段（协议未核实）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;dashed=1;strokeColor=#666666;" edge="1" parent="1" source="ctx.sys.hello" target="ctx.ext.rag">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctx.legend" value="图例：实线 = 有 file:line 证据；虚线 = 假设/低置信（CodeHub CLI 契约未核实）。节点内灰字为证据引用。置信度标签 [high]/[medium]/[low]/[unknown]。" style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="60" y="720" width="1120" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="p2-containers" name="L2 容器">
+    <mxGraphModel dx="1400" dy="820" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="ctn.title" value="Hello-Tauri —— L2 容器（单文件 exe 内部：TS 业务全量 + Rust 薄桥接 + 数据根）" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="30" width="1120" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctn.boundary" value="部署单元：单文件离线 exe（bundle.active=false，无安装包；打包正道 npm run pack，PE 导入表硬校验静态 CRT）" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#82b366;dashed=1;verticalAlign=top;fontSize=12;fontStyle=1;align=left;" vertex="1" parent="1">
+          <mxGeometry x="300" y="110" width="640" height="620" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctn.actor" value="内网办公用户" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="180" width="180" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctn.webview" value="WebView 前端（业务逻辑 100% 在此）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Vue 3 + Element Plus + Pinia + TS，Vite 构建&lt;br&gt;views → stores → orchestrator → infra → repositories → api&lt;br&gt;[high] src/main.ts, src/api/index.ts:1-10&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="340" y="160" width="560" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctn.rust" value="Rust 宿主（薄桥接，零业务规则）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;25 命令 = commands 9 / db 4 / fs 2 / cli 1 / http 1 / sysinfo 4 / shell 4&lt;br&gt;[high] src-tauri/src/lib.rs:23-51&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="340" y="390" width="560" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctn.data" value="本机数据根（默认 D:\TangYuan）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;bootstrap.json 固定引导；配置页可整体迁移&lt;br&gt;app.db(SQLite WAL, migration v1–v5) / config.json / table.json / logs 30 天&lt;br&gt;[high] storage.rs:13-127, db/index.ts:35&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="340" y="600" width="560" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctn.ext.welink" value="welink-cli.exe" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="160" width="300" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ctn.ext.codehub" value="codehub-cli.exe [medium 假设]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="240" width="300" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ctn.ext.llm" value="大模型服务（HTTPS JSON）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="320" width="300" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ctn.ext.win" value="Windows（System32 只读 + 系统能力）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="400" width="300" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ctn.webmode" value="浏览器 dev 模式（npm run dev，无需 Rust）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;同一套 TS 代码 + web.ts 内存/localStorage 实现&lt;br&gt;[high] api/index.ts:5-8, api/web.ts&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;dashed=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="520" width="300" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctn.e1" value="操作界面 [high]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#6c8ebf;" edge="1" parent="1" source="ctn.actor" target="ctn.webview">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctn.e2" value="invoke（25 命令，唯一宿主出口）&lt;br&gt;[high] api/tauri.ts:46-76" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1" source="ctn.webview" target="ctn.rust">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctn.e3" value="SQL / 迁移 / 文件读写（写许可闸门 + 禁 ATTACH）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#666666;" edge="1" parent="1" source="ctn.rust" target="ctn.data">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctn.e4" value="cli_run 子进程" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#666666;" edge="1" parent="1" source="ctn.rust" target="ctn.ext.welink">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctn.e5" value="cli_run 子进程" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;dashed=1;strokeColor=#666666;" edge="1" parent="1" source="ctn.rust" target="ctn.ext.codehub">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctn.e6" value="http_post_json 代发" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#666666;" edge="1" parent="1" source="ctn.rust" target="ctn.ext.llm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctn.e7" value="白名单双层闸（TS registry + Rust ALLOWED_STEMS）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#666666;" edge="1" parent="1" source="ctn.rust" target="ctn.ext.win">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctn.e8" value="同一 TS 代码，Bridge 切换实现" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;dashed=1;strokeColor=#6c8ebf;" edge="1" parent="1" source="ctn.webview" target="ctn.webmode">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ctn.note1" value="边界铁律：① 前端禁止 import &#39;@tauri-apps/api&#39;（eslint.config.mjs:112-136）② Rust 不含业务规则，新增功能全写在 TS ③ SQLite 表结构归 TS（infra/db/migrations）" style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="60" y="760" width="1260" height="50" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="p3-ts-layers" name="L3 前端 TS 分层">
+    <mxGraphModel dx="1400" dy="820" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="lay.title" value="Hello-Tauri —— L3 前端分层与两道闸门（依赖自上而下，全部 [high] 证据）" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1120" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lay.views" value="Views / Components&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;8 条路由页面 + welink/group/codehub 子组件 + 内联 SVG 图标&lt;br&gt;router/index.ts:62-106, components/icons.ts&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="120" y="80" width="420" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.stores" value="Stores（Pinia）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;welink(index/control/data/view/aggregate/events), group, codehub, app, envcheck, table&lt;br&gt;stores/welink/index.ts:24&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="120" y="210" width="420" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.orch" value="Orchestrator（业务规则唯一归属地）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;runtime 组合根 / poller / pipeline / bootstrap / retention / group / skill-router / codehub-sync / codehub-detail / events / timers&lt;br&gt;orchestrator/runtime.ts:71-221&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="120" y="340" width="420" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.gate" value="Safety Gate（外发硬闸）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;开关分级 / 配额 / 最小间隔 / 静默时段 / 草稿体检 / 熔断&lt;br&gt;check() 纯判定，配额只在 onSent 扣减&lt;br&gt;safety-gate.ts:1-130, pipeline.ts:383&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="640" y="340" width="340" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.infra" value="Infra（端口-适配器 ×7）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;welink / agent / db / envcheck / windows / codehub / rag；每域 port.ts + mock.ts + 真实现，按 platform 与设置切换&lt;br&gt;db/index.ts:63-98, welink/index.ts:45, rag/index.ts:30&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="120" y="510" width="420" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.repos" value="Repositories（records 遗留域）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;recordsBackend：tauri=SQLite / web=内存；CSV 导出&lt;br&gt;repositories/records.ts:170-310&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="640" y="510" width="340" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.bridge" value="src/api Bridge —— 唯一宿主出口&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;index.ts:5 按 __TAURI_INTERNALS__ 选 tauri.ts(invoke) / web.ts(localStorage)&lt;br&gt;api/index.ts:1-10&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="120" y="660" width="420" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.rust" value="Rust 宿主 25 命令&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;cli_run / http_post_json / db_* / fs_* / sys_* / shell_*&lt;br&gt;lib.rs:23-51&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="640" y="660" width="340" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lay.e1" value="读写状态（UI 禁直触 infra/repositories）&lt;br&gt;eslint.config.mjs:142-155" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#6c8ebf;" edge="1" parent="1" source="lay.views" target="lay.stores">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.e2" value="start/stop/pullNow/purgeNow（runtime.ts:181-206）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#82b366;" edge="1" parent="1" source="lay.stores" target="lay.orch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.e3" value="装配例外：注入 infra 工厂（envcheck/groupClient/codeHubPort/recordsBackend）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#9673a6;" edge="1" parent="1" source="lay.stores" target="lay.infra">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.e4" value="外发 worker 先 check() 再 send&lt;br&gt;pipeline.ts:383-437" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="lay.orch" target="lay.gate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.e5" value="只经 Port 接口 + 仓储实例（runtime.ts:14-16）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#d6b656;" edge="1" parent="1" source="lay.orch" target="lay.infra">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.e6" value="cliRun / httpPostJson / dbMigrate…（exec.ts:16,61）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#9673a6;" edge="1" parent="1" source="lay.infra" target="lay.bridge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.e7" value="dbMigrate([v1]) + SQL（records.ts:170-229）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#d79b00;" edge="1" parent="1" source="lay.repos" target="lay.bridge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.e8" value="invoke × 25" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#666666;strokeWidth=2;" edge="1" parent="1" source="lay.bridge" target="lay.rust">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lay.e9" value="safetyChanged / fuseTripped 事件回流 UI（runtime.ts:93-96,123）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;dashed=1;strokeColor=#b85450;exitX=0.5;exitY=0;entryX=1;entryY=0.5;" edge="1" parent="1" source="lay.gate" target="lay.stores">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lay.note" value="两道闸门：① ESLint no-restricted-imports 拦「前端直连 Tauri」与「UI 直触 infra/repositories」② Windows 命令双层闸：TS registry.ts 注册表 + Rust cli.rs ALLOWED_STEMS，只放行只读诊断 EXE&lt;br&gt;闸门盲区（实测）：6 个 UI 文件直连 @/api Bridge —— components/welink/KnowledgeCard.vue:16,48-133 直接读写 knowledge/index.json，views/DashboardView.vue 等同样直触 Bridge；规则只禁 @/infra/** 与 @/repositories/**，未禁 @/api" style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="120" y="790" width="1200" height="76" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="p4-host-commands" name="宿主命令面与数据归属">
+    <mxGraphModel dx="1400" dy="820" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="cmd.title" value="Hello-Tauri —— 宿主 25 命令族与数据归属（lib.rs:23-51 逐条核对）" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1120" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cmd.f1" value="commands.rs ×9&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;storage_info / storage_migrate / load_config / save_config / read_table(已 @deprecated) / write_table / append_log / open_storage_dir / app_info&lt;br&gt;→ config.json, table.json, logs/&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="90" width="420" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="cmd.f2" value="db.rs ×4&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;db_migrate / db_select / db_execute / db_transaction&lt;br&gt;表结构对 Rust 不可见；guard_statement 禁 ATTACH（db.rs:203-213）&lt;br&gt;→ data/app.db（WAL）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="230" width="420" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="cmd.f3" value="fs.rs ×2&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;fs_read / fs_write（数据根内相对路径）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="360" width="420" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="cmd.f4" value="cli.rs ×1 —— cli_run&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;ALLOWED_STEMS：welink-cli, codehub-cli, python/python3/py, systeminfo, ipconfig, tasklist, where, whoami, hostname, nslookup, ping&lt;br&gt;输出 base64 回传，UTF-8→GBK 兜底判定在 TS 侧&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="450" width="420" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="cmd.f5" value="http.rs ×1 —— http_post_json&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;宿主代发大模型（CORS 处置）；apiKey 只存本机 config.json&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="590" width="420" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="cmd.f6" value="sysinfo.rs ×4 + shell.rs ×4&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;sys_overview / sys_env_var / sys_disks / sys_adapters；shell_open / clipboard_read / clipboard_write / notify_send&lt;br&gt;永不 reject 的结果对象语义 + 工厂统一硬超时&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="690" width="420" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cmd.data1" value="data/app.db 表族（migration 归 TS：db/migrations/*.ts）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;v1 records&lt;br&gt;v2 welink_conversations / welink_messages / welink_reply_jobs / welink_agent_logs&lt;br&gt;v3 welink_group_templates / welink_group_jobs&lt;br&gt;v4 codehub_repos / codehub_mrs / codehub_sync_state&lt;br&gt;v5 = ALTER（welink_reply_jobs 增 3 个技能列）；表结构全部归 TS 管&lt;br&gt;&lt;b&gt;不入 SQLite 的：&lt;/b&gt;knowledge/*.md + knowledge/index.json（RAG 知识源，走 fs_read/fs_write）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d3d3d3;strokeColor=#666666;fontSize=12;align=left;" vertex="1" parent="1">
+          <mxGeometry x="560" y="90" width="480" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="cmd.data2" value="生命周期与留痕状态机（外发铁律）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;自动回复：pending → discussing → ready(commitDraft 与草稿同条 UPDATE) → sending(markStatus 乐观锁) → sent / failed / skipped / hold&lt;br&gt;快速建群：pending 先落库留痕 → create-group → WHERE status=&#39;pending&#39; 原子回写 success/failed（不做传输层重试）&lt;br&gt;CodeHub：全量重拉 ≤200，覆盖写只增改不删；截断只记 degraded&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;align=left;" vertex="1" parent="1">
+          <mxGeometry x="560" y="290" width="480" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="cmd.data3" value="测试替身与假设标签（同分层归属）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;[MOCK-CLI] 17 处（9 文件）= mock 实现，对接后保留为替身&lt;br&gt;[CLI-ASSUME] 35 处 = 真实 CLI 契约假设，主要在 codehub 域，必须逐一核实&lt;br&gt;[LLM-ASSUME] 1 处（已核实关闭） / [MOCK-WIN] 34 处 / [WIN-ASSUME] 5 处&lt;br&gt;&lt;b&gt;[RAG-ASSUME] 6 处（rag-http.ts:6,105）= 检索服务协议假设，未核实&lt;/b&gt;&lt;br&gt;69 个 *.spec.ts 与源码同目录&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;align=left;" vertex="1" parent="1">
+          <mxGeometry x="560" y="480" width="480" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="cmd.data4" value="未知项（本轮证据不足，勿当既成事实）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;① 运行时真实 IPC 吞吐/延迟：无遥测数据，本图只表达静态设计&lt;br&gt;② 真实 welink-cli / codehub-cli 输出契约：待按 docs/cli-integration-adaptation-2026-10-04.md 核实&lt;br&gt;③ 生产环境数据根分布与多机部署拓扑：属 deployment 视图，本轮未建模&lt;br&gt;④ 真实 RAG 检索服务协议（6 处 [RAG-ASSUME]：路径/鉴权/filter/响应容器与字段/score 语义）&lt;br&gt;⑤ &lt;b&gt;RAG 域为在途未提交改动&lt;/b&gt;（git ls-files src/infra/rag = 0，openspec add-welink-rag-retrieval 未归档）&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#b85450;dashed=1;fontSize=12;align=left;" vertex="1" parent="1">
+          <mxGeometry x="560" y="650" width="480" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cmd.e1" value="TS 下发 SQL/迁移" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#666666;" edge="1" parent="1" source="cmd.f2" target="cmd.data1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="cmd.e2" value="状态迁移由 pipeline/group 编排驱动" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;strokeColor=#82b366;" edge="1" parent="1" source="cmd.data1" target="cmd.data2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

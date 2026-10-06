@@ -1,0 +1,186 @@
+// Hello-Tauri —— 模块级依赖真源（Graphviz DOT）
+// 生成：system-modeler + graphviz ｜ 日期：2026-10-05 ｜ current-state only
+// 语义：C4 DSL 讲「容器与边界」，本文件讲「TS 内部模块粒度依赖 + 宿主通道 + 数据归属」
+// 渲染：dot -Tsvg docs/architecture/system-module-map.dot -o docs/architecture/system-module-map.svg
+// 无系统级 dot 时可用免提权的 WASM Graphviz（同为 Graphviz 引擎）：
+//   npm i @hpcc-js/wasm-graphviz（装在仓库外临时目录）→ Graphviz.load().layout(src,'svg','dot')
+// 2026-10-05 已用 Graphviz 16.1.0（WASM 构建）出图：44 节点 / 9 cluster / 0 重叠。
+// 约定：实线 = 有 file:line 证据；dashed = 低置信/假设或纯内存实现（浏览器模式）
+digraph HelloTauriModules {
+  rankdir=TB;
+  splines=ortho;
+  node [shape=box, style="rounded,filled", fontsize=11, fontname="Segoe UI"];
+  edge [fontsize=9, fontname="Segoe UI", color="#444444"];
+  graph [fontname="Segoe UI", labelloc=t, label="Hello-Tauri 模块依赖图（当前态 · 2026-10-05 · 实线=证据支撑，虚线=假设/低置信）"];
+
+  // ————— UI 层 —————
+  subgraph cluster_ui {
+    style=dashed; color="#999999"; label="UI 层  src/views + src/components（ESLint 闸门：禁止直触 infra/repositories）";
+    views      [label="Views\n工作台/WeLink/建群/CodeHub/配置/环境检测", fillcolor="#dae8fc"];
+    components [label="Components\nwelink/*, group/*, codehub/*, icons.ts", fillcolor="#dae8fc"];
+    layout     [label="MainLayout + router\n8 条路由", fillcolor="#dae8fc"];
+  }
+
+  // ————— 状态层 —————
+  subgraph cluster_stores {
+    style=dashed; color="#999999"; label="状态层  src/stores（允许「装配例外」：消费 infra 工厂）";
+    sWelink  [label="stores/welink\nindex/control/data/view/aggregate/events", fillcolor="#d5e8d4"];
+    sGroup   [label="stores/group", fillcolor="#d5e8d4"];
+    sCodehub [label="stores/codehub", fillcolor="#d5e8d4"];
+    sApp     [label="stores/app\nconfig + appInfo + storageInfo", fillcolor="#d5e8d4"];
+    sEnv     [label="stores/envcheck", fillcolor="#d5e8d4"];
+    sTable   [label="stores/table", fillcolor="#d5e8d4"];
+  }
+
+  // ————— 编排层 —————
+  subgraph cluster_orch {
+    style=dashed; color="#999999"; label="编排层  src/orchestrator（业务规则唯一归属地）";
+    oRuntime   [label="runtime.ts\n组合根：装配 port/repo/gate/poller/pipeline/retention/bootstrap", fillcolor="#fff2cc"];
+    oPoller    [label="poller.ts\n按会话轮询 → applyPollResult → 建 job", fillcolor="#fff2cc"];
+    oPipeline  [label="pipeline.ts\n生成草稿 → commitDraft(ready) → 外发(sending→sent)", fillcolor="#fff2cc"];
+    oGate      [label="safety-gate.ts\n开关分级/配额/最小间隔/静默/草稿体检/熔断", fillcolor="#f8cecc", shape=box];
+    oBoot      [label="bootstrap.ts\n一次性启动恢复", fillcolor="#fff2cc"];
+    oRetention [label="retention.ts\n周期性保留期清理", fillcolor="#fff2cc"];
+    oGroup     [label="group.ts\n先落 pending 留痕 → create-group → 原子回写", fillcolor="#fff2cc"];
+    oSkill     [label="skill-router.ts\n问题分类 → 技能路由", fillcolor="#fff2cc"];
+    oCodeSync  [label="codehub-sync.ts\n全量重拉 ≤200", fillcolor="#fff2cc"];
+    oCodeDet   [label="codehub-detail.ts\n按条补拉 + 在飞去重", fillcolor="#fff2cc"];
+    oEvents    [label="events.ts / timers.ts / triggers.ts\nPort 形状与副作用抽象", fillcolor="#fff2cc"];
+  }
+
+  // ————— 适配器层 —————
+  subgraph cluster_infra {
+    style=dashed; color="#999999"; label="适配层  src/infra（Port 接口 + mock 替身 + 真实现，按 platform 切换；×7 域）";
+    iWelink  [label="infra/welink\nport/adapter/commands/welink-cli/group-cli/mock", fillcolor="#e1d5e7"];
+    iAgent   [label="infra/agent\nport/prompt/agent-http/mock", fillcolor="#e1d5e7"];
+    iRag     [label="infra/rag\nport/rag-http/mock（检索服务，6 处 RAG-ASSUME）", fillcolor="#e1d5e7", style="rounded,filled,dashed"];
+    iDb      [label="infra/db\nMIGRATIONS v1–v5 + 6 个仓储(SQL/memory)", fillcolor="#e1d5e7"];
+    iWin     [label="infra/windows\nregistry 命令注册表(上层闸)", fillcolor="#e1d5e7"];
+    iCode    [label="infra/codehub\nport/codehub-cli/exec/mock", fillcolor="#e1d5e7"];
+    iEnv     [label="infra/envcheck\nwelink doctor + python --version", fillcolor="#e1d5e7"];
+  }
+
+  // ————— 遗留域 + 宿主出口 —————
+  subgraph cluster_repo {
+    style=dashed; color="#999999"; label="records 遗留域";
+    repos [label="repositories/records.ts + csv.ts\nrecordsBackend（tauri=SQL / web=内存）", fillcolor="#ffe6cc"];
+  }
+  subgraph cluster_bridge {
+    style=dashed; color="#999999"; label="宿主交互唯一出口";
+    bridge  [label="src/api/index.ts\n按 __TAURI_INTERNALS__ 选实现", fillcolor="#f5f5f5"];
+    tauriBr [label="src/api/tauri.ts\n25 个 invoke ↔ 25 命令（实测 grep 计数）", fillcolor="#f5f5f5"];
+    webBr   [label="src/api/web.ts\n浏览器实现（localStorage/内存）", fillcolor="#f5f5f5"];
+  }
+
+  // ————— Rust 宿主 —————
+  subgraph cluster_rust {
+    style=dashed; color="#999999"; label="Rust 宿主 src-tauri/src（薄桥接，无业务规则）";
+    rCommands [label="commands.rs 9\nconfig/table/log/storage/appInfo", fillcolor="#f8cecc"];
+    rDb       [label="db.rs 4\nmigrate/select/execute/transaction（禁 ATTACH）", fillcolor="#f8cecc"];
+    rFs       [label="fs.rs 2\nfs_read/fs_write（数据根内相对路径）", fillcolor="#f8cecc"];
+    rCli      [label="cli.rs 1\ncli_run + ALLOWED_STEMS 白名单", fillcolor="#f8cecc"];
+    rHttp     [label="http.rs 1\nhttp_post_json（宿主代发绕 CORS）", fillcolor="#f8cecc"];
+    rSys      [label="sysinfo.rs 4 / shell.rs 4\n只读探测 + 打开/剪贴板/通知", fillcolor="#f8cecc"];
+    rStorage  [label="storage.rs\nbootstrap.json 引导 + 数据根迁移 + 写许可闸门", fillcolor="#f8cecc"];
+  }
+
+  // ————— 外部世界 —————
+  subgraph cluster_ext {
+    style=dashed; color="#999999"; label="外部系统";
+    eWelink  [label="welink-cli.exe\nlist/pull/send/doctor/create-group", fillcolor="#ffffff"];
+    eCodehub [label="codehub-cli.exe\nlist/view/auth status", fillcolor="#ffffff", style="rounded,filled,dashed"];
+    eLlm     [label="阿里云 MaaS\ncompatible-mode chat/completions", fillcolor="#ffffff"];
+    eRag     [label="知识检索服务（RAG）\nretrieve → chunks(content/score/source)", fillcolor="#ffffff", style="rounded,filled,dashed"];
+    eWin     [label="Windows\nSystem32 只读诊断 + 系统能力", fillcolor="#ffffff"];
+  }
+
+  // ————— 数据 —————
+  subgraph cluster_data {
+    style=dashed; color="#999999"; label="本机数据根（默认 D:\\TangYuan）";
+    dDb      [label="data/app.db（SQLite WAL）\nrecords / welink×4 / group×2 / codehub×3 / v5 技能列", fillcolor="#d3d3d3", shape=cylinder];
+    dCfg     [label="config/config.json\n含大模型 apiKey（只存本机，不入仓库）", fillcolor="#d3d3d3", shape=cylinder];
+    dLog     [label="logs/app-*.log（留 30 天）\ndata/table.json（legacy 快照）", fillcolor="#d3d3d3", shape=cylinder];
+    dKb      [label="knowledge/*.md + knowledge/index.json\nRAG 知识源与清单真源（不入 SQLite）", fillcolor="#d3d3d3", shape=cylinder];
+  }
+
+  // ————— 边：UI → 状态 → 编排 —————
+  views -> sWelink;
+  views -> sCodehub;
+  views -> sApp [label="app/settings"];
+  components -> sGroup [label="welink/group/codehub 子组件"];
+  layout -> sApp;
+  components -> bridge [label="UI 直连 Bridge：knowledge/index.json 读写
+KnowledgeCard.vue:16,48-133（闸门未禁 @/api）"];
+  sWelink -> oRuntime [label="createWelinkRuntime\nindex.ts:24"];
+  sGroup -> oGroup [label="runGroupCreation\ngroup.ts:22"];
+  sCodehub -> oCodeSync [label="codehub.ts:17-23"];
+  sCodehub -> oCodeDet;
+
+  // ————— 边：编排内部 —————
+  oRuntime -> oPoller;
+  oRuntime -> oPipeline;
+  oRuntime -> oGate [label="gate.onFuse → fuseTripped\nruntime.ts:123"];
+  oRuntime -> oBoot;
+  oRuntime -> oRetention;
+  oPoller -> oEvents [label="emit jobCreated"];
+  oRuntime -> oEvents [label="事件→入队接线\nruntime.ts:92-96"];
+  oPipeline -> oGate [label="check() pipeline.ts:383"];
+  oPipeline -> oSkill [label="技能路由"];
+  oPipeline -> iRag [label="retrieve → 片段进 prompt\npipeline.ts:251-258,727-741"];
+  oGroup -> oEvents [label="emit"];
+
+  // ————— 边：编排/状态 → 适配层（端口） —————
+  oPoller -> iWelink [label="WelinkPort.pull\npoller.ts:288"];
+  oPipeline -> iAgent [label="agent.complete\npipeline.ts:253"];
+  oPipeline -> iWelink [label="port().send 外发\npipeline.ts:420"];
+  oPipeline -> iDb [label="commitDraft/markSent"];
+  oGroup -> iWelink [label="GroupPort.createGroup\ngroup.ts:52"];
+  oCodeSync -> iCode;
+  oCodeDet -> iCode;
+  oRetention -> iDb;
+  oBoot -> iDb;
+  sWelink -> iAgent [label="createAgentProbe\ndata.ts:15"];
+  sWelink -> iRag [label="createRagProbe\ndata.ts:16,181-184"];
+  sGroup -> iWelink [label="groupClient 装配\ngroup.ts:18"];
+  sEnv -> iEnv [label="createEnvChecks\nenvcheck.ts:21"];
+  sCodehub -> iCode [label="codeHubPort\ncodehub.ts:13"];
+  sTable -> repos [label="recordsBackend\ntable.ts:6"];
+  sApp -> bridge [label="loadConfig/appInfo\napp.ts:35-59"];
+
+  // ————— 边：适配层 → Bridge —————
+  iWelink -> bridge [label="bridge.cliRun\nwelink/exec.ts:16,61"];
+  iCode -> bridge [label="bridge.cliRun\ncodehub/exec.ts:55"];
+  iAgent -> bridge [label="bridge.httpPostJson\nagent/index.ts:11"];
+  iRag -> bridge [label="bridge.httpPostJson\nrag/index.ts:26"];
+  iDb -> bridge [label="bridge.dbMigrate/Select/Execute\ndb/index.ts:11, repos/*.ts:13"];
+  iWin -> bridge [label="bridge.sys*/shell*/clipboard*\nwindows/*.ts:8-13"];
+  iEnv -> iWelink [label="复用 exec.runCommand\nenvcheck/python.ts:15"];
+  repos -> bridge [label="dbMigrate([v1]) + SQL\nrecords.ts:170-229"];
+
+  // ————— 边：Bridge → 宿主 —————
+  bridge -> tauriBr [label="tauri 运行时"];
+  bridge -> webBr [label="web 运行时\n（无 Rust）"];
+  tauriBr -> rCommands;
+  tauriBr -> rDb;
+  tauriBr -> rFs;
+  tauriBr -> rCli;
+  tauriBr -> rHttp;
+  tauriBr -> rSys;
+
+  // ————— 边：宿主 → 外部 / 数据 —————
+  rCli -> eWelink [label="子进程 stdout base64"];
+  rCli -> eWin [label="仅 ALLOWED_STEMS 命中"];
+  rCli -> eCodehub [style=dashed, label="契约 35 处 CLI-ASSUME"];
+  rHttp -> eLlm [label="Bearer apiKey 本机配置"];
+  rHttp -> eRag [style=dashed, label="6 处 [RAG-ASSUME] 未核实"];
+  rSys -> eWin [label="只读探测"];
+  rCommands -> dCfg;
+  rCommands -> dLog;
+  rStorage -> dCfg [label="bootstrap 引导"];
+  rDb -> dDb;
+  rFs -> dKb [label="fs_read / fs_write 知识清单"];
+  webBr -> dLog [style=dashed, label="浏览器模式：localStorage（不落盘）"];
+
+  // 注：这里不加图级 `rank=same`。实测它会让所在 cluster 的分层框被 Graphviz 丢弃
+  // （9 个 cluster 只渲染出 5 个）。层级秩序由上面的边方向自然给出。
+}
