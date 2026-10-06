@@ -1,125 +1,191 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import {
   IconTable,
   IconRefresh,
   IconArrowRight,
-  IconDatabase,
   IconActivity,
-  IconUser,
-  IconClock,
+  IconUsers,
   IconGitBranch,
   IconCircleCheck,
+  IconCheck,
 } from '@/components/icons'
 
 import { platform } from '@/api'
-import type { StorageLayout } from '@/types'
+import type { CodeHubMrRecord } from '@/types/codehub'
+import type { WelinkJob } from '@/types/welink'
 import { useAppStore } from '@/stores/app'
 import { useWelinkStore } from '@/stores/welink'
 import { useCodehubStore } from '@/stores/codehub'
+import { useGroupStore } from '@/stores/group'
 import { CATEGORIES, useTableStore } from '@/stores/table'
+import { logger } from '@/utils/logger'
+import { shortStamp } from '@/utils/welink-display'
 
 const router = useRouter()
 const appStore = useAppStore()
 const welinkStore = useWelinkStore()
 const codehubStore = useCodehubStore()
+const groupStore = useGroupStore()
 const tableStore = useTableStore()
 
 function fmt(n: number) {
   return n.toLocaleString('zh-CN')
 }
 
-// ---------------- 工作域卡片（personal-workbench：首页 = 多域聚合入口） ----------------
+const platformLabel = computed(() => (platform === 'tauri' ? '桌面' : 'Web'))
 
-/** CodeHub 摘要：页面装载时读一次本地快照（浏览不触发任何子进程/网络） */
+// ---------------- 摘要装载（全部只读：查本地快照/库，不触发同步与轮询） ----------------
+
+/** 队列预览条数：工作台只做摘要，全量清单在各域页面处理 */
+const PREVIEW_LIMIT = 4
+
 const codehubReady = ref(false)
 const openMrCount = ref(0)
+const openMrs = ref<CodeHubMrRecord[]>([])
+
+const welinkReady = ref(false)
+const reviewQueue = ref<WelinkJob[]>([])
+
+const groupCount = ref(0)
+
+async function loadReviewQueue() {
+  try {
+    reviewQueue.value = await welinkStore.listJobs({ onlyHolding: true, limit: PREVIEW_LIMIT, offset: 0 })
+  } catch (error) {
+    logger.warn('工作台装载待审预览失败', error)
+  }
+}
 
 onMounted(async () => {
-  if (await codehubStore.init()) {
-    openMrCount.value = await codehubStore.countMrs({ state: 'open' })
-    codehubReady.value = true
+  // CodeHub 摘要：迁移 + 装载（应用级装配幂等，App.vue 启动也会触发）；只读快照计数与列表
+  try {
+    if (await codehubStore.init()) {
+      const [count, records] = await Promise.all([
+        codehubStore.countMrs({ state: 'open' }),
+        codehubStore.listMrs({ state: 'open', limit: PREVIEW_LIMIT, offset: 0 }),
+      ])
+      openMrCount.value = count
+      openMrs.value = records
+      codehubReady.value = true
+    }
+  } catch (error) {
+    logger.warn('工作台装载 CodeHub 摘要失败', error)
+  }
+
+  // WeLink 摘要：只读装载（不 start —— 轮询恢复只在助手页进行），待审/未读数字才可信
+  try {
+    const { panicRecovered } = await welinkStore.init(appStore.settings.weLink)
+    welinkReady.value = true
+    await loadReviewQueue()
+    if (panicRecovered) {
+      // 急停跨重启不复活（评审 P1）：与 WeLinkView 同款处置 —— 降级写回持久层并显式告知
+      appStore.settings.weLink = { ...welinkStore.settings, sendMode: 'manual', panicked: false }
+      ElMessage.error('上次会话以「一键全停」结束：已降为人工确认模式，未自动恢复外发')
+    }
+  } catch (error) {
+    logger.warn('工作台装载 WeLink 摘要失败', error)
+  }
+
+  // 快速建群摘要：模板 + 历史计数（init 幂等，含启动清扫）
+  try {
+    if (await groupStore.init()) {
+      groupCount.value = await groupStore.countJobs({})
+    }
+  } catch (error) {
+    logger.warn('工作台装载建群摘要失败', error)
   }
 })
+
+// 待审数量变化（轮询/页面操作）→ 队列预览跟随刷新
+watch(
+  () => welinkStore.reviewCount,
+  () => {
+    if (welinkReady.value) void loadReviewQueue()
+  },
+)
+
+// ---------------- 工作域状态卡（spec「首页域卡片聚合」） ----------------
 
 const domainCards = computed(() => [
   {
     path: '/welink',
     title: 'WeLink 助手',
     desc: '消息存档与自动回复',
-    metric: welinkStore.reviewCount > 0 ? `待审 ${welinkStore.reviewCount}` : '暂无待审',
+    strong: fmt(welinkStore.reviewCount),
+    unit: '条待审',
+    sub: `未读 ${fmt(welinkStore.unreadTotal)} · ${welinkStore.statusText}`,
     icon: IconActivity,
+  },
+  {
+    path: '/groups',
+    title: '快速建群',
+    desc: '建群模板与全程留痕',
+    strong: fmt(groupStore.templates.length),
+    unit: '套模板',
+    sub: `历史建群 ${fmt(groupCount.value)} 次`,
+    icon: IconUsers,
   },
   {
     path: '/codehub',
     title: 'CodeHub 检视',
     desc: '内网 MR 合并与检视动态',
-    metric: codehubReady.value ? `开启 ${fmt(openMrCount.value)}` : '待同步',
+    strong: codehubReady.value ? fmt(openMrCount.value) : '待同步',
+    unit: codehubReady.value ? '个开启' : '',
+    sub: `${codehubStore.repos.length} 个仓库 · 自动同步${codehubStore.autoOn ? '开' : '关'}`,
     icon: IconGitBranch,
   },
   {
     path: '/table',
     title: '数据管理',
     desc: '本地记录与导出',
-    metric: `共 ${fmt(tableStore.stats.total)} 条`,
+    strong: fmt(tableStore.stats.total),
+    unit: '条记录',
+    sub: `金额合计 ${fmt(tableStore.stats.amount)} 元`,
     icon: IconTable,
   },
   {
     path: '/envcheck',
     title: '环境检测',
     desc: '系统诊断与依赖探测',
-    metric: '一键体检',
+    strong: '一键体检',
+    unit: '',
+    sub: `只读诊断 · ${platformLabel.value}模式`,
     icon: IconCircleCheck,
   },
 ])
 
-/** 分类分布：条数 + 金额占比，供色带条使用 */
+// ---------------- 待办队列（跨域聚合的核心内容） ----------------
+
+/** 分类分布：条数占比，供色带条使用 */
 const distribution = computed(() => {
   const total = tableStore.rows.length || 1
   return CATEGORIES.map((cat, i) => {
     const rows = tableStore.rows.filter((row) => row.category === cat)
-    const amount = rows.reduce((sum, row) => sum + row.amount, 0)
-    return { name: cat, count: rows.length, amount, pct: Math.round((rows.length / total) * 100), idx: i }
+    return { name: cat, count: rows.length, pct: Math.round((rows.length / total) * 100), idx: i }
   }).sort((a, b) => b.count - a.count)
 })
 
-const ledger = computed(() => [
-  { key: 'total', label: '记录总数', value: fmt(tableStore.stats.total), unit: '条', icon: IconDatabase },
-  {
-    key: 'active',
-    label: '启用',
-    value: fmt(tableStore.stats.active),
-    unit: '条',
-    icon: IconActivity,
-    ratio: tableStore.stats.total ? tableStore.stats.active / tableStore.stats.total : 0,
-  },
-  { key: 'inactive', label: '停用', value: fmt(tableStore.stats.inactive), unit: '条', icon: IconClock },
-  { key: 'amount', label: '金额合计', value: fmt(tableStore.stats.amount), unit: '元', icon: IconTable },
-])
-
-const statusText: Record<string, string> = { active: '启用', inactive: '停用' }
-const catIndex = (name: string) => Math.max(0, CATEGORIES.indexOf(name))
-
-/** 存储状态只给结论（正常/降级）：完整原因走 title 提示，长文案不在 300px 侧栏里换行铺开 */
-function storageLabel(storage: StorageLayout | null): string {
-  if (!storage) return '-'
-  return storage.fallback ? '降级' : '正常'
-}
-
-const infoRows = computed(() => {
-  const storage = appStore.info?.storage ?? null
-  return [
-    { label: '运行模式', value: platform === 'tauri' ? 'Tauri 桌面' : 'Web 浏览器' },
-    { label: '应用版本', value: appStore.info?.version ?? '-' },
-    { label: 'Tauri 版本', value: appStore.info?.tauriVersion ?? '-' },
-    { label: '系统 / 架构', value: appStore.info ? `${appStore.info.platform} / ${appStore.info.arch}` : '-' },
-    { label: '配置文件', value: appStore.info?.configPath ?? '-', mono: true },
-    // 存储状态（design D7 卡片项）：数据根目录 + 是否降级回退，内网迁移最先要核对的就是这两行
-    { label: '数据根目录', value: storage?.root ?? '-', mono: true },
-    { label: '存储状态', value: storageLabel(storage), title: storage?.note ?? '' },
-  ]
+/** CodeHub 空态文案：未装载 / 未注册仓库 / 确实没有开启中的 MR，三态不混说 */
+const codehubEmpty = computed(() => {
+  if (!codehubReady.value) return { title: '快照待同步', hint: '进入检视页完成一次同步后展示' }
+  if (!codehubStore.repos.length) return { title: '尚未注册仓库', hint: '在检视页注册仓库并同步快照' }
+  return { title: '没有开启中的 MR', hint: '开启的合并请求会汇总在这里' }
 })
+
+/** 存储状态只给结论（正常/降级）：完整原因走 title 提示，长文案不在 320px 侧栏里换行铺开 */
+const storageInfo = computed(() => appStore.info?.storage ?? null)
+
+const infoRows = computed(() => [
+  { label: '运行模式', value: platformLabel.value === '桌面' ? 'Tauri 桌面' : 'Web 浏览器' },
+  { label: '应用版本', value: appStore.info?.version ?? '-' },
+  { label: 'Tauri 版本', value: appStore.info?.tauriVersion ?? '-' },
+  { label: '系统 / 架构', value: appStore.info ? `${appStore.info.platform} / ${appStore.info.arch}` : '-' },
+  { label: '配置文件', value: appStore.info?.configPath ?? '-', mono: true },
+  { label: '数据根目录', value: storageInfo.value?.root ?? '-', mono: true },
+])
 </script>
 
 <template>
@@ -129,88 +195,88 @@ const infoRows = computed(() => {
       <span class="caption">各工作域入口与数据摘要</span>
     </div>
 
-    <!-- 工作域卡片：个人工作台的聚合入口（spec「首页域卡片聚合」） -->
+    <!-- 工作域状态卡：个人工作台的聚合入口（spec「首页域卡片聚合」） -->
     <section class="domains" aria-label="工作域入口">
       <button v-for="card in domainCards" :key="card.path" class="domain pressable" @click="router.push(card.path)">
-        <component :is="card.icon" class="domain__icon" />
-        <span class="domain__meta">
-          <span class="domain__title">{{ card.title }}</span>
-          <span class="domain__desc">{{ card.desc }}</span>
+        <span class="domain__top">
+          <span class="domain__badge" aria-hidden="true">
+            <component :is="card.icon" class="domain__icon" />
+          </span>
+          <span class="domain__meta">
+            <span class="domain__title">{{ card.title }}</span>
+            <span class="domain__desc">{{ card.desc }}</span>
+          </span>
+          <IconArrowRight class="domain__arrow" />
         </span>
-        <span class="domain__metric num">{{ card.metric }}</span>
-        <IconArrowRight class="domain__arrow" />
+        <span class="domain__metric">
+          <span class="domain__strong num">{{ card.strong }}</span>
+          <span v-if="card.unit" class="domain__unit">{{ card.unit }}</span>
+        </span>
+        <span class="domain__sub" :title="card.sub">{{ card.sub }}</span>
       </button>
     </section>
 
-    <!-- 指标条：单行 hairline 分隔，不拆成四张浮卡 -->
-    <section class="ledger" aria-label="数据摘要">
-      <div v-for="item in ledger" :key="item.key" class="ledger__cell">
-        <component :is="item.icon" class="ledger__icon" />
-        <div class="ledger__meta">
-          <span class="ledger__label">{{ item.label }}</span>
-          <span class="ledger__value num">
-            {{ item.value }}<small>{{ item.unit }}</small>
-          </span>
-          <span v-if="item.ratio !== undefined" class="ledger__bar" aria-hidden="true">
-            <span class="ledger__bar-fill" :style="{ width: Math.round(item.ratio * 100) + '%' }" />
-          </span>
-        </div>
-      </div>
-    </section>
-
     <div class="grid">
-      <!-- 左：最近记录 -->
-      <section class="ht-card panel">
-        <header class="ht-card__head">
-          <span>最近记录</span>
-          <span class="spacer" />
-          <button class="link pressable" @click="router.push('/table')">
-            进入数据管理 <IconArrowRight class="link__icon" />
-          </button>
-        </header>
-        <el-table :data="tableStore.recent" size="small" :show-header="true">
-          <el-table-column prop="id" label="编号" width="70">
-            <template #default="{ row }"
-              ><span class="num muted">#{{ row.id }}</span></template
+      <!-- 左：跨域待办队列 -->
+      <div class="stack">
+        <section class="ht-card" aria-label="待审回复队列">
+          <header class="ht-card__head">
+            <span>待审回复</span>
+            <span v-if="welinkStore.reviewCount" class="count num">{{ welinkStore.reviewCount }}</span>
+            <span class="spacer" />
+            <button class="link pressable" @click="router.push('/welink')">
+              去处理 <IconArrowRight class="link__icon" />
+            </button>
+          </header>
+          <div v-if="reviewQueue.length" class="queue">
+            <button v-for="job in reviewQueue" :key="job.pk" class="queue__row pressable" @click="router.push('/welink')">
+              <span class="queue__main">
+                <span class="queue__title">{{ job.targetTitle || job.targetId }}</span>
+                <span class="queue__sub">{{ job.triggerSummary || '（无摘要）' }}</span>
+              </span>
+              <span v-if="job.holdReason" class="queue__tag">{{ welinkStore.holdLabel(job.holdReason) }}</span>
+              <span class="queue__time num">{{ shortStamp(job.createdAt) }}</span>
+            </button>
+          </div>
+          <div v-else class="empty">
+            <IconCheck class="empty__icon" />
+            <p>暂无待审</p>
+            <span class="empty__hint">自动回复平稳运行，无需人工处理</span>
+          </div>
+        </section>
+
+        <section class="ht-card" aria-label="开启中的 MR">
+          <header class="ht-card__head">
+            <span>开启中的 MR</span>
+            <span v-if="codehubReady && openMrCount" class="count count--muted num">{{ openMrCount }}</span>
+            <span class="spacer" />
+            <button class="link pressable" @click="router.push('/codehub')">
+              去检视 <IconArrowRight class="link__icon" />
+            </button>
+          </header>
+          <div v-if="openMrs.length" class="queue">
+            <button
+              v-for="mr in openMrs"
+              :key="`${mr.summary.repoId}#${mr.summary.mrIid}`"
+              class="queue__row pressable"
+              @click="router.push('/codehub')"
             >
-          </el-table-column>
-          <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip>
-            <template #default="{ row }">
-              <span class="dot" :class="`dot--${catIndex(row.category)}`" aria-hidden="true" />
-              {{ row.name }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="category" label="分类" width="110">
-            <template #default="{ row }"
-              ><span class="cell2">{{ row.category }}</span></template
-            >
-          </el-table-column>
-          <el-table-column prop="owner" label="负责人" width="90">
-            <template #default="{ row }">
-              <span class="owner"><IconUser class="owner__icon" />{{ row.owner }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="状态" width="80">
-            <template #default="{ row }">
-              <span class="pill" :class="{ 'pill--ok': row.status === 'active' }">{{ statusText[row.status] }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="amount" label="金额" width="110" align="right">
-            <template #default="{ row }"
-              ><span class="num">{{ fmt(row.amount) }}</span></template
-            >
-          </el-table-column>
-          <template #empty>
-            <div class="empty">
-              <IconDatabase class="empty__icon" />
-              <p>暂无记录</p>
-              <button class="link" @click="router.push('/table')">
-                去添加第一条 <IconArrowRight class="link__icon" />
-              </button>
-            </div>
-          </template>
-        </el-table>
-      </section>
+              <span class="queue__main">
+                <span class="queue__title">{{ mr.summary.title }}</span>
+                <span class="queue__sub num">
+                  {{ mr.summary.repoId }} · {{ mr.summary.sourceBranch }} → {{ mr.summary.targetBranch }}
+                </span>
+              </span>
+              <span class="queue__time num">{{ shortStamp(mr.summary.updatedAt) }}</span>
+            </button>
+          </div>
+          <div v-else class="empty">
+            <IconGitBranch class="empty__icon" />
+            <p>{{ codehubEmpty.title }}</p>
+            <span class="empty__hint">{{ codehubEmpty.hint }}</span>
+          </div>
+        </section>
+      </div>
 
       <!-- 右：分类分布 + 运行信息 -->
       <div class="side">
@@ -239,10 +305,18 @@ const infoRows = computed(() => {
           <dl class="kv">
             <template v-for="row in infoRows" :key="row.label">
               <dt>{{ row.label }}</dt>
-              <dd :class="{ mono: row.mono }" :title="row.title">{{ row.value }}</dd>
+              <dd :class="{ mono: row.mono }">{{ row.value }}</dd>
+            </template>
+            <!-- 存储状态（design D7 卡片项）：结论 + 语义色点，完整原因进 title -->
+            <template v-if="storageInfo">
+              <dt>存储状态</dt>
+              <dd>
+                <span class="pill" :class="storageInfo.fallback ? 'pill--warn' : 'pill--ok'" :title="storageInfo.note">
+                  {{ storageInfo.fallback ? '降级' : '正常' }}
+                </span>
+              </dd>
             </template>
           </dl>
-          <p class="foot-note">业务逻辑全部由 TypeScript 实现，Rust 仅桥接窗口与存储。</p>
         </section>
       </div>
     </div>
@@ -250,42 +324,58 @@ const infoRows = computed(() => {
 </template>
 
 <style scoped>
-/* —— 工作域卡片 —— */
+/* —— 工作域状态卡 —— */
 .domains {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(196px, 1fr));
   gap: 12px;
-  margin-bottom: 14px;
 }
 
 .domain {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
+  flex-direction: column;
+  gap: 9px;
+  padding: 13px 15px;
   border: 1px solid var(--ht-line);
   border-radius: var(--ht-radius);
   background: var(--ht-surface);
   font: inherit;
   text-align: left;
   cursor: pointer;
+  min-width: 0;
 }
 
 .domain:hover {
   border-color: var(--ht-primary);
 }
 
-.domain__icon {
-  width: 20px;
-  height: 20px;
+.domain__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.domain__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--ht-primary-soft);
   color: var(--ht-primary);
   flex-shrink: 0;
+}
+
+.domain__icon {
+  width: 17px;
+  height: 17px;
 }
 
 .domain__meta {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
   flex: 1;
 }
@@ -294,125 +384,65 @@ const infoRows = computed(() => {
   font-size: 13.5px;
   font-weight: 600;
   color: var(--ht-text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .domain__desc {
   font-size: 11.5px;
   color: var(--ht-text-3);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.domain__metric {
-  font-size: 12px;
-  color: var(--ht-text-2);
-  white-space: nowrap;
-}
-
+/* 箭头 hover 才出现：常驻是噪音，hover 是导航暗示 */
 .domain__arrow {
   width: 14px;
   height: 14px;
-  color: var(--ht-text-3);
+  color: var(--ht-primary);
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
 }
 
-@media (max-width: 1080px) {
-  .domains {
-    grid-template-columns: repeat(2, 1fr);
-  }
+.domain:hover .domain__arrow,
+.domain:focus-visible .domain__arrow {
+  opacity: 1;
 }
 
-/* —— 指标条 —— */
-.ledger {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  background: var(--ht-surface);
-  border: 1px solid var(--ht-line);
-  border-radius: var(--ht-radius);
-  overflow: hidden;
-}
-
-.ledger__cell {
+.domain__metric {
   display: flex;
-  gap: 12px;
-  padding: 16px 18px;
+  align-items: baseline;
+  gap: 5px;
 }
 
-.ledger__cell + .ledger__cell {
-  border-left: 1px solid var(--ht-line);
-}
-
-.ledger__icon {
-  width: 18px;
-  height: 18px;
-  color: var(--ht-text-3);
-  margin-top: 2px;
-  flex-shrink: 0;
-}
-
-.ledger__meta {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.ledger__label {
-  font-size: 12px;
-  color: var(--ht-text-3);
-}
-
-.ledger__value {
-  font-size: 21px;
+.domain__strong {
+  font-size: 22px;
   font-weight: 600;
-  line-height: 1.15;
+  line-height: 1.1;
   color: var(--ht-text-1);
   letter-spacing: -0.01em;
 }
 
-.ledger__value small {
+.domain__unit {
   font-size: 12px;
-  font-weight: 400;
+  color: var(--ht-text-2);
+}
+
+.domain__sub {
+  font-size: 11.5px;
   color: var(--ht-text-3);
-  margin-left: 4px;
-}
-
-.ledger__bar {
-  display: block;
-  height: 3px;
-  margin-top: 6px;
-  border-radius: 2px;
-  background: var(--ht-surface-2);
+  white-space: nowrap;
   overflow: hidden;
-}
-
-.ledger__bar-fill {
-  display: block;
-  height: 100%;
-  border-radius: 2px;
-  background: var(--ht-primary);
-  transition: width 0.4s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-@media (max-width: 1080px) {
-  .ledger {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .ledger__cell:nth-child(3) {
-    border-left: none;
-  }
-
-  .ledger__cell:nth-child(n + 3) {
-    border-top: 1px solid var(--ht-line);
-  }
+  text-overflow: ellipsis;
 }
 
 /* —— 双栏布局 —— */
 .grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap: 14px;
   align-items: start;
 }
@@ -423,6 +453,7 @@ const infoRows = computed(() => {
   }
 }
 
+.stack,
 .side {
   display: flex;
   flex-direction: column;
@@ -430,37 +461,91 @@ const infoRows = computed(() => {
   min-width: 0;
 }
 
-.panel :deep(.el-table) {
-  --el-table-border-color: var(--ht-line);
+/* —— 待办队列 —— */
+.count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--ht-danger);
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
-/* —— 表格单元 —— */
-.muted {
-  color: var(--ht-text-3);
-}
-
-.cell2 {
-  font-size: 12px;
+.count--muted {
+  background: var(--ht-surface-2);
   color: var(--ht-text-2);
 }
 
-.owner {
-  display: inline-flex;
+.queue {
+  display: flex;
+  flex-direction: column;
+}
+
+.queue__row {
+  display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--ht-text-2);
+  gap: 10px;
+  padding: 10px 16px;
+  border: none;
+  border-top: 1px solid var(--ht-line);
+  background: var(--ht-surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
 }
 
-.owner__icon {
-  width: 12px;
-  height: 12px;
+.queue__row:first-child {
+  border-top: none;
+}
+
+.queue__row:hover {
+  background: var(--ht-surface-2);
+}
+
+.queue__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.queue__title {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ht-text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.queue__sub {
+  font-size: 11.5px;
   color: var(--ht-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.dot {
-  margin-right: 7px;
-  vertical-align: 1px;
+.queue__tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--el-color-warning-light-9);
+  color: var(--ht-warn);
+  white-space: nowrap;
+}
+
+.queue__time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ht-text-3);
 }
 
 /* —— 链接按钮 —— */
@@ -527,10 +612,6 @@ const infoRows = computed(() => {
   gap: 9px;
 }
 
-.dist__row .dot {
-  margin-right: 0;
-}
-
 .dist__name {
   font-size: 12px;
   color: var(--ht-text-2);
@@ -590,32 +671,35 @@ const infoRows = computed(() => {
   border-top: 1px solid var(--ht-line);
 }
 
-.foot-note {
-  margin: 0;
-  padding: 10px 16px 14px;
-  border-top: 1px solid var(--ht-line);
-  font-size: 11.5px;
-  line-height: 1.6;
-  color: var(--ht-text-3);
+/* 存储状态降级 = 橙点（正常复用全局 pill--ok 绿点） */
+.pill--warn::before {
+  background: var(--ht-warn);
 }
 
+/* —— 空态 —— */
 .empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 26px 0;
+  padding: 26px 16px;
   color: var(--ht-text-3);
   font-size: 13px;
 }
 
 .empty p {
-  margin: 2px 0 4px;
+  margin: 2px 0 0;
 }
 
 .empty__icon {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   opacity: 0.5;
+}
+
+.empty__hint {
+  font-size: 11.5px;
+  color: var(--ht-text-3);
+  opacity: 0.85;
 }
 </style>
