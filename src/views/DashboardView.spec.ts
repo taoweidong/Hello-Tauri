@@ -10,12 +10,13 @@ import type { WelinkJob } from '@/types/welink'
 import DashboardView from './DashboardView.vue'
 
 /**
- * 工作台首页测试（workbench-home + 待办聚合改版）。
+ * 工作台首页测试（workbench-home + 双域聚焦改版）。
  *
  * 首页的契约是「聚合但不越权」：所有摘要**只读本地快照与 store 状态**——
  * CodeHub 走 countMrs/listMrs（查库）、WeLink 只做 init 只读装载（不 start，
  * 轮询恢复只在助手页）、快速建群只数模板与历史；急停恢复与 WeLinkView 同款
- * 处置（写回持久层 + 显式告知）。el-* 组件已不进首页，无需桩。
+ * 处置（写回持久层 + 显式告知）。首页只聚焦 WeLink 与 CodeHub 两个业务域，
+ * 数据管理（CRUD 演示）与环境检测不再出现在首页。
  */
 
 let codehubStore: Record<string, unknown>
@@ -26,14 +27,12 @@ let appStore: {
 }
 let welinkStore: Record<string, unknown>
 let groupStore: Record<string, unknown>
-let tableStore: Record<string, unknown>
 const push = vi.fn()
 
 vi.mock('@/stores/codehub', () => ({ useCodehubStore: () => codehubStore }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => appStore }))
 vi.mock('@/stores/welink', () => ({ useWelinkStore: () => welinkStore }))
 vi.mock('@/stores/group', () => ({ useGroupStore: () => groupStore }))
-vi.mock('@/stores/table', () => ({ useTableStore: () => tableStore, CATEGORIES: ['食材', '交通', '其他'] }))
 vi.mock('@/api', () => ({ platform: 'web' }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
 vi.mock('element-plus', () => ({ ElMessage: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }))
@@ -109,6 +108,7 @@ function mountView(
     countMrs: vi.fn(async () => 7),
     listMrs: vi.fn(async () => [mrRecord()]),
     repos: [{ pk: 1, repoId: 'proj-a', name: 'proj-a' }],
+    syncStates: {},
     autoOn: true,
     ...overrides.codehub,
   })
@@ -125,6 +125,7 @@ function mountView(
     load: vi.fn(async () => undefined),
   })
   welinkStore = reactive({
+    status: 'stopped',
     reviewCount: 3,
     unreadTotal: 5,
     statusText: '已停止',
@@ -140,42 +141,53 @@ function mountView(
     init: vi.fn(async () => true),
     countJobs: vi.fn(async () => 5),
   })
-  tableStore = reactive({
-    stats: { total: 12, active: 9, inactive: 3, amount: 309100 },
-    rows: [{ id: 1, name: 'A', category: '食材', owner: 'u', status: 'active', amount: 10 }],
-  })
   return mount(DashboardView)
 }
 
-const cardTitles = (wrapper: ReturnType<typeof mountView>) =>
-  wrapper.findAll('.domain__title').map((node) => node.text())
+const panelTitles = (wrapper: ReturnType<typeof mountView>) =>
+  wrapper.findAll('.panel__title').map((node) => node.text())
 
 describe('DashboardView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('五张工作域卡片齐全（welink / 快速建群 / codehub / 数据管理 / 环境检测）', async () => {
+  it('双域面板聚焦业务域：WeLink 助手与 CodeHub 检视，演示域不再出现', async () => {
     const wrapper = mountView()
     await flushPromises()
-    expect(cardTitles(wrapper)).toEqual(['WeLink 助手', '快速建群', 'CodeHub 检视', '数据管理', '环境检测'])
+    expect(panelTitles(wrapper)).toEqual(['WeLink 助手', 'CodeHub 检视'])
+    // 数据管理只是 CRUD 演示域，环境检测是系统工具 —— 都不上首页
+    expect(wrapper.text()).not.toContain('数据管理')
+    expect(wrapper.text()).not.toContain('环境检测')
   })
 
-  it('域卡主指标与次级上下文来自 store 聚合', async () => {
+  it('WeLink 面板汇总未读/待审/模板/历史建群与运行状态', async () => {
     const wrapper = mountView()
     await flushPromises()
-    const cards = wrapper.findAll('.domain')
-    expect(cards[0].text()).toContain('3')
-    expect(cards[0].text()).toContain('条待审')
-    expect(cards[0].text()).toContain('未读 5 · 已停止')
-    expect(cards[1].text()).toContain('2')
-    expect(cards[1].text()).toContain('套模板')
-    expect(cards[1].text()).toContain('历史建群 5 次')
-    expect(cards[2].text()).toContain('7')
-    expect(cards[2].text()).toContain('个开启')
-    expect(cards[2].text()).toContain('自动同步开')
-    expect(cards[3].text()).toContain('12')
-    expect(cards[3].text()).toContain('条记录')
+    const panel = wrapper.get('[aria-label="WeLink 域概览"]')
+    expect(panel.text()).toContain('未读消息')
+    expect(panel.text()).toContain('5')
+    expect(panel.text()).toContain('待审回复')
+    expect(panel.text()).toContain('3')
+    expect(panel.text()).toContain('建群模板')
+    expect(panel.text()).toContain('2')
+    expect(panel.text()).toContain('自动回复已停止')
+    expect(panel.text()).toContain('历史建群 5 次')
+  })
+
+  it('CodeHub 面板汇总开启 MR/仓库/自动同步与最近同步时间', async () => {
+    const wrapper = mountView({
+      codehub: {
+        syncStates: { 'proj-a': { repoId: 'proj-a', lastSyncedAt: '2026-10-05 18:00:00', lastError: null } },
+      },
+    })
+    await flushPromises()
+    const panel = wrapper.get('[aria-label="CodeHub 域概览"]')
+    expect(panel.text()).toContain('开启中的 MR')
+    expect(panel.text()).toContain('7')
+    expect(panel.text()).toContain('注册仓库')
+    expect(panel.text()).toContain('自动同步')
+    expect(panel.text()).toContain('最近同步')
   })
 
   it('CodeHub 摘要读本地快照（计数 + 前 4 条预览），不触发同步', async () => {
@@ -186,7 +198,7 @@ describe('DashboardView', () => {
     expect(wrapper.get('[aria-label="开启中的 MR"] .queue__title').text()).toBe('修复登录态丢失')
   })
 
-  it('CodeHub 未装载成功时卡片显示「待同步」，列表显示引导空态', async () => {
+  it('CodeHub 未装载成功时面板显示「待同步」，列表显示引导空态', async () => {
     const wrapper = mountView({ codehub: { init: vi.fn(async () => false) } })
     await flushPromises()
     expect(wrapper.text()).toContain('待同步')
@@ -252,15 +264,26 @@ describe('DashboardView', () => {
 
     const degraded = mountView({ storage: { fallback: true, note: 'D 盘不可用' } })
     await flushPromises()
-    // 结论留在正文，完整原因放 title —— 长文案不在 320px 侧栏里铺开
+    // 结论留在正文，完整原因放 title —— 长文案不在横条里铺开
     expect(degraded.get('.pill--warn').text()).toBe('降级')
     expect(degraded.get('.pill--warn').attributes('title')).toBe('D 盘不可用')
   })
 
-  it('点卡片跳转到对应工作域', async () => {
+  it('点面板头部与入口跳转到对应工作域', async () => {
     const wrapper = mountView()
     await flushPromises()
-    await wrapper.findAll('.domain')[3].trigger('click')
-    expect(push).toHaveBeenCalledWith('/table')
+    const welinkPanel = wrapper.get('[aria-label="WeLink 域概览"]')
+    await welinkPanel.get('.panel__head').trigger('click')
+    expect(push).toHaveBeenLastCalledWith('/welink')
+
+    const groupEntry = welinkPanel
+      .findAll('.entry')
+      .find((node) => node.text().includes('快速建群'))
+    if (!groupEntry) throw new Error('快速建群入口不存在')
+    await groupEntry.trigger('click')
+    expect(push).toHaveBeenLastCalledWith('/groups')
+
+    await wrapper.get('[aria-label="CodeHub 域概览"] .panel__head').trigger('click')
+    expect(push).toHaveBeenLastCalledWith('/codehub')
   })
 })
