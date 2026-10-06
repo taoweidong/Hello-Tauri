@@ -4,8 +4,14 @@ import { ref, shallowRef, type Ref, type ShallowRef } from 'vue'
 import type { WelinkRuntime } from '@/orchestrator/runtime'
 import { emptySummary } from '@/orchestrator/events'
 import type { WelinkRepository } from '@/infra/db'
-import type { WelinkJob } from '@/types/welink'
+import { DEFAULT_WELINK_SETTINGS, type WelinkJob } from '@/types/welink'
 import { createWelinkData, type WelinkDataDeps } from './data'
+
+/** RAG 探针假件：probeRag 走 createRagProbe（独立实例，不进运行期缓存） */
+const ragProbe = vi.hoisted(() => ({
+  retrieve: vi.fn(async () => [{ content: '先查网关日志', score: 0.9, source: 'ts.md' }]),
+}))
+vi.mock('@/infra/rag', () => ({ createRagProbe: vi.fn(() => ({ retrieve: ragProbe.retrieve })) }))
 
 function job(pk: number, overrides: Partial<WelinkJob> = {}): WelinkJob {
   return { pk, targetId: 'G-1', status: 'ready', holdReason: '', createdAt: '', ...overrides } as WelinkJob
@@ -166,5 +172,18 @@ describe('data：收件箱 / 搜索 / 演示', () => {
     const data = createWelinkData(harness.deps)
     await expect(data.playDemoScript()).resolves.toBe(true)
     expect(harness.pullNow).toHaveBeenCalledTimes(1)
+  })
+
+  it('probeRag：独立探针检索，超时压 15s，返回真实计时与命中摘要', async () => {
+    const { createRagProbe } = await import('@/infra/rag')
+    const harness = makeHarness()
+    const data = createWelinkData(harness.deps)
+    const result = await data.probeRag({ ...DEFAULT_WELINK_SETTINGS.rag, timeoutMs: 60_000, topK: 4 })
+    expect(createRagProbe).toHaveBeenCalledTimes(1)
+    const probeArg = (createRagProbe as ReturnType<typeof vi.fn>).mock.calls[0]![0] as { timeoutMs: number }
+    expect(probeArg.timeoutMs).toBe(15_000) // 慢服务不让测试按钮挂满配置超时
+    expect(ragProbe.retrieve).toHaveBeenCalledWith({ query: '连通性测试：VPN 连不上怎么处理', topK: 4 })
+    expect(result.latencyMs).toBeGreaterThanOrEqual(0) // 真实计时（回归钉：曾硬编码 0）
+    expect(result.preview).toContain('先查网关日志')
   })
 })

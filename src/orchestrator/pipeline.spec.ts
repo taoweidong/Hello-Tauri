@@ -358,7 +358,7 @@ function harness(
     /** 外发端口是否挂起等 `port.releaseAll()`（测「严格串行」用） */
     manualSend?: boolean
     /** RAG 检索假件（rag-retrieval；不传 = 不装配检索，行为与升级前一致） */
-    rag?: RagClient
+    rag?: () => RagClient
     now?: string
   } = {},
 ): Harness {
@@ -1468,7 +1468,7 @@ describe('orchestrator/pipeline —— 知识检索注入（rag-retrieval）', (
     const h = harness({
       jobs: [job()],
       settings: { agent: { ...DEFAULT_WELINK_SETTINGS.agent, skills: [skill()] } },
-      rag,
+      rag: () => rag,
       sendImpl: async () => ({ msgUid: 'u1' }),
     })
     h.pipeline.start()
@@ -1490,7 +1490,7 @@ describe('orchestrator/pipeline —— 知识检索注入（rag-retrieval）', (
         agent: { ...DEFAULT_WELINK_SETTINGS.agent, skills: [skill()] },
         rag: { ...DEFAULT_WELINK_SETTINGS.rag, minScore: 0.5, maxChars: 200 },
       },
-      rag,
+      rag: () => rag,
       sendImpl: async () => ({ msgUid: 'u1' }),
     })
     h.pipeline.start()
@@ -1507,7 +1507,7 @@ describe('orchestrator/pipeline —— 知识检索注入（rag-retrieval）', (
     const h = harness({
       jobs: [job()],
       settings: { agent: { ...DEFAULT_WELINK_SETTINGS.agent, skills: [skill()] } },
-      rag,
+      rag: () => rag,
       sendImpl: async () => ({ msgUid: 'u1' }),
     })
     h.pipeline.start()
@@ -1523,7 +1523,7 @@ describe('orchestrator/pipeline —— 知识检索注入（rag-retrieval）', (
     const h = harness({
       jobs: [job()],
       settings: { agent: { ...DEFAULT_WELINK_SETTINGS.agent, skills: [skill({ retrieval: { enabled: false } })] } },
-      rag,
+      rag: () => rag,
       sendImpl: async () => ({ msgUid: 'u1' }),
     })
     h.pipeline.start()
@@ -1539,7 +1539,7 @@ describe('orchestrator/pipeline —— 知识检索注入（rag-retrieval）', (
     const h1 = harness({
       jobs: [job()],
       settings: { rag: { ...DEFAULT_WELINK_SETTINGS.rag, fallbackRetrieve: false } },
-      rag,
+      rag: () => rag,
       sendImpl: async () => ({ msgUid: 'u1' }),
     })
     h1.pipeline.start()
@@ -1550,7 +1550,7 @@ describe('orchestrator/pipeline —— 知识检索注入（rag-retrieval）', (
     const h2 = harness({
       jobs: [job({ pk: 2 })],
       settings: { rag: { ...DEFAULT_WELINK_SETTINGS.rag, fallbackRetrieve: true } },
-      rag,
+      rag: () => rag,
       sendImpl: async () => ({ msgUid: 'u2' }),
     })
     h2.pipeline.start()
@@ -1571,5 +1571,59 @@ describe('orchestrator/pipeline —— 知识检索注入（rag-retrieval）', (
     await h.pipeline.drain()
     expect(h.agent.calls[0]).not.toContain('【知识1】')
     expect(jobOf(h, 1).status).toBe('sent')
+  })
+})
+
+describe('orchestrator/pipeline —— RAG 工厂 getter 热更新（rag-retrieval P1-1）', () => {
+  function skill(overrides: Partial<WelinkSkill> = {}): WelinkSkill {
+    return {
+      id: 'fault-fix',
+      name: '故障咨询',
+      description: '系统报错类问题',
+      enabled: true,
+      keywords: ['500'],
+      promptTemplate: '故障技能模板 {{retrieved}} {{question}}',
+      knowledge: '',
+      reviewMode: 'auto',
+      retrieval: { enabled: true },
+      ...overrides,
+    }
+  }
+
+  function fakeRag(tag: string): RagClient & { queries: RagQuery[] } {
+    const queries: RagQuery[] = []
+    return {
+      queries,
+      async retrieve(query: RagQuery) {
+        queries.push(query)
+        return [{ content: `${tag} 片段`, score: 0.9, source: `${tag}.md` }]
+      },
+      onCall() {},
+    }
+  }
+
+  it('配置变更（getter 返回新实例）后下一次检索自动取新实例，无需重启管线', async () => {
+    const ragA = fakeRag('旧实例')
+    const ragB = fakeRag('新实例')
+    let useB = false
+    const h = harness({
+      jobs: [job(), job({ pk: 2 })],
+      settings: { agent: { ...DEFAULT_WELINK_SETTINGS.agent, skills: [skill()] } },
+      // 真实链路里这是 ragClient 工厂 getter：缓存键含连接配置，配置变更即出新实例
+      rag: () => (useB ? ragB : ragA),
+      sendImpl: async () => ({ msgUid: 'u1' }),
+    })
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    expect(ragA.queries).toHaveLength(1)
+    expect(h.agent.calls[0]).toContain('旧实例 片段')
+
+    useB = true // 模拟 reload 换了连接配置
+    h.pipeline.enqueue(2)
+    await h.pipeline.drain()
+    expect(ragB.queries).toHaveLength(1)
+    expect(ragA.queries).toHaveLength(1) // 旧实例不再被调用
+    expect(h.agent.calls[1]).toContain('新实例 片段')
   })
 })

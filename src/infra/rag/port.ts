@@ -28,13 +28,13 @@ export interface RagPort {
 
 /**
  * 检索错误分类：transport（网络层，大概率服务不可用）/ parse（响应形状不符，
- * 端点可能不是约定的检索接口）/ empty（服务明确返回空）。分类只用于日志与
- * 调试呈现——调用方对所有类别一视同仁地降级。
+ * 端点可能不是约定的检索接口）。分类只用于日志与调试呈现——调用方对所有类别
+ * 一视同仁地降级；零命中不抛错（返回空数组，由调用方拼装为空注入）。
  */
 export class RagError extends Error {
   constructor(
     message: string,
-    readonly kind: 'transport' | 'parse' | 'empty',
+    readonly kind: 'transport' | 'parse',
     override readonly cause?: unknown,
   ) {
     super(message)

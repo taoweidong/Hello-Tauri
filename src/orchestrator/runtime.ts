@@ -101,7 +101,9 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
     now: options.now,
   })
   const agentInstance = resolveAgent ?? agentClient({ settings: currentSettings.agent })
-  const ragInstance = ragClient({ settings: currentSettings.rag })
+  // rag 实例经工厂 getter 注入：ragClient 缓存键含连接配置，reload 换配置后下一次
+  // 检索自动取到新实例（热更新）；固定实例会让 baseUrl/密钥变更必须重启助手
+  const ragInstance = () => ragClient({ settings: currentSettings.rag })
 
   const pipeline = createPipeline({
     repo,

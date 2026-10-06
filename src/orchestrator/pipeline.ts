@@ -31,7 +31,7 @@
  */
 import type { AgentClient, AgentCallRecord } from '@/infra/agent'
 import { AgentError } from '@/infra/agent'
-import { renderPrompt, sanitizeReply } from '@/infra/agent/prompt'
+import { renderPrompt, sanitizeReply, sanitizeUntrusted } from '@/infra/agent/prompt'
 import type { RagClient, RagChunk } from '@/infra/rag'
 import type { WelinkPort } from '@/infra/welink'
 import type { WelinkRepository } from '@/infra/db'
@@ -57,8 +57,12 @@ export interface PipelineOptions {
   repo: WelinkRepository
   gate: SafetyGate
   agent: AgentClient
-  /** RAG 检索客户端（rag-retrieval；缺省 = 不检索，测试兼容老用例） */
-  rag?: RagClient
+  /**
+   * RAG 检索客户端工厂（rag-retrieval）。用 getter 而非固定实例：ragClient 工厂
+   * 的缓存键含连接配置，配置变更后下一次检索自动取到新实例（热更新）；缺省 =
+   * 不装配检索，测试兼容老用例。
+   */
+  rag?: () => RagClient
   /** 消息端口获取函数（外发需要 send）。默认走端口工厂；测试注入 mock */
   port: (settings: WelinkSettings) => WelinkPort
   settings: () => WelinkSettings
@@ -250,8 +254,9 @@ export function createPipeline(options: PipelineOptions): Pipeline {
     let retrieved = ''
     if (retrievalOn && options.rag) {
       try {
-        const chunks = await options.rag.retrieve({
-          query: trigger?.content ?? job.triggerSummary,
+        const chunks = await options.rag().retrieve({
+          // 与 prompt 侧 question 同款消毒：控制字符/换行拍平/截断，防脏数据直传检索服务
+          query: sanitizeUntrusted(trigger?.content ?? job.triggerSummary),
           filter: decision.skill.retrieval?.filter,
           topK: ragSettings.topK,
         })

@@ -176,15 +176,17 @@ export function createWelinkData(deps: WelinkDataDeps): WelinkData {
    *
    * 与 probeAgent 同款立场：走 `createRagProbe` 独立实例——共享运行期环境兜底
    * （浏览器强制 mock，探测结论与真实链路一致），不进全局缓存；检索探测不发
-   * 生成调用，不产生任何留痕。
+   * 生成调用，不产生任何留痕。超时压到 15s（与 probeAgent 同款），避免测试
+   * 按钮在慢服务上挂满配置超时。
    */
   async function probeRag(rag: WelinkSettings['rag']): Promise<{ latencyMs: number; preview: string }> {
-    const chunks = await createRagProbe({ ...rag }).retrieve({
+    const started = Date.now()
+    const chunks = await createRagProbe({ ...rag, timeoutMs: Math.min(rag.timeoutMs, 15_000) }).retrieve({
       query: '连通性测试：VPN 连不上怎么处理',
       topK: rag.topK,
     })
     return {
-      latencyMs: 0,
+      latencyMs: Date.now() - started,
       preview: chunks.length
         ? chunks.map((chunk) => `[${chunk.score.toFixed(2)}] ${chunk.content}`).join(' / ').slice(0, 120)
         : '（服务可达，本次零命中）',
