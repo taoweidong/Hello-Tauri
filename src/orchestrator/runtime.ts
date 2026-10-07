@@ -14,10 +14,10 @@
 import { sediment as sedimentRepoFactory, welink, type SedimentRepository, type WelinkRepository } from '@/infra/db'
 import { knowledgePort, type KnowledgePort } from '@/infra/knowledge'
 import { createKnowledgeHarvester, type KnowledgeHarvester } from './knowledge-harvester'
-import { agentClient, type AgentClient } from '@/infra/agent'
+import { agentClient, type AgentCallRecord, type AgentClient } from '@/infra/agent'
 import { ragClient } from '@/infra/rag'
 import { welinkClient, type WelinkPort } from '@/infra/welink'
-import type { WelinkSettings } from '@/types/welink'
+import type { WelinkAgentSettings, WelinkSettings } from '@/types/welink'
 import { logger } from '@/utils/logger'
 import { createBootstrap, type Bootstrap, type BootstrapReport } from './bootstrap'
 import type { EventSink } from './events'
@@ -109,7 +109,50 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
     settings: currentSettings,
     now: options.now,
   })
-  const agentInstance = resolveAgent ?? agentClient({ settings: currentSettings.agent })
+  // Agent 实例经**代理 + 可变 holder** 注入（P-02）：
+  //
+  // 背景：`agentClient` 工厂按配置键缓存实例，换baseUrl/endpoint/model/apiKey 后
+  // 会返回新实例；而这里原先只在装配时取一次固定引用，导致设置页改完模型或密钥，
+  // 管线仍在用旧端点（rag 早已用 getter 修好，agent 漏了）。
+  //
+  // 为什么不用 getter 改三处类型：`agent` 是 pipeline / harvester / skill-router
+  // 三个模块的构造参数，全改成 `() => AgentClient` 会连带改它们的类型与测试夹具。
+  // 代理对象把「取当前实例」这件事收在 runtime 内部，下游零改动。
+  //
+  // 为什么不用「reload 时重建并重新装配 pipeline」：pipeline/harvester/router 三者
+  // 都持有引用，重装配要重建整条链且丢掉已注册的 onCall 录音钩子。
+  //
+  // 注意 `resolveAgent` 是测试注入点：给了它就永远固定（单测要可预测），
+  // 这也是原设计的意图 —— 生产路径 `options.resolveAgent` 为 undefined。
+  const agentHolder: { current: AgentClient } = {
+    current: resolveAgent ?? agentClient({ settings: currentSettings.agent }),
+  }
+  /**
+   * 录音钩子表：**代理自己持有**，不交给实例。
+   *
+   * 踩过的坑：最初写成 `onCall: (h) => agentHolder.current.onCall(h)`，
+   * 测试立刻抓到换实例后钩子丢失（第二次调用没有留痕）——
+   * `agentClient` 的 `handlers` 与实例同生命周期，新实例是空的。
+   *
+   * 由此推出两条硬约束（改这段前必读）：
+   *  1. **换实例后必须补注册**，否则「改了模型之后 agent_logs 就没留痕了」，
+   *     而留痕是 R4 语料分析的基础（见下方 replaceAgent）。
+   *  2. 钩子表在**代理**上，故实例被换掉也不影响已注册的 handler。
+   */
+  const agentCallHandlers: Array<(record: AgentCallRecord) => void> = []
+  /** 换实例并把已注册的录音钩子补挂到新实例上 */
+  function replaceAgent(next: AgentClient): void {
+    agentHolder.current = next
+    for (const handler of agentCallHandlers) next.onCall(handler)
+  }
+  const agentProxy: AgentClient = {
+    complete: (prompt) => agentHolder.current.complete(prompt),
+    onCall: (handler) => {
+      agentCallHandlers.push(handler)
+      agentHolder.current.onCall(handler)
+    },
+  }
+  const agentInstance = agentProxy
   // rag 实例经工厂 getter 注入：ragClient 缓存键含连接配置，reload 换配置后下一次
   // 检索自动取到新实例（热更新）；固定实例会让 baseUrl/密钥变更必须重启助手
   const ragInstance = () => ragClient({ settings: currentSettings.rag })
@@ -246,8 +289,18 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
     },
 
     reload(next) {
+      const prevAgent = currentSettings.agent
       currentSettings = next
       gate.reload(next)
+      // P-02：配置里的 Agent 连接参数变了就换实例 —— 否则改模型/密钥不生效
+      // （设置页提示「改完即生效」，实际管线仍用旧端点）。
+      // 只在**真的变了**时重建：agentClient 的 `onCall` handlers 与实例同生命周期，
+      // 每次 reload 都换实例会丢掉已注册的录音钩子，导致 agent_logs 留痕中断。
+      if (!resolveAgent && agentConfigChanged(prevAgent, next.agent)) {
+        // 必须走 replaceAgent：新实例的 handlers 是空的，
+        // 直接赋值会丢掉已注册的录音钩子（agent_logs 留痕中断）。
+        replaceAgent(agentClient({ settings: next.agent }))
+      }
       // S-04：热更新路径同样要把密钥注册进日志遮蔽表 —— 用户可能刚在设置页
       // 换了一把新 key，而这次换 key 不经过 store 的某些路径。
       registerWelinkSecrets(next)
@@ -258,4 +311,26 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
       return started && poller.running()
     },
   }
+}
+
+/**
+ * Agent 连接配置是否变化（决定 `reload` 要不要换实例）。
+ *
+ * **字段必须与 `infra/agent/index.ts` 里 `agentClient` 的缓存键严格一致** ——
+ * 少判一个就会「改了却复用旧实例」，多判一个则白白丢掉录音钩子。
+ * 那边参与的字段：agentSource / baseUrl / endpoint / model / apiKey / timeoutMs
+ * （外加 `options.mock`，仅测试注入，不走本函数）。
+ *
+ * 刻意**不**纳入 promptTemplate / skills / maxContextMsgs 等内容字段：
+ * 它们不参与实例缓存，换了用同一个客户端即可（内容是每次请求现传的）。
+ */
+function agentConfigChanged(prev: WelinkAgentSettings, next: WelinkAgentSettings): boolean {
+  return (
+    prev.agentSource !== next.agentSource ||
+    prev.baseUrl !== next.baseUrl ||
+    prev.endpoint !== next.endpoint ||
+    prev.model !== next.model ||
+    prev.apiKey !== next.apiKey ||
+    prev.timeoutMs !== next.timeoutMs
+  )
 }

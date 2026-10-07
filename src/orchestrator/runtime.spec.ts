@@ -24,6 +24,7 @@ import type { TimerApi } from '@/orchestrator/timers'
 import { memoryWelinkRepository, resetWelinkMemory } from '@/infra/db/repos/welink-memory'
 import type { WelinkPort } from '@/infra/welink'
 import type { PullResult } from '@/infra/welink/port'
+import { agentClient, resetAgentClient } from '@/infra/agent'
 import type { AgentCallRecord, AgentClient } from '@/infra/agent'
 import {
   DEFAULT_WELINK_SETTINGS,
@@ -615,5 +616,123 @@ describe('知识沉淀装配：调度随 runtime 起停，提取独立于回复�
     const report = await h.runtime.harvester.runOnce()
     expect(report.skipped).toBe('disabled')
     expect(h.agent.calls.filter((prompt) => prompt.includes('候选材料'))).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------- P-02 热更新
+
+/**
+ * Agent 实例热更新：改连接参数后必须换实例，否则设置页「改完即生效」是假的。
+ *
+ * ## 断言方式（改了两版才对，务必读）
+ *
+ * v1 失败：断言「代理实例 !== 工厂实例」—— **恒真**。代理是转发器，
+ *   它永远不等于任何工厂实例，换不换都对。反证时全绿，等于没测。
+ * v2 失败：想用「工厂甲 vs 工厂乙」的身份差异，但 reload 时工厂已经换过缓存，
+ *   拿到的「工厂乙」可能就是代理持有的那个，同样无法区分。
+ *
+ * 可靠探针是**代理转发的目标**：mock 实例的 `calls` 会累积，
+ * 「调用记在哪个实例上」直接暴露转发到谁。用 `resetAgentClient()` 清缓存
+ * 保证「工厂新建」与「reload 建的」是同一个可观察对象。
+ */
+describe('runtime —— reload后 Agent 实例热更新（P-02）', () => {
+  /** 构造**不注入 agent** 的 runtime：走真实 agentClient 工厂，才能观察换实例 */
+  function liveRuntime(): { runtime: WelinkRuntime; current: { value: WelinkSettings } } {
+    const current = {
+      value: normalizeWelinkSettings({
+        ...DEFAULT_WELINK_SETTINGS,
+        enabled: true,
+        myUserId: 'E-0001',
+        agent: { ...DEFAULT_WELINK_SETTINGS.agent, agentSource: 'mock', model: '模型甲' },
+      } as WelinkSettings),
+    }
+    const runtime = createWelinkRuntime({
+      settings: () => current.value,
+      emit: () => {},
+      repo: memoryWelinkRepository,
+      autoStart: false,
+    })
+    return { runtime, current }
+  }
+
+  /** mock 实例的 calls 长度（代理转发的目标会累积它） */
+  const callsOf = (instance: unknown): number => (instance as { calls: unknown[] }).calls.length
+
+  beforeEach(() => {
+    resetAgentClient() // 清工厂单例缓存，否则观察到的不是本次 reload 建的实例
+  })
+
+  it('改 model 后complete 转发到**新**实例（旧实现会仍记在旧实例上）', async () => {
+    const { runtime, current } = liveRuntime()
+    // 装配时代理持有「模型甲」实例；工厂此刻返回的就是它
+    const instanceA = agentClient({ settings: current.value.agent })
+    await runtime.agent().complete('改配置前')
+    expect(callsOf(instanceA)).toBe(1)
+
+    current.value = { ...current.value, agent: { ...current.value.agent, model: '模型乙' } }
+    runtime.reload(current.value)
+    await runtime.agent().complete('改配置后')
+
+    // 换了实例 → 新调用记在另一个实例上，旧实例 calls 不再增长
+    expect(callsOf(instanceA)).toBe(1)
+    // 且新配置对应的实例被真正用上了
+    expect(callsOf(agentClient({ settings: current.value.agent }))).toBe(1)
+  })
+
+  it('改 apiKey/baseUrl/endpoint/timeoutMs 同样触发换实例', async () => {
+    for (const patch of [
+      { apiKey: 'sk-new-key-123' },
+      { baseUrl: 'http://127.0.0.1:11435' },
+      { endpoint: '/v2/chat/completions' },
+      { timeoutMs: 30_000 },
+    ]) {
+      resetAgentClient()
+      const { runtime, current } = liveRuntime()
+      const before = agentClient({ settings: current.value.agent })
+      await runtime.agent().complete('改配置前')
+
+      current.value = { ...current.value, agent: { ...current.value.agent, ...patch } }
+      runtime.reload(current.value)
+      await runtime.agent().complete('改配置后')
+
+      // 换实例 → 旧实例不再增长
+      expect(callsOf(before)).toBe(1)
+      expect(callsOf(agentClient({ settings: current.value.agent }))).toBe(1)
+    }
+  })
+
+  it('只改内容类字段（promptTemplate/maxContextMsgs）不换实例', async () => {
+    const { runtime, current } = liveRuntime()
+    const instance = agentClient({ settings: current.value.agent })
+    await runtime.agent().complete('改内容字段前') // → instance.calls = 1
+
+    current.value = {
+      ...current.value,
+      agent: { ...current.value.agent, promptTemplate: '新模板 {{question}}', maxContextMsgs: 30 },
+    }
+    runtime.reload(current.value)
+    await runtime.agent().complete('改内容字段后') // 不换实例 → 累积到 2
+
+    // 内容字段不进缓存键 → 工厂仍返回同一对象，代理也仍转发到它
+    expect(agentClient({ settings: current.value.agent })).toBe(instance)
+    expect(callsOf(instance)).toBe(2)
+  })
+
+  it('换实例后 onCall 录音钩子仍生效（agent_logs 留痕不能因换实例而中断）', async () => {
+    const { runtime, current } = liveRuntime()
+    const records: string[] = []
+    runtime.agent().onCall((record: AgentCallRecord) => records.push(record.status))
+
+    await runtime.agent().complete('改配置前')
+    const beforeCount = records.length
+
+    current.value = { ...current.value, agent: { ...current.value.agent, model: '模型乙' } }
+    runtime.reload(current.value)
+    await runtime.agent().complete('改配置后')
+
+    // agentClient 的 handlers 与实例同生命周期，换实例会丢钩子——
+    // 第一版实现正是踩了这个坑（第二次调用没有留痕）。这是最该守住的不变量：
+    // 「改了模型之后 agent_logs 就没留痕」，而留痕是 R4 语料分析的基础。
+    expect(records.length).toBe(beforeCount + 1)
   })
 })
