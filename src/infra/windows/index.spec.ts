@@ -41,6 +41,23 @@ describe('windows 基础设施工厂', () => {
     await assertion
   })
 
+  it('硬超时：全部「永不 reject」方法的失败折叠路径各自生效（fake timers）', async () => {
+    // 逐方法驱动 withHardTimeouts 的失败折叠回调——此前这些箭头与成功路径同行
+    // 被 v8 覆盖率顺带计入，格式化拆行后暴露为未覆盖（见 verify 阶段 4 阈值回归）。
+    const hung = createWindowsInfra({ mode: 'mock', hardTimeoutMs: 100, mock: { delayMs: 50_000 } })
+    const cases: Array<Promise<unknown>> = [
+      hung.probeOverview(),
+      hung.probeEnvVar('PATH'),
+      hung.openWithDefault('C:\\报告.pdf'),
+      hung.readClipboard(),
+      hung.writeClipboard('内容'),
+      hung.notify('标题', '正文'),
+    ]
+    const assertion = Promise.all(cases.map((pending) => expect(pending).resolves.toMatchObject({ ok: false })))
+    await vi.advanceTimersByTimeAsync(101)
+    await assertion
+  })
+
   it('正常路径不受硬超时影响，且定时器不泄漏（多次调用后无 pending timer）', async () => {
     const infra = createWindowsInfra({ mode: 'mock', hardTimeoutMs: 1000 })
     for (let index = 0; index < 3; index += 1) {
