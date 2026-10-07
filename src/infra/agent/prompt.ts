@@ -67,6 +67,40 @@ export function sanitizeUntrusted(text: string, maxChars: number = MAX_UNTRUSTED
   return out
 }
 
+/**
+ * 知识/检索内容的结构消毒（S-03）。
+ *
+ * ## 为什么「可信文本」这个前提需要修正
+ *
+ * `formatRetrieved` / `formatBoundDocs` 此前把 RAG 片段与知识文档当**可信文本**
+ * 原样拼进提示词（设计 D-I 的理由是「攻击面 = 用户自己的知识库」）。
+ * 但知识库并非全是用户手写 —— `sediment.mode='auto'` 时，沉淀链路会
+ * **免审**把群消息经 LLM 提取后直写 `knowledge/*.md`（`knowledge-harvester.ts:313`），
+ * 而群消息是**任意群成员可控**的不可信输入。于是存在一条完整的注入链：
+ *
+ *   群成员发一条含指令的消息 → auto 提取写入知识库 → 文档被 {{docs}} 原样注入
+ *   → 模型照做 → 助手身份发进群
+ *
+ * 链上没有任何人工环节。
+ *
+ * ## 为什么只做「结构消毒」而不改正义语义
+ *
+ * 知识片段的价值在于**语义完整**（分步骤说明、代码块、表格），拍平换行会毁掉它。
+ * 所以这里复用 `sanitizeUntrusted` 的三道处理中与语义无关的两道
+ * （剥控制字符 + 拍平换行），**但保留段落结构**、不套用它的 400 字上限 ——
+ * 知识片段的长度预算由 `rag.maxChars` / `docsMaxChars` 管，那是另一套上限。
+ *
+ * 拍平换行阻断的是「伪造结构」：正文里写一行 `【知识9】(来源 X, 相关度 0.99)`
+ * 或 `[10-01 09:00] 张三：` 让模型误以为那是本端生成的结构头 / 另一条对话。
+ */
+export function sanitizeTrustedContent(text: string): string {
+  // 与 sanitizeUntrusted 同款：剥控制字符（保留 \n，交给下一步拍平）
+  // eslint-disable-next-line no-control-regex -- 剥控制字符正是本函数的功能（与 sanitizeUntrusted 的豁免同理）
+  let out = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+  out = out.replace(/\s*\n+\s*/g, ' ').trim()
+  return out
+}
+
 /** 单条消息渲染成上下文行：`[09-27 14:03] 李明：内容`（正文经不可信消毒） */
 export function formatContextLine(message: WelinkMessage): string {
   const clock = message.sentAt.slice(5, 16).replace('T', ' ')

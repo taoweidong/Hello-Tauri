@@ -31,7 +31,7 @@
  */
 import type { AgentClient, AgentCallRecord } from '@/infra/agent'
 import { AgentError } from '@/infra/agent'
-import { renderPrompt, sanitizeReply, sanitizeUntrusted } from '@/infra/agent/prompt'
+import { renderPrompt, sanitizeReply, sanitizeTrustedContent, sanitizeUntrusted } from '@/infra/agent/prompt'
 import type { KnowledgePort } from '@/infra/knowledge'
 import type { RagClient, RagChunk } from '@/infra/rag'
 import type { WelinkPort } from '@/infra/welink'
@@ -771,10 +771,14 @@ export function createPipeline(options: PipelineOptions): Pipeline {
 }
 
 /**
- * 检索片段拼装（rag-retrieval D-I）：minScore 过滤 + maxChars 截断。
+ * 检索片段拼装（rag-retrieval D-I）：minScore过滤 + maxChars 截断。
+ *
  * 结构头（【知识N】+ 来源 + 相关度）由本端生成，防知识正文伪造行结构；
- * 内容是企业内部可信知识，不做 sanitizeUntrusted（对齐 D8），但永不作为
- * 回复正文外发。
+ * 正文经 `sanitizeTrustedContent` **结构消毒**（S-03）——原设计假设
+ * 「攻击面 = 用户自己的知识库」，但 `sediment.mode='auto'` 时知识库会被
+ * 免审写入群消息提取内容，攻击面是「任意群成员」。消毒只拍平换行/剥控制字符，
+ * **不改语义**（知识片段的分步骤结构要保留），长度由 maxChars 管。
+ * 片段永不作为回复正文外发。
  */
 /**
  * 技能绑定知识文档拼装（knowledge-sedimentation K-F）：按绑定顺序读取清单内文档，
@@ -792,11 +796,14 @@ async function formatBoundDocs(
   const missing: string[] = []
   let total = 0
   for (const doc of docs) {
-    const content = await port.readDoc(doc.file)
-    if (content === null) {
+    const raw = await port.readDoc(doc.file)
+    if (raw === null) {
       missing.push(doc.file)
       continue
     }
+    // S-03：先结构消毒再算预算 —— 消毒会改变长度（控制字符被剥、换行被拍平），
+    // 先消毒才保证 maxChars 是**注入后**的真实上限。
+    const content = sanitizeTrustedContent(raw)
     const head = `【文档·${doc.title}】\n`
     const budget = maxChars - total
     if (budget <= head.length) break
@@ -817,11 +824,11 @@ function formatRetrieved(chunks: RagChunk[], rag: WelinkRagSettings): string {
     const head = `【知识${index}】(来源 ${chunk.source || '未知'}, 相关度 ${chunk.score.toFixed(2)})\n`
     const budget = rag.maxChars - total
     if (budget <= head.length) break
+    // S-03：结构消毒（剥控制字符 + 拍平换行），只降结构伪造风险、不改语义。
+    // 先消毒再算长度，保证 maxChars 是注入后的真实上限。
+    const content = sanitizeTrustedContent(chunk.content)
     // 首块超限时硬截断正文（保底注入部分知识而非空串）；后续块按相关性优先装满
-    const body =
-      head.length + chunk.content.length > budget
-        ? `${chunk.content.slice(0, budget - head.length - 1)}…`
-        : chunk.content
+    const body = head.length + content.length > budget ? `${content.slice(0, budget - head.length - 1)}…` : content
     parts.push(head + body)
     total += head.length + body.length
   }
