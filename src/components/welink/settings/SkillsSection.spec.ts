@@ -41,6 +41,11 @@ const EP_STUBS: Record<string, unknown> = {
   'el-form-item': true,
   'el-input': true,
   'el-alert': true,
+  // SkillsSection.vue 里有 el-select + el-option（技能参数下拉），清单漏了会
+  // 触发 `[Vue warn]: Failed to resolve component: el-select/el-option`（2026-10-08 修）。
+  // 两个都必须是 true：VTU 的 stubs 只对**列出的名字**生效，漏一个就报一次警告。
+  'el-select': true,
+  'el-option': true,
 }
 
 function baseSkill(overrides: Partial<WelinkSkill> = {}): WelinkSkill {

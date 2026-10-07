@@ -37,6 +37,17 @@ const fast = process.argv.includes('--fast')
  */
 const escalated = process.argv.includes('--escalated')
 
+/**
+ * 传给所有子 Node 进程的参数。
+ *
+ * `node:sqlite` 在 Node 22 仍是实验特性，uitest/smoke 每次运行都会打
+ * `(node:xxx) ExperimentalWarning: SQLite is an experimental feature and might change at any time`。
+ * 我们是**有意**用它（图省掉一个原生依赖），所以在调用点按类静音：
+ * `--disable-warning=ExperimentalWarning`（Node >= 21.3 支持）。
+ * **不要改成全局 `--no-warnings`** —— 那会把真正的告警一起吞掉。
+ */
+const NODE_ARGS = ['--disable-warning=ExperimentalWarning']
+
 const stages = []
 
 // ---------------------------------------------------------------- 工具函数
@@ -60,6 +71,8 @@ function runCapture(command, args, options = {}) {
     env: { ...process.env, ...options.env },
     maxBuffer: 32 * 1024 * 1024,
     windowsHide: true,
+    // 仅在显式传入时生效（目前只有 uitest / smoke 两个 Node 子进程需要，见 NODE_ARGS）
+    execArgv: options.execArgv,
   })
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
   return { ok: result.status === 0, code: result.status, output }
@@ -386,7 +399,7 @@ function runUiStage() {
     if (!exe) {
       return { ok: false, detail: 'release/ 下没有 exe，请先执行 npm run pack' }
     }
-    const r = runCapture(process.execPath, [join('scripts', 'uitest.mjs')])
+    const r = runCapture(process.execPath, [join('scripts', 'uitest.mjs')], { execArgv: NODE_ARGS })
     const passed = grab(r.output, /合计 \d+ 个用例：通过 (\d+)/)
     const total = grab(r.output, /合计 (\d+) 个用例/)
     const failedNames = [...r.output.matchAll(/^ {2}· (.+?)：/gm)].map((m) => m[1])
@@ -549,7 +562,7 @@ runUiStage()
 // ---------------------------------------------------------------- 8. 服务启动
 
 stage('阶段 9／9　服务启动（exe 冷启动 + 存储初始化）', () => {
-  const r = runCapture(process.execPath, [join('scripts', 'smoke.mjs')])
+  const r = runCapture(process.execPath, [join('scripts', 'smoke.mjs')], { execArgv: NODE_ARGS })
   const detail = grab(r.output, /结果：(.+)/)
   return { ok: r.ok, detail: detail ?? (r.ok ? '冒烟通过' : '冒烟失败'), tail: tailOf(r.output, 25) }
 })

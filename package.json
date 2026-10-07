@@ -25,10 +25,10 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "pack": "node scripts/build.mjs",
-    "uitest": "node scripts/uitest.mjs",
-    "smoke": "node scripts/smoke.mjs",
-    "verify": "node scripts/verify.mjs",
-    "verify:fast": "node scripts/verify.mjs --fast"
+    "uitest": "node --disable-warning=ExperimentalWarning scripts/uitest.mjs",
+    "smoke": "node --disable-warning=ExperimentalWarning scripts/smoke.mjs",
+    "verify": "node --disable-warning=ExperimentalWarning scripts/verify.mjs",
+    "verify:fast": "node --disable-warning=ExperimentalWarning scripts/verify.mjs --fast"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
