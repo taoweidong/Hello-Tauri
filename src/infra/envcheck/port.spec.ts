@@ -69,9 +69,13 @@ describe('infra/envcheck —— withHardTimeout（硬超时包装）', () => {
   it('任务抛错：折叠成 fail 结果（run 的「永不 reject」契约兜底）', async () => {
     vi.useFakeTimers()
     try {
-      const pending = withHardTimeout(async () => {
-        throw new Error('探测器炸了')
-      }, 1000, '某项')
+      const pending = withHardTimeout(
+        async () => {
+          throw new Error('探测器炸了')
+        },
+        1000,
+        '某项',
+      )
       await vi.advanceTimersByTimeAsync(0)
       await expect(pending).resolves.toMatchObject({
         status: 'fail',

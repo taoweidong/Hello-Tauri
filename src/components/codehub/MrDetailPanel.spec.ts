@@ -30,7 +30,10 @@ function record(withDetail = true): CodeHubMrRecord {
       review: { reviewers: ['张三', '李四'], approvals: 1, unresolved: 2, lastActivityAt: '2026-10-02 09:00:00' },
     },
     detail: withDetail
-      ? { description: '正文描述', comments: [{ author: '张三', body: '这里要加测试', createdAt: '2026-10-02 09:30:00' }] }
+      ? {
+          description: '正文描述',
+          comments: [{ author: '张三', body: '这里要加测试', createdAt: '2026-10-02 09:30:00' }],
+        }
       : null,
   }
 }

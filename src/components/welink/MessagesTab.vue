@@ -46,7 +46,11 @@ applyFocus()
       @manage="emit('manage')"
     />
 
-    <TimelinePanel :show-right="showRight" @open-history="(targetId: string) => emit('open-history', { targetId })" @toggle-right="showRight = !showRight" />
+    <TimelinePanel
+      :show-right="showRight"
+      @open-history="(targetId: string) => emit('open-history', { targetId })"
+      @toggle-right="showRight = !showRight"
+    />
 
     <PendingJobsPanel v-if="showRight" @open-history="(preset) => emit('open-history', preset)" />
   </div>

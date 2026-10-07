@@ -12,17 +12,34 @@ import { RagError, type RagClient, type RagPort } from './port'
 /** 内置演示语料：关键词 → 片段列表（score 递减），浏览器演示与单测共用 */
 export const MOCK_RAG_CORPUS: Record<string, Array<{ content: string; source: string }>> = {
   报错: [
-    { content: '接口返回 500 时先查网关日志（运维平台 → 日志检索 → gateway），确认是上游超时还是代码异常；上游超时按「服务超时应急流程」升级。', source: 'troubleshooting.md' },
-    { content: '前端报 500 但后端无日志时，优先检查请求是否被网关限流（返回头带 X-RateLimit-Exceeded）。', source: 'troubleshooting.md' },
+    {
+      content:
+        '接口返回 500 时先查网关日志（运维平台 → 日志检索 → gateway），确认是上游超时还是代码异常；上游超时按「服务超时应急流程」升级。',
+      source: 'troubleshooting.md',
+    },
+    {
+      content: '前端报 500 但后端无日志时，优先检查请求是否被网关限流（返回头带 X-RateLimit-Exceeded）。',
+      source: 'troubleshooting.md',
+    },
   ],
   '500': [
-    { content: '接口返回 500 时先查网关日志（运维平台 → 日志检索 → gateway），确认是上游超时还是代码异常；上游超时按「服务超时应急流程」升级。', source: 'troubleshooting.md' },
+    {
+      content:
+        '接口返回 500 时先查网关日志（运维平台 → 日志检索 → gateway），确认是上游超时还是代码异常；上游超时按「服务超时应急流程」升级。',
+      source: 'troubleshooting.md',
+    },
   ],
   进度: [
-    { content: '发布审批进度在 OA「流程中心 → 我的申请」查看；审批卡超过 1 个工作日可@流程管理员催办。', source: 'process.md' },
+    {
+      content: '发布审批进度在 OA「流程中心 → 我的申请」查看；审批卡超过 1 个工作日可@流程管理员催办。',
+      source: 'process.md',
+    },
   ],
   文档: [
-    { content: '接口文档统一在内部 Wiki「研发 → 接口文档」栏目维护，最新版本以 Wiki 为准，聊天记录里的文档可能过期。', source: 'wiki-guide.md' },
+    {
+      content: '接口文档统一在内部 Wiki「研发 → 接口文档」栏目维护，最新版本以 Wiki 为准，聊天记录里的文档可能过期。',
+      source: 'wiki-guide.md',
+    },
   ],
 }
 
@@ -71,7 +88,8 @@ export function createMockRag(options: MockRagOptions = {}): MockRag {
             })),
           ]
         }
-        return chunks      } catch (caught) {
+        return chunks
+      } catch (caught) {
         error = caught instanceof Error ? caught.message : String(caught)
         throw caught
       } finally {

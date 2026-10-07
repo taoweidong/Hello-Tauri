@@ -305,7 +305,11 @@ describe('infra/agent —— HTTP 客户端（OpenAI 兼容协议，用假 fetch
   it('拼 URL 时消除 baseUrl 末尾与 endpoint 开头重复的斜杠', async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: unknown) => jsonResponse(openaiReply('ok')))
     vi.stubGlobal('fetch', fetchMock)
-    const agent = createHttpAgent({ ...baseOptions, baseUrl: 'http://127.0.0.1:11434/', endpoint: '/v1/chat/completions' })
+    const agent = createHttpAgent({
+      ...baseOptions,
+      baseUrl: 'http://127.0.0.1:11434/',
+      endpoint: '/v1/chat/completions',
+    })
     await agent.complete('p')
     expect(fetchMock.mock.calls[0]![0]).toBe('http://127.0.0.1:11434/v1/chat/completions')
     vi.unstubAllGlobals()
@@ -375,7 +379,10 @@ describe('infra/agent —— HTTP 客户端（OpenAI 兼容协议，用假 fetch
   })
 
   it('响应不是 OpenAI 形状（无 choices）→ error 且提示端点可能不兼容', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ reply: '私有协议形状' })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ reply: '私有协议形状' })),
+    )
     const agent = createHttpAgent({ ...baseOptions })
     await expect(agent.complete('p')).rejects.toThrow(/未找到 choices/)
     vi.unstubAllGlobals()
@@ -384,7 +391,9 @@ describe('infra/agent —— HTTP 客户端（OpenAI 兼容协议，用假 fetch
   it('响应不是有效 JSON → error 且提示端点可能不兼容', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ({ ok: true, status: 200, text: async () => '<html>bad gateway</html>' }) as unknown as Response),
+      vi.fn(
+        async () => ({ ok: true, status: 200, text: async () => '<html>bad gateway</html>' }) as unknown as Response,
+      ),
     )
     const agent = createHttpAgent({ ...baseOptions })
     await expect(agent.complete('p')).rejects.toThrow(/不是有效的 JSON/)
@@ -392,7 +401,10 @@ describe('infra/agent —— HTTP 客户端（OpenAI 兼容协议，用假 fetch
   })
 
   it('HTTP 非 2xx → error 类（含状态码）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'bad' }, 500)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ error: 'bad' }, 500)),
+    )
     const agent = createHttpAgent({ ...baseOptions })
     await expect(agent.complete('p')).rejects.toMatchObject({ kind: 'error' })
     await expect(agent.complete('p')).rejects.toThrow(/HTTP 500/)
@@ -416,7 +428,10 @@ describe('infra/agent —— HTTP 客户端（OpenAI 兼容协议，用假 fetch
   })
 
   it('并发的两次调用各自留痕（1:N 语料的前提）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(openaiReply('ok'))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(openaiReply('ok'))),
+    )
     const agent = createHttpAgent({ ...baseOptions })
     const seen: AgentCallRecord[] = []
     agent.onCall((record) => seen.push(record))
@@ -436,7 +451,10 @@ describe('infra/agent —— HTTP 客户端（OpenAI 兼容协议，用假 fetch
   })
 
   it('probeAgent 返回耗时与回复摘要（Settings 连通性按钮）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(openaiReply('ok'))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(openaiReply('ok'))),
+    )
     const result = await probeAgent({ ...baseOptions, timeoutMs: 1000 })
     expect(result.preview).toBe('ok')
     expect(result.latencyMs).toBeGreaterThanOrEqual(0)

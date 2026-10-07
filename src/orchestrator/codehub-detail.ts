@@ -49,7 +49,9 @@ export function createDetailBackfill(options: DetailBackfillOptions): CodeHubDet
       await options.repo.saveMrDetail(repoId, mrIid, detail, nowStamp(now()))
       return { summary: record.summary, detail }
     } catch (error) {
-      logger.warn(`CodeHub 详情补拉失败（${repoId}!${mrIid}）：${error instanceof Error ? error.message : String(error)}`)
+      logger.warn(
+        `CodeHub 详情补拉失败（${repoId}!${mrIid}）：${error instanceof Error ? error.message : String(error)}`,
+      )
       return record
     } finally {
       inFlight.delete(keyOf(repoId, mrIid))

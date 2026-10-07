@@ -54,11 +54,7 @@ function strictTimeout<T>(task: () => Promise<T>, timeoutMs: number, onTimeout: 
  * 底层 rejection（正常路径已被适配器 backstop 折叠，这里只兜工厂自身之前的违约）
  * 也折叠为失败结果 —— 本工厂产出的端口**永不 reject**（runCommand 除外）。
  */
-function foldedTimeout<T>(
-  task: () => Promise<T>,
-  timeoutMs: number,
-  failure: (detail: string) => T,
-): Promise<T> {
+function foldedTimeout<T>(task: () => Promise<T>, timeoutMs: number, failure: (detail: string) => T): Promise<T> {
   const started = Date.now()
   return foldRejection(
     () => withHardTimeout(task, timeoutMs, () => failure(`硬超时（超过 ${Date.now() - started}ms 未返回）`)),
@@ -70,25 +66,59 @@ function foldedTimeout<T>(
 function withHardTimeouts(raw: WindowsInfraPort, budget: number): WindowsInfraPort {
   return {
     runCommand: (commandId, extraArgs) =>
-      strictTimeout(() => raw.runCommand(commandId, extraArgs), budget, () =>
-        timeoutExecOutcome(budget),
+      strictTimeout(
+        () => raw.runCommand(commandId, extraArgs),
+        budget,
+        () => timeoutExecOutcome(budget),
       ),
     probeOverview: () =>
-      foldedTimeout(() => raw.probeOverview(), budget, (detail) => ({ ok: false, reason: '系统概要探测失败', detail })),
+      foldedTimeout(
+        () => raw.probeOverview(),
+        budget,
+        (detail) => ({ ok: false, reason: '系统概要探测失败', detail }),
+      ),
     probeEnvVar: (name) =>
-      foldedTimeout(() => raw.probeEnvVar(name), budget, (detail) => ({ ok: false, reason: '环境变量读取失败', detail })),
+      foldedTimeout(
+        () => raw.probeEnvVar(name),
+        budget,
+        (detail) => ({ ok: false, reason: '环境变量读取失败', detail }),
+      ),
     probeDisks: () =>
-      foldedTimeout(() => raw.probeDisks(), budget, (detail) => ({ ok: false, reason: '磁盘探测失败', detail })),
+      foldedTimeout(
+        () => raw.probeDisks(),
+        budget,
+        (detail) => ({ ok: false, reason: '磁盘探测失败', detail }),
+      ),
     probeAdapters: () =>
-      foldedTimeout(() => raw.probeAdapters(), budget, (detail) => ({ ok: false, reason: '网卡探测失败', detail })),
+      foldedTimeout(
+        () => raw.probeAdapters(),
+        budget,
+        (detail) => ({ ok: false, reason: '网卡探测失败', detail }),
+      ),
     openWithDefault: (target) =>
-      foldedTimeout(() => raw.openWithDefault(target), budget, (detail) => ({ ok: false, reason: '默认程序打开失败', detail })),
+      foldedTimeout(
+        () => raw.openWithDefault(target),
+        budget,
+        (detail) => ({ ok: false, reason: '默认程序打开失败', detail }),
+      ),
     readClipboard: () =>
-      foldedTimeout(() => raw.readClipboard(), budget, (detail) => ({ ok: false, reason: '剪贴板读取失败', detail })),
+      foldedTimeout(
+        () => raw.readClipboard(),
+        budget,
+        (detail) => ({ ok: false, reason: '剪贴板读取失败', detail }),
+      ),
     writeClipboard: (text) =>
-      foldedTimeout(() => raw.writeClipboard(text), budget, (detail) => ({ ok: false, reason: '剪贴板写入失败', detail })),
+      foldedTimeout(
+        () => raw.writeClipboard(text),
+        budget,
+        (detail) => ({ ok: false, reason: '剪贴板写入失败', detail }),
+      ),
     notify: (title, body) =>
-      foldedTimeout(() => raw.notify(title, body), budget, (detail) => ({ ok: false, reason: '系统通知发送失败', detail })),
+      foldedTimeout(
+        () => raw.notify(title, body),
+        budget,
+        (detail) => ({ ok: false, reason: '系统通知发送失败', detail }),
+      ),
   }
 }
 

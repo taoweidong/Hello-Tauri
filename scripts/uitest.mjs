@@ -635,7 +635,9 @@ async function runFunctional(client, sandboxRoot) {
     // 这本身就是有效结论 —— 断言的是「有结论」而不是「结论为正常」。
     const state = await waitFor(
       async () => {
-        const shape = await query(client, `
+        const shape = await query(
+          client,
+          `
         const items = $$('.envcheck__item');
         return {
           count: items.length,
@@ -643,11 +645,15 @@ async function runFunctional(client, sandboxRoot) {
           summaries: items.map((el) => norm(el.querySelector('.envcheck__summary'))).filter(Boolean),
           tags: items.map((el) => norm(el.querySelector('.el-tag'))).filter(Boolean),
         };
-      `)
+      `,
+        )
         assert(shape.count >= 2, `检测项卡片应为 2 项（welink-cli / Python），实际 ${shape.count}`)
         if (shape.busy) return false
         assert(shape.summaries.length >= 1, '检测项未给出结论摘要')
-        assert(shape.summaries.every((text) => text && !text.includes('检测中…')), '结论仍为过渡态')
+        assert(
+          shape.summaries.every((text) => text && !text.includes('检测中…')),
+          '结论仍为过渡态',
+        )
         return shape
       },
       { label: '环境检测出结论', timeoutMs: 30000 },

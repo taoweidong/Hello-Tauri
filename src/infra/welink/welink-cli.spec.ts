@@ -16,9 +16,10 @@ const { runForOutput, withTransportRetry, parseListOutput, parsePullOutput, pars
   runForOutput: vi.fn(async (_program: string, _args: string[], _opts?: unknown): Promise<string> => 'RAW'),
   withTransportRetry: vi.fn(),
   parseListOutput: vi.fn((_raw: string): WelinkConversation[] => []),
-  parsePullOutput: vi.fn(
-    (_raw: string, _ctx: unknown): { messages: Array<{ sentAt: string }>; cursor: string } => ({ messages: [], cursor: '' }),
-  ),
+  parsePullOutput: vi.fn((_raw: string, _ctx: unknown): { messages: Array<{ sentAt: string }>; cursor: string } => ({
+    messages: [],
+    cursor: '',
+  })),
   parseSendOutput: vi.fn((_raw: string, _seed: string): string => ''),
 }))
 
@@ -44,11 +45,7 @@ describe('welink-cli 真实适配器（编排职责）', () => {
   it('listConversations：list 子命令 + json 标记 + 超时预算透传', async () => {
     const port = createCliWelinkPort({ cliPath: 'C:\\tools\\welink-cli.exe', myUserId: '10086' })
     await port.listConversations()
-    expect(runForOutput).toHaveBeenCalledWith(
-      'C:\\tools\\welink-cli.exe',
-      ['list', '--json'],
-      { timeoutMs: 12_000 },
-    )
+    expect(runForOutput).toHaveBeenCalledWith('C:\\tools\\welink-cli.exe', ['list', '--json'], { timeoutMs: 12_000 })
     expect(parseListOutput).toHaveBeenCalledWith('RAW')
   })
 

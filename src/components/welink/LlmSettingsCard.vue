@@ -139,7 +139,8 @@ const testResult = ref<{ ok: boolean; text: string } | null>(null)
       <p class="llm__foot">
         <IconAlert class="llm__foot-icon" />
         <span class="llm__foot-text">
-          改动经「保存配置」写入本机 config.json（API 密钥仅随请求头发送，不进日志与留痕语料）；未保存前也会热更新到运行中的助手。
+          改动经「保存配置」写入本机 config.json（API
+          密钥仅随请求头发送，不进日志与留痕语料）；未保存前也会热更新到运行中的助手。
         </span>
       </p>
     </div>

@@ -122,7 +122,11 @@ describe('events 消费层', () => {
   it('conversationState：更新状态表并刷新状态灯', () => {
     const { deps, updateRuntimeStatus } = makeDeps()
     const consumer = createEventConsumer(deps)
-    consumer.onEvent({ type: 'conversationState', convId: 'G-1', state: { state: 'backoff' } } as unknown as WelinkEvent)
+    consumer.onEvent({
+      type: 'conversationState',
+      convId: 'G-1',
+      state: { state: 'backoff' },
+    } as unknown as WelinkEvent)
     expect(deps.convoStates.value['G-1']).toEqual({ state: 'backoff' })
     expect(updateRuntimeStatus).toHaveBeenCalledTimes(1)
   })

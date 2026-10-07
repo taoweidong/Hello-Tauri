@@ -102,7 +102,13 @@ export function createEventConsumer(deps: EventConsumerDeps): WelinkEventConsume
       case 'jobStatusChanged': {
         const job = jobIndex.value.get(event.jobPk)
         if (job) {
-          const { wasHolding, isHolding } = applyJobStatusPatch(job, event.to, event.reason, event.holdReason, nowStamp())
+          const { wasHolding, isHolding } = applyJobStatusPatch(
+            job,
+            event.to,
+            event.reason,
+            event.holdReason,
+            nowStamp(),
+          )
           if (!wasHolding && isHolding) reviewCount.value += 1
           if (wasHolding && !isHolding) reviewCount.value = Math.max(0, reviewCount.value - 1)
           jobIndex.value = new Map(jobIndex.value)

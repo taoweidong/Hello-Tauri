@@ -102,7 +102,9 @@ async function main() {
     const deadline = Date.now() + 30_000
     for (;;) {
       const ready = await client
-        .evaluate(`typeof window.__TAURI_INTERNALS__ !== 'undefined' && typeof window.__TAURI_INTERNALS__.invoke === 'function'`)
+        .evaluate(
+          `typeof window.__TAURI_INTERNALS__ !== 'undefined' && typeof window.__TAURI_INTERNALS__.invoke === 'function'`,
+        )
         .catch(() => false)
       if (ready) break
       assert(Date.now() < deadline, '等待 __TAURI_INTERNALS__ 超时')
@@ -110,10 +112,9 @@ async function main() {
     }
 
     const invoke = (cmd, args = {}) =>
-      client.evaluate(
-        `window.__TAURI_INTERNALS__.invoke(${JSON.stringify(cmd)}, ${JSON.stringify(args)})`,
-        { awaitPromise: true },
-      )
+      client.evaluate(`window.__TAURI_INTERNALS__.invoke(${JSON.stringify(cmd)}, ${JSON.stringify(args)})`, {
+        awaitPromise: true,
+      })
 
     // —— 系统信息四命令 ——
     let dataRoot = ''

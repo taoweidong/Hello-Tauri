@@ -110,7 +110,10 @@ describe('welink/KnowledgeCard（知识库管理）', () => {
   })
 
   it('下架 = 仅移出清单，md 文件保留；有确认文案', async () => {
-    await seedIndex([{ file: 'a.md', title: 'A', updatedAt: 'x' }, { file: 'b.md', title: 'B', updatedAt: 'y' }])
+    await seedIndex([
+      { file: 'a.md', title: 'A', updatedAt: 'x' },
+      { file: 'b.md', title: 'B', updatedAt: 'y' },
+    ])
     state.files.set('knowledge/a.md', '内容')
     const wrapper = mountCard()
     const vm = vmOf(wrapper)
@@ -198,7 +201,19 @@ describe('welink/KnowledgeCard —— 待评审队列（knowledge-sedimentation 
     const { wrapper, store, vm } = queueHarness()
     await vm.load()
     store.drafts = [
-      { pk: 7, title: '门禁办理', content: '找行政前台。', topic: '门禁', sourceType: 'message', sourceRefs: ['m1'], contentHash: 'h1', status: 'pending', reviewNote: '', createdAt: 'x', reviewedAt: null },
+      {
+        pk: 7,
+        title: '门禁办理',
+        content: '找行政前台。',
+        topic: '门禁',
+        sourceType: 'message',
+        sourceRefs: ['m1'],
+        contentHash: 'h1',
+        status: 'pending',
+        reviewNote: '',
+        createdAt: 'x',
+        reviewedAt: null,
+      },
     ] as never
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('待评审知识（1）')
@@ -214,7 +229,10 @@ describe('welink/KnowledgeCard —— 待评审队列（knowledge-sedimentation 
   })
 
   it('通过（并入）带目标文件；目标未选时被拦截提示', async () => {
-    state.files.set('knowledge/index.json', JSON.stringify({ docs: [{ file: 'door.md', title: '门禁手册', updatedAt: 'x' }] }))
+    state.files.set(
+      'knowledge/index.json',
+      JSON.stringify({ docs: [{ file: 'door.md', title: '门禁手册', updatedAt: 'x' }] }),
+    )
     const { store, vm } = queueHarness()
     await vm.load()
     const approveSpy = vi.spyOn(store, 'approveDraft').mockResolvedValue(true)

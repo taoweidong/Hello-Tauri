@@ -10,12 +10,7 @@ import { logger } from '@/utils/logger'
 import type { WelinkRuntime } from '@/orchestrator/runtime'
 import type { ConversationState } from '@/orchestrator/events'
 import type { WelinkRepository } from '@/infra/db'
-import {
-  CONVERSATION_PAGE_LIMIT,
-  type WelinkConversation,
-  type WelinkJob,
-  type WelinkMessage,
-} from '@/types/welink'
+import { CONVERSATION_PAGE_LIMIT, type WelinkConversation, type WelinkJob, type WelinkMessage } from '@/types/welink'
 
 export interface ConversationViewDeps {
   conversations: Ref<WelinkConversation[]>

@@ -23,7 +23,13 @@ vi.mock('@/stores/welink/knowledge', () => ({
 }))
 
 import { ElMessage } from 'element-plus'
-import { DEFAULT_WELINK_SETTINGS, MAX_WELINK_SKILLS, PROMPT_PLACEHOLDERS, type WelinkSettings, type WelinkSkill } from '@/types/welink'
+import {
+  DEFAULT_WELINK_SETTINGS,
+  MAX_WELINK_SKILLS,
+  PROMPT_PLACEHOLDERS,
+  type WelinkSettings,
+  type WelinkSkill,
+} from '@/types/welink'
 import SkillsSection from './SkillsSection.vue'
 
 const EP_STUBS: Record<string, unknown> = {
@@ -197,7 +203,11 @@ describe('welink/settings/SkillsSection —— 知识文档绑定（knowledge-se
 
   it('知识文档绑定随草稿保存进技能（上限内整字段更新）', () => {
     const h = mountSection([])
-    const vm = h.wrapper.vm as unknown as { startAdd: () => void; editingDraft: WelinkSkill | null; saveEditor: () => void }
+    const vm = h.wrapper.vm as unknown as {
+      startAdd: () => void
+      editingDraft: WelinkSkill | null
+      saveEditor: () => void
+    }
     vm.startAdd()
     if (!vm.editingDraft) throw new Error('编辑器未打开')
     vm.editingDraft.name = '门禁助手'

@@ -189,7 +189,6 @@ export { LOCAL_GROUP_ID_PREFIX, isLocalGroupId } from '@/types/welink'
 
 /** 是否为本地占位群 ID —— UI 据此提示「CLI 未回传」，不把占位冒充真实群 ID 展示 */
 
-
 /**
  * `create-group` 输出解析：取新群的会话 ID（宽进字段名，严出语义）。
  *

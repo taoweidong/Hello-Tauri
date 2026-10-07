@@ -18,13 +18,13 @@
 
 口语需求 → 现状映射：
 
-| 口语说法 | 现状 | 结论 |
-| --- | --- | --- |
-| WeLink CLI 自动获取咨询信息 | 轮询器 `poller.ts` → `pull`（增量游标/去重/自发过滤） | ✅ 已有，复用 |
-| 调用不同 Skill 把信息发给 LLM | **不存在**：全局唯一 `promptTemplate`，所有问题一个模板 | ★ 本次核心新增：技能路由 |
-| LLM 分析并拼装回复 | `agent.complete(prompt)` 生成段已有（阿里云 MaaS 已对接） | ✅ 复用，模板按技能切换 |
-| 自动通过 WeLink-CLI 发送 | 外发段（SafetyGate 十六道闸 → `send` 防双发）已有 | ✅ 复用，不动 |
-| 区分用户咨询的问题类型 | **不存在**：`trigger_type`（群@我/私聊/手动）只是场景维度，不参与内容分流 | ★ 新增分类层 |
+| 口语说法                      | 现状                                                                      | 结论                     |
+| ----------------------------- | ------------------------------------------------------------------------- | ------------------------ |
+| WeLink CLI 自动获取咨询信息   | 轮询器 `poller.ts` → `pull`（增量游标/去重/自发过滤）                     | ✅ 已有，复用            |
+| 调用不同 Skill 把信息发给 LLM | **不存在**：全局唯一 `promptTemplate`，所有问题一个模板                   | ★ 本次核心新增：技能路由 |
+| LLM 分析并拼装回复            | `agent.complete(prompt)` 生成段已有（阿里云 MaaS 已对接）                 | ✅ 复用，模板按技能切换  |
+| 自动通过 WeLink-CLI 发送      | 外发段（SafetyGate 十六道闸 → `send` 防双发）已有                         | ✅ 复用，不动            |
+| 区分用户咨询的问题类型        | **不存在**：`trigger_type`（群@我/私聊/手动）只是场景维度，不参与内容分流 | ★ 新增分类层             |
 
 结论：外发闭环已经完整且被测试钉住，本次只动**生成段的入口**——在「拉上下文」与
 「渲染提示词」之间插入「分类 → 选技能」，并把单一全局模板扩展为「兜底技能 + 用户自定义
@@ -32,17 +32,17 @@
 
 ## 2. 现状盘点（本次之前已具备）
 
-| 能力 | 位置 | 状态 |
-| --- | --- | --- |
-| 轮询取增量（分级调度/续批/去重/自发过滤） | `src/orchestrator/poller.ts` | ✅ 复用 |
-| 触发建 job（群@我/私聊/手动 + S5 同人短窗合并） | `src/orchestrator/triggers.ts` | ✅ 复用 |
-| 生成段（并发 2：上下文 → renderPrompt → complete → sanitize → commitDraft 原子落库） | `src/orchestrator/pipeline.ts:164` `generateOne` | ★ 接入点 |
-| 提示词渲染（4 占位符单遍替换防注入 + 不可信消毒） | `src/infra/agent/prompt.ts` | ★ 扩展 `{{knowledge}}` |
-| Agent 端口（prompt-in/result-out + onCall 留痕钩子） | `src/infra/agent/port.ts` | ✅ 复用 |
-| HTTP 适配器（OpenAI 兼容，[LLM-ASSUME] 已核实关闭） | `src/infra/agent/agent-http.ts` | ✅ 复用 |
-| 安全闸（L0–L3 + S1–S8 十六道闸，唯一外发出口） | `src/orchestrator/safety-gate.ts` | ✅ 不动（不变量） |
-| R4 留痕（`welink_agent_logs` 1:N + 👍/👎 评价） | pipeline onCall → repo | ✅ 复用（增技能维度） |
-| Agent 设置卡（连接/模板/连通性测试，`weLink.agent` 唯一编辑器） | `src/components/welink/LlmSettingsCard.vue` | ★ 扩展技能编辑区 |
+| 能力                                                                                 | 位置                                             | 状态                   |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------ | ---------------------- |
+| 轮询取增量（分级调度/续批/去重/自发过滤）                                            | `src/orchestrator/poller.ts`                     | ✅ 复用                |
+| 触发建 job（群@我/私聊/手动 + S5 同人短窗合并）                                      | `src/orchestrator/triggers.ts`                   | ✅ 复用                |
+| 生成段（并发 2：上下文 → renderPrompt → complete → sanitize → commitDraft 原子落库） | `src/orchestrator/pipeline.ts:164` `generateOne` | ★ 接入点               |
+| 提示词渲染（4 占位符单遍替换防注入 + 不可信消毒）                                    | `src/infra/agent/prompt.ts`                      | ★ 扩展 `{{knowledge}}` |
+| Agent 端口（prompt-in/result-out + onCall 留痕钩子）                                 | `src/infra/agent/port.ts`                        | ✅ 复用                |
+| HTTP 适配器（OpenAI 兼容，[LLM-ASSUME] 已核实关闭）                                  | `src/infra/agent/agent-http.ts`                  | ✅ 复用                |
+| 安全闸（L0–L3 + S1–S8 十六道闸，唯一外发出口）                                       | `src/orchestrator/safety-gate.ts`                | ✅ 不动（不变量）      |
+| R4 留痕（`welink_agent_logs` 1:N + 👍/👎 评价）                                      | pipeline onCall → repo                           | ✅ 复用（增技能维度）  |
+| Agent 设置卡（连接/模板/连通性测试，`weLink.agent` 唯一编辑器）                      | `src/components/welink/LlmSettingsCard.vue`      | ★ 扩展技能编辑区       |
 
 ## 3. 缺口分析（本次要补的）
 
@@ -70,18 +70,18 @@ discussing → 拉上下文（recentContext，不变）
 
 ## 5. 决策记录
 
-| 决策 | 选择 | 理由 |
-| --- | --- | --- |
-| S-A | 分类机制 = **规则优先 + LLM 兜底 + fallback 终兜底**（用户已确认） | 规则命中零延迟零成本且确定；LLM 补关键词覆盖不到的长尾；兜底保证任何情况都有回复路径 |
-| S-B | 技能配置存 `config.json`（`WelinkAgentSettings.skills`），**不建 SQLite 技能表**（用户已确认） | 个人应用技能量少（几个~十几个）；随设置导入导出备份；job 只存 ID+名称快照，无外键 |
-| S-C | 分类发生在**生成段内部**（`generateOne` 渲染前），不在建 job 时 | 生成段无外发风险、可重试；S5 合并后的 job 按合并上下文分类更准；崩溃恢复重投自动重分类，不引入新状态 |
-| S-D | `welink_reply_jobs` 加 `skill_id/skill_name/skill_source` 三列（migration v5），无外键 | 留痕 + 按技能统计；`skill_name` 是**快照**，技能删改后历史不变脸（对齐建群模板快照思路） |
-| S-E | 内置**不可删除的兜底技能**（通用助手），其模板即现有 `promptTemplate` 字段 | 老配置零迁移升级；未命中任何技能时行为与今日完全一致（回归风险最小） |
-| S-F | **安全闸不感知技能**（安全不变量） | 技能只影响「生成什么」，绝不影响「能不能发」；S1–S8 对所有草稿一视同仁；唯一外发出口不变 |
-| S-G | `reviewMode:'manual'` 技能 → 生成后 `holdJob(pk,'skill_review')` 转审 | 高风险问题类型（涉及资金/制度口径）可强制人工把关；复用 O7 待审聚合与 `sendNow` 人工放行通道 |
-| S-H | LLM 分类复用 `agent.complete` + `promptOwners` 按 prompt 精确匹配归属 | 不新增端口方法；分类调用自动落 `agent_logs`（1:N 的 seq 已支持一个 job 多次调用），失败样本也可回溯 |
-| S-I | 知识注入 = 技能级静态知识块（`{{knowledge}}`），**不做向量检索/RAG** | 单文件离线 exe、内网场景；知识量小、维护者就是用户本人；检索基建成本与收益不成比例 |
-| S-J | system/user 分离与采样参数列为扩展点，本期不做 | 阿里云协议已按「单条 user 消息」核实成立，动 `buildRequestParts` 有回归风险，等真实需求再立变更 |
+| 决策 | 选择                                                                                           | 理由                                                                                                 |
+| ---- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| S-A  | 分类机制 = **规则优先 + LLM 兜底 + fallback 终兜底**（用户已确认）                             | 规则命中零延迟零成本且确定；LLM 补关键词覆盖不到的长尾；兜底保证任何情况都有回复路径                 |
+| S-B  | 技能配置存 `config.json`（`WelinkAgentSettings.skills`），**不建 SQLite 技能表**（用户已确认） | 个人应用技能量少（几个~十几个）；随设置导入导出备份；job 只存 ID+名称快照，无外键                    |
+| S-C  | 分类发生在**生成段内部**（`generateOne` 渲染前），不在建 job 时                                | 生成段无外发风险、可重试；S5 合并后的 job 按合并上下文分类更准；崩溃恢复重投自动重分类，不引入新状态 |
+| S-D  | `welink_reply_jobs` 加 `skill_id/skill_name/skill_source` 三列（migration v5），无外键         | 留痕 + 按技能统计；`skill_name` 是**快照**，技能删改后历史不变脸（对齐建群模板快照思路）             |
+| S-E  | 内置**不可删除的兜底技能**（通用助手），其模板即现有 `promptTemplate` 字段                     | 老配置零迁移升级；未命中任何技能时行为与今日完全一致（回归风险最小）                                 |
+| S-F  | **安全闸不感知技能**（安全不变量）                                                             | 技能只影响「生成什么」，绝不影响「能不能发」；S1–S8 对所有草稿一视同仁；唯一外发出口不变             |
+| S-G  | `reviewMode:'manual'` 技能 → 生成后 `holdJob(pk,'skill_review')` 转审                          | 高风险问题类型（涉及资金/制度口径）可强制人工把关；复用 O7 待审聚合与 `sendNow` 人工放行通道         |
+| S-H  | LLM 分类复用 `agent.complete` + `promptOwners` 按 prompt 精确匹配归属                          | 不新增端口方法；分类调用自动落 `agent_logs`（1:N 的 seq 已支持一个 job 多次调用），失败样本也可回溯  |
+| S-I  | 知识注入 = 技能级静态知识块（`{{knowledge}}`），**不做向量检索/RAG**                           | 单文件离线 exe、内网场景；知识量小、维护者就是用户本人；检索基建成本与收益不成比例                   |
+| S-J  | system/user 分离与采样参数列为扩展点，本期不做                                                 | 阿里云协议已按「单条 user 消息」核实成立，动 `buildRequestParts` 有回归风险，等真实需求再立变更      |
 
 ## 6. 技能模型（`src/types/welink.ts`）
 
@@ -138,7 +138,7 @@ export interface SkillDecision {
 export async function routeSkill(input: {
   question: string
   context: WelinkMessage[]
-  candidates: WelinkSkill[]   // enabled 的技能清单（含兜底技能，供 LLM 选择的完整清单）
+  candidates: WelinkSkill[] // enabled 的技能清单（含兜底技能，供 LLM 选择的完整清单）
   fallback: WelinkSkill
   llmClassify: boolean
   agent: AgentClient
@@ -271,26 +271,26 @@ ALTER TABLE welink_reply_jobs ADD COLUMN skill_source TEXT NOT NULL DEFAULT '';
 
 ## 14. 测试与验证计划
 
-| 测试 | 覆盖 |
-| --- | --- |
-| `src/types/welink.spec.ts` | skills 归一化收敛（截断/去重/slug/回退）、`llmClassifyFallback` 兜底、老配置零迁移 |
-| `src/orchestrator/skill-router.spec.ts` | 规则命中与配置顺序优先级、正则词条、非法正则跳过、LLM 分类成功/解析失败兜底/开关关闭直兜底、兜底技能不参与规则匹配 |
-| `src/orchestrator/pipeline.spec.ts` | 分类接入后草稿生成主链路、reviewMode='manual' 转审不入外发队列、job 三列留痕、分类调用落 agent_logs |
-| `src/infra/db/**`（迁移 + 契约测试） | v5 列映射、老数据空串兼容、两套仓储一致 |
-| `src/components/welink/LlmSettingsCard.spec.ts` | 技能编辑区契约（增删改、防顶回、归一化透传） |
-| 覆盖率基线 | `orchestrator/**` 92% lines、`infra/db/**` 72% lines 不回退 |
+| 测试                                            | 覆盖                                                                                                               |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `src/types/welink.spec.ts`                      | skills 归一化收敛（截断/去重/slug/回退）、`llmClassifyFallback` 兜底、老配置零迁移                                 |
+| `src/orchestrator/skill-router.spec.ts`         | 规则命中与配置顺序优先级、正则词条、非法正则跳过、LLM 分类成功/解析失败兜底/开关关闭直兜底、兜底技能不参与规则匹配 |
+| `src/orchestrator/pipeline.spec.ts`             | 分类接入后草稿生成主链路、reviewMode='manual' 转审不入外发队列、job 三列留痕、分类调用落 agent_logs                |
+| `src/infra/db/**`（迁移 + 契约测试）            | v5 列映射、老数据空串兼容、两套仓储一致                                                                            |
+| `src/components/welink/LlmSettingsCard.spec.ts` | 技能编辑区契约（增删改、防顶回、归一化透传）                                                                       |
+| 覆盖率基线                                      | `orchestrator/**` 92% lines、`infra/db/**` 72% lines 不回退                                                        |
 
 ## 15. 实施清单（对应 OpenSpec tasks 分解）
 
-| 文件 | 改动 |
-| --- | --- |
-| `src/types/welink.ts` | `WelinkSkill/SkillSource/SkillReviewMode` 类型；`WelinkAgentSettings.skills/llmClassifyFallback`；默认值与 `normalizeWelinkSettings` 收敛；`HoldReason` + `'skill_review'` |
-| `src/orchestrator/skill-router.ts` | 新模块：`routeSkill` + 规则匹配/分类 prompt/解析三件套 |
-| `src/orchestrator/pipeline.ts` | `generateOne` 接入分类与技能模板；reviewMode 转审时序 |
-| `src/infra/agent/prompt.ts` | `renderPrompt` 支持 `{{knowledge}}`；`PROMPT_PLACEHOLDERS` 扩充 |
-| `src/infra/db/migrations/` | v5：`welink_reply_jobs` 三列 |
-| `src/infra/db/ports.ts` + `repos/welink.ts` + `welink-memory.ts` | `WelinkJob` 三字段映射与回写通道 |
-| `src/components/welink/LlmSettingsCard.vue` | 「回复技能」编辑区 + 兜底技能区更名 |
-| 回复历史组件 | job 卡片技能徽标 |
-| `src/infra/agent/mock.ts` | 演示剧本覆盖多类型问题（扩展点 3，可与主链路同批或随后） |
-| `openspec/specs/welink-auto-reply/spec.md` | 经 delta 归档同步新增需求段 |
+| 文件                                                             | 改动                                                                                                                                                                       |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/types/welink.ts`                                            | `WelinkSkill/SkillSource/SkillReviewMode` 类型；`WelinkAgentSettings.skills/llmClassifyFallback`；默认值与 `normalizeWelinkSettings` 收敛；`HoldReason` + `'skill_review'` |
+| `src/orchestrator/skill-router.ts`                               | 新模块：`routeSkill` + 规则匹配/分类 prompt/解析三件套                                                                                                                     |
+| `src/orchestrator/pipeline.ts`                                   | `generateOne` 接入分类与技能模板；reviewMode 转审时序                                                                                                                      |
+| `src/infra/agent/prompt.ts`                                      | `renderPrompt` 支持 `{{knowledge}}`；`PROMPT_PLACEHOLDERS` 扩充                                                                                                            |
+| `src/infra/db/migrations/`                                       | v5：`welink_reply_jobs` 三列                                                                                                                                               |
+| `src/infra/db/ports.ts` + `repos/welink.ts` + `welink-memory.ts` | `WelinkJob` 三字段映射与回写通道                                                                                                                                           |
+| `src/components/welink/LlmSettingsCard.vue`                      | 「回复技能」编辑区 + 兜底技能区更名                                                                                                                                        |
+| 回复历史组件                                                     | job 卡片技能徽标                                                                                                                                                           |
+| `src/infra/agent/mock.ts`                                        | 演示剧本覆盖多类型问题（扩展点 3，可与主链路同批或随后）                                                                                                                   |
+| `openspec/specs/welink-auto-reply/spec.md`                       | 经 delta 归档同步新增需求段                                                                                                                                                |

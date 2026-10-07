@@ -106,7 +106,10 @@ function assertAllowedHost(endpoint: string): void {
 }
 
 /** 组装请求头与请求体（纯函数便于单测逐字段断言），也让 complete() 的主流程保持线性 */
-function buildRequestParts(prompt: string, options: HttpAgentOptions): { headers: Record<string, string>; body: string } {
+function buildRequestParts(
+  prompt: string,
+  options: HttpAgentOptions,
+): { headers: Record<string, string>; body: string } {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   const apiKey = options.apiKey?.trim() ?? ''
   if (apiKey) headers.authorization = `Bearer ${apiKey}`
@@ -122,7 +125,12 @@ interface HttpOutcome {
   text: string
 }
 
-async function postViaFetch(url: string, headers: Record<string, string>, body: string, signal: AbortSignal): Promise<HttpOutcome> {
+async function postViaFetch(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  signal: AbortSignal,
+): Promise<HttpOutcome> {
   const response = await fetch(url, { method: 'POST', headers, body, signal })
   return { status: response.status, text: await response.text() }
 }

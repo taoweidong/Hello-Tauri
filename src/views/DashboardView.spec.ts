@@ -276,9 +276,7 @@ describe('DashboardView', () => {
     await welinkPanel.get('.panel__head').trigger('click')
     expect(push).toHaveBeenLastCalledWith('/welink')
 
-    const groupEntry = welinkPanel
-      .findAll('.entry')
-      .find((node) => node.text().includes('快速建群'))
+    const groupEntry = welinkPanel.findAll('.entry').find((node) => node.text().includes('快速建群'))
     if (!groupEntry) throw new Error('快速建群入口不存在')
     await groupEntry.trigger('click')
     expect(push).toHaveBeenLastCalledWith('/groups')

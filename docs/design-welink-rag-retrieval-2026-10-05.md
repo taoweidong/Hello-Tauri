@@ -17,29 +17,29 @@
 
 口语需求 → 方案映射：
 
-| 口语说法 | 方案落点 |
-| --- | --- |
-| 已有 RAG 服务，外挂 http 接口获取知识 | 新增 `infra/rag/` 端口-适配器，检索走 `bridge.httpPostJson` 宿主通道（与大模型同构，零 Rust） |
-| 本地知识库使用 md 文档 | 数据根 `knowledge/*.md` 为知识源；设置页新增「知识库」卡管理（走既有 `fsRead/fsWrite`，自动建父目录，零 Rust） |
-| 提升自动回复准确性 | 生成段按技能检索知识、命中片段注入 `{{retrieved}}`，回复「有据可依」；与技能路由正交组合 |
-| 自动回复应答机器人 | 不改变外发闭环与安全闸，只升级生成段的「知识供给」 |
+| 口语说法                              | 方案落点                                                                                                       |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 已有 RAG 服务，外挂 http 接口获取知识 | 新增 `infra/rag/` 端口-适配器，检索走 `bridge.httpPostJson` 宿主通道（与大模型同构，零 Rust）                  |
+| 本地知识库使用 md 文档                | 数据根 `knowledge/*.md` 为知识源；设置页新增「知识库」卡管理（走既有 `fsRead/fsWrite`，自动建父目录，零 Rust） |
+| 提升自动回复准确性                    | 生成段按技能检索知识、命中片段注入 `{{retrieved}}`，回复「有据可依」；与技能路由正交组合                       |
+| 自动回复应答机器人                    | 不改变外发闭环与安全闸，只升级生成段的「知识供给」                                                             |
 
 需求方已确认四个分叉（2026-10-05）：① RAG 已索引好、应用只查；② 按技能检索 +
 `{{retrieved}}` 占位符；③ 知识库应用内 CRUD（零 Rust）；④ 本期零迁移。
 
 ## 2. 现状盘点（本次之前已具备）
 
-| 能力 | 位置 | 状态 |
-| --- | --- | --- |
-| 生成段：routeSkill 技能路由 → 按技能模板渲染 → complete → commitDraft | `src/orchestrator/pipeline.ts` | ★ 检索注入接缝 |
-| 静态知识块 `{{knowledge}}`（技能级，可信不消毒） | `src/infra/agent/prompt.ts` + `WelinkSkill.knowledge` | ✅ 保留，与检索正交 |
-| HTTP 宿主通道 `http_post_json`（传输层故障才 reject、2MB 截断、超时宿主强制） | `src-tauri/src/http.rs` + Bridge `httpPostJson` | ✅ RAG 检索复用 |
-| transport 组合点注入模式（桌面宿主通道 / 测试 window.fetch） | `src/infra/agent/agent-http.ts` + `index.ts` | ✅ rag-http 对齐 |
-| 连接配置卡惯例（单编辑器/防抖/双卡透传/三层归一化） | `LlmSettingsCard.vue`、`normalizeWelinkSettings` | ✅ 新卡对齐 |
-| 文件通道 `fsRead/fsWrite`（数据根内相对路径、拒 `..`、写自动建父目录） | `src-tauri/src/fs.rs`、Bridge `fsRead/fsWrite` | ✅ 知识库复用；**缺列目录能力**（见 §5 D-F） |
-| web 模式文件通道诚实抛错 | `src/api/web.ts` | ✅ 知识库卡据此降级 |
-| 技能模型 `WelinkSkill`（关键词/模板/知识块/审核） | `src/types/welink.ts` | ★ 增检索绑定字段 |
-| 迁移注册表 v1–v5、R4 留痕 `welink_agent_logs` 1:N | `src/infra/db/index.ts`、repos | ✅ 本期零迁移 |
+| 能力                                                                          | 位置                                                  | 状态                                         |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------- |
+| 生成段：routeSkill 技能路由 → 按技能模板渲染 → complete → commitDraft         | `src/orchestrator/pipeline.ts`                        | ★ 检索注入接缝                               |
+| 静态知识块 `{{knowledge}}`（技能级，可信不消毒）                              | `src/infra/agent/prompt.ts` + `WelinkSkill.knowledge` | ✅ 保留，与检索正交                          |
+| HTTP 宿主通道 `http_post_json`（传输层故障才 reject、2MB 截断、超时宿主强制） | `src-tauri/src/http.rs` + Bridge `httpPostJson`       | ✅ RAG 检索复用                              |
+| transport 组合点注入模式（桌面宿主通道 / 测试 window.fetch）                  | `src/infra/agent/agent-http.ts` + `index.ts`          | ✅ rag-http 对齐                             |
+| 连接配置卡惯例（单编辑器/防抖/双卡透传/三层归一化）                           | `LlmSettingsCard.vue`、`normalizeWelinkSettings`      | ✅ 新卡对齐                                  |
+| 文件通道 `fsRead/fsWrite`（数据根内相对路径、拒 `..`、写自动建父目录）        | `src-tauri/src/fs.rs`、Bridge `fsRead/fsWrite`        | ✅ 知识库复用；**缺列目录能力**（见 §5 D-F） |
+| web 模式文件通道诚实抛错                                                      | `src/api/web.ts`                                      | ✅ 知识库卡据此降级                          |
+| 技能模型 `WelinkSkill`（关键词/模板/知识块/审核）                             | `src/types/welink.ts`                                 | ★ 增检索绑定字段                             |
+| 迁移注册表 v1–v5、R4 留痕 `welink_agent_logs` 1:N                             | `src/infra/db/index.ts`、repos                        | ✅ 本期零迁移                                |
 
 ## 3. 缺口分析（本次要补的）
 
@@ -66,18 +66,18 @@ discussing → 拉上下文（不变）
 
 ## 5. 决策记录
 
-| 决策 | 选择 | 理由 |
-| --- | --- | --- |
-| D-A | 新增 `infra/rag/` 端口-适配器四件套（port / rag-http / mock / index） | 对齐 `infra/agent` 既有模式；检索是独立外部依赖，与 Agent 调用生命周期、配置、故障特征都不同，不并入 `infra/agent` |
-| D-B | 检索走 `bridge.httpPostJson` 宿主通道，适配器暴露可选 `transport` 组合点 | 与大模型对接完全同构：WebView CORS 由宿主规避、超时宿主强制、测试注入 fetch；零 Rust |
-| D-C | 配置挂 `WelinkSettings.rag: WelinkRagSettings`（ragSource/baseUrl/endpoint/apiKey/timeoutMs/topK/minScore/maxChars/fallbackRetrieve），normalize 三层兜底 | 对齐 agent 块惯例；`ragSource: 'mock'\|'http'` 真假分离；浏览器强制 mock |
-| D-D | 技能绑定检索：`WelinkSkill` 增 `retrieval: { enabled: boolean; filter?: string }`；兜底技能由 `rag.fallbackRetrieve` 控制 | 检索范围随技能走（故障咨询查故障库、进度查询查流程库），filter 语义 = 传给 RAG 服务的过滤条件（标签/分类），格式属 [RAG-ASSUME]；与技能路由正交 |
-| D-E | 注入用**新占位符 `{{retrieved}}`**，不复用 `{{knowledge}}` | 语义分离：「静态口径（人维护）」vs「本次检索事实（机器取回）」；模板作者各自决定位置；旧模板不含 `{{retrieved}}` 行为零变化 |
-| D-F | 知识库管理零 Rust：清单存 `knowledge/index.json`（fsWrite 自动建父目录），新建/编辑/下架/登记；**删除 = 下架**（fs 通道无删文件能力，物理删除列非目标）；手动放入的文件用「登记」录入 | 加 `fs_list`/`fs_delete` 各要多一个 Rust 命令且本期收益低；下架语义诚实可见（md 留存数据根，不丢数据）；`index.json` 是唯一真源，登记即对账 |
-| D-G | 检索结果注入生成 prompt 后随 R4 语料（`welink_agent_logs`）天然留痕；检索调用本身**不单独建表** | 零迁移；「检索到了什么」看生成 prompt 全文即可回溯；独立 rag_logs 表等真实运维需求出现再立变更 |
-| D-H | 检索失败/超时/零命中一律空串降级，logger.warn 留运行日志，不重试不阻断 | 检索是增强不是依赖——降级后回复质量回到「无检索」水平而非失败；与「检索不重试」的建群式保守立场一致 |
-| D-I | 检索内容（知识库片段）视为可信文本不消毒，但拼接结构（`【知识N】(来源, 相关度)` 头）由本端生成；会话内容消毒路径不变 | 对齐 D8；score/来源是本端计算/透传，攻击面 = 用户自己的知识库；`maxChars` 截断防爆 |
-| D-J | RAG 检索失败样本不进 agent_logs（那是模型调用语料），失败只进运行日志 | agent_logs 的语义是「模型输入输出」，混入检索错误会污染 R4 语料分析 |
+| 决策 | 选择                                                                                                                                                                                  | 理由                                                                                                                                            |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-A  | 新增 `infra/rag/` 端口-适配器四件套（port / rag-http / mock / index）                                                                                                                 | 对齐 `infra/agent` 既有模式；检索是独立外部依赖，与 Agent 调用生命周期、配置、故障特征都不同，不并入 `infra/agent`                              |
+| D-B  | 检索走 `bridge.httpPostJson` 宿主通道，适配器暴露可选 `transport` 组合点                                                                                                              | 与大模型对接完全同构：WebView CORS 由宿主规避、超时宿主强制、测试注入 fetch；零 Rust                                                            |
+| D-C  | 配置挂 `WelinkSettings.rag: WelinkRagSettings`（ragSource/baseUrl/endpoint/apiKey/timeoutMs/topK/minScore/maxChars/fallbackRetrieve），normalize 三层兜底                             | 对齐 agent 块惯例；`ragSource: 'mock'\|'http'` 真假分离；浏览器强制 mock                                                                        |
+| D-D  | 技能绑定检索：`WelinkSkill` 增 `retrieval: { enabled: boolean; filter?: string }`；兜底技能由 `rag.fallbackRetrieve` 控制                                                             | 检索范围随技能走（故障咨询查故障库、进度查询查流程库），filter 语义 = 传给 RAG 服务的过滤条件（标签/分类），格式属 [RAG-ASSUME]；与技能路由正交 |
+| D-E  | 注入用**新占位符 `{{retrieved}}`**，不复用 `{{knowledge}}`                                                                                                                            | 语义分离：「静态口径（人维护）」vs「本次检索事实（机器取回）」；模板作者各自决定位置；旧模板不含 `{{retrieved}}` 行为零变化                     |
+| D-F  | 知识库管理零 Rust：清单存 `knowledge/index.json`（fsWrite 自动建父目录），新建/编辑/下架/登记；**删除 = 下架**（fs 通道无删文件能力，物理删除列非目标）；手动放入的文件用「登记」录入 | 加 `fs_list`/`fs_delete` 各要多一个 Rust 命令且本期收益低；下架语义诚实可见（md 留存数据根，不丢数据）；`index.json` 是唯一真源，登记即对账     |
+| D-G  | 检索结果注入生成 prompt 后随 R4 语料（`welink_agent_logs`）天然留痕；检索调用本身**不单独建表**                                                                                       | 零迁移；「检索到了什么」看生成 prompt 全文即可回溯；独立 rag_logs 表等真实运维需求出现再立变更                                                  |
+| D-H  | 检索失败/超时/零命中一律空串降级，logger.warn 留运行日志，不重试不阻断                                                                                                                | 检索是增强不是依赖——降级后回复质量回到「无检索」水平而非失败；与「检索不重试」的建群式保守立场一致                                              |
+| D-I  | 检索内容（知识库片段）视为可信文本不消毒，但拼接结构（`【知识N】(来源, 相关度)` 头）由本端生成；会话内容消毒路径不变                                                                  | 对齐 D8；score/来源是本端计算/透传，攻击面 = 用户自己的知识库；`maxChars` 截断防爆                                                              |
+| D-J  | RAG 检索失败样本不进 agent_logs（那是模型调用语料），失败只进运行日志                                                                                                                 | agent_logs 的语义是「模型输入输出」，混入检索错误会污染 R4 语料分析                                                                             |
 
 ## 6. 数据与契约
 
@@ -86,16 +86,16 @@ discussing → 拉上下文（不变）
 ```jsonc
 {
   "rag": {
-    "ragSource": "mock",                     // mock | http
-    "baseUrl": "http://rag.intranet.example.com",  // RAG 服务根地址
-    "endpoint": "/search",                   // 检索路径（惯用）
-    "apiKey": "",                            // Bearer 头，可空
-    "timeoutMs": 10000,                      // 1s–60s
-    "topK": 4,                               // 1–10
-    "minScore": 0,                           // 0–1，低于阈值丢弃
-    "maxChars": 1200,                        // 注入提示词的检索文本总上限
-    "fallbackRetrieve": false                // 兜底技能（通用助手）是否也检索
-  }
+    "ragSource": "mock", // mock | http
+    "baseUrl": "http://rag.intranet.example.com", // RAG 服务根地址
+    "endpoint": "/search", // 检索路径（惯用）
+    "apiKey": "", // Bearer 头，可空
+    "timeoutMs": 10000, // 1s–60s
+    "topK": 4, // 1–10
+    "minScore": 0, // 0–1，低于阈值丢弃
+    "maxChars": 1200, // 注入提示词的检索文本总上限
+    "fallbackRetrieve": false, // 兜底技能（通用助手）是否也检索
+  },
 }
 ```
 
@@ -142,7 +142,7 @@ export interface RagClient extends RagPort {
 ### 6.4 知识库清单（`knowledge/index.json`）
 
 ```jsonc
-{ "docs": [ { "file": "vpn-faq.md", "title": "VPN 常见问题", "updatedAt": "2026-10-05 10:00:00" } ] }
+{ "docs": [{ "file": "vpn-faq.md", "title": "VPN 常见问题", "updatedAt": "2026-10-05 10:00:00" }] }
 ```
 
 - 新建：fsWrite `knowledge/<slug>.md` + 重写 index.json；编辑：fsWrite 覆盖 + 更新清单；
@@ -182,15 +182,15 @@ export interface RagClient extends RagPort {
 
 ## 9. 测试与验证计划
 
-| 测试 | 覆盖 |
-| --- | --- |
-| `src/types/welink.spec.ts` | rag 配置归一化三层兜底、skill.retrieval 零迁移、老配置零迁移 |
-| `src/infra/rag/ports.spec.ts` | 请求体形状/Bearer trim/严格解析与字段容错/超时分类/公网 literal IP 守卫/浏览器强制 mock/mock 命中与故障注入 |
-| `src/infra/agent/prompt.spec.ts` | `{{retrieved}}` 注入、空缺省空串、unknownPlaceholders 不再误报 |
+| 测试                                | 覆盖                                                                                                                                                 |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/types/welink.spec.ts`          | rag 配置归一化三层兜底、skill.retrieval 零迁移、老配置零迁移                                                                                         |
+| `src/infra/rag/ports.spec.ts`       | 请求体形状/Bearer trim/严格解析与字段容错/超时分类/公网 literal IP 守卫/浏览器强制 mock/mock 命中与故障注入                                          |
+| `src/infra/agent/prompt.spec.ts`    | `{{retrieved}}` 注入、空缺省空串、unknownPlaceholders 不再误报                                                                                       |
 | `src/orchestrator/pipeline.spec.ts` | 检索注入（mock 命中 → prompt 含片段）/失败降级（prompt 无片段且生成继续）/禁用跳过（不发起检索）/fallbackRetrieve 开关/minScore 过滤与 maxChars 截断 |
-| `src/components/welink/settings/*` | 技能编辑器「知识检索」区契约、KnowledgeCard CRUD/登记/下架/降级提示契约 |
-| 覆盖率基线 | `orchestrator/**` ≥92%、`infra/db/**` ≥72% 不回退（infra/rag 新模块按 agent 惯例高覆盖） |
-| 浏览器 GUI 走查 | 知识库卡降级提示（web 模式）、技能检索区交互、mock RAG 命中的端到端回复（沿用长等待/几何点击经验） |
+| `src/components/welink/settings/*`  | 技能编辑器「知识检索」区契约、KnowledgeCard CRUD/登记/下架/降级提示契约                                                                              |
+| 覆盖率基线                          | `orchestrator/**` ≥92%、`infra/db/**` ≥72% 不回退（infra/rag 新模块按 agent 惯例高覆盖）                                                             |
+| 浏览器 GUI 走查                     | 知识库卡降级提示（web 模式）、技能检索区交互、mock RAG 命中的端到端回复（沿用长等待/几何点击经验）                                                   |
 
 ## 10. UI 设计要点
 
@@ -223,12 +223,12 @@ export interface RagClient extends RagPort {
 
 ## 13. 实施清单（对应 OpenSpec tasks 分解）
 
-| 文件 | 改动 |
-| --- | --- |
-| `src/types/welink.ts` | `WelinkRagSettings`、`RagSource`、`WelinkSkill.retrieval`、默认值与 normalize 收敛 |
-| `src/infra/rag/port.ts` `rag-http.ts` `mock.ts` `index.ts` | 端口/HTTP 适配器/mock/工厂（transport 注入 + IP 守卫 + [RAG-ASSUME] 标注） |
-| `src/infra/agent/prompt.ts` | `{{retrieved}}` 占位符与 PromptInput.retrieved |
-| `src/orchestrator/pipeline.ts` | generateOne 检索注入与静默降级 |
-| `src/components/welink/RagSettingsCard.vue`、`KnowledgeCard.vue`、`settings/SkillsSection.vue`、`SettingsView.vue` | RAG 配置卡、知识库卡、技能检索区、卡片挂载 |
-| `src/types/index.ts`、`src/api/*` | 如需 re-export；Bridge 无改动 |
-| openspec | `add-welink-rag-retrieval` 提案 + 归档后同步 `welink-auto-reply`、新增 `knowledge-base` 主规格 |
+| 文件                                                                                                               | 改动                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `src/types/welink.ts`                                                                                              | `WelinkRagSettings`、`RagSource`、`WelinkSkill.retrieval`、默认值与 normalize 收敛             |
+| `src/infra/rag/port.ts` `rag-http.ts` `mock.ts` `index.ts`                                                         | 端口/HTTP 适配器/mock/工厂（transport 注入 + IP 守卫 + [RAG-ASSUME] 标注）                     |
+| `src/infra/agent/prompt.ts`                                                                                        | `{{retrieved}}` 占位符与 PromptInput.retrieved                                                 |
+| `src/orchestrator/pipeline.ts`                                                                                     | generateOne 检索注入与静默降级                                                                 |
+| `src/components/welink/RagSettingsCard.vue`、`KnowledgeCard.vue`、`settings/SkillsSection.vue`、`SettingsView.vue` | RAG 配置卡、知识库卡、技能检索区、卡片挂载                                                     |
+| `src/types/index.ts`、`src/api/*`                                                                                  | 如需 re-export；Bridge 无改动                                                                  |
+| openspec                                                                                                           | `add-welink-rag-retrieval` 提案 + 归档后同步 `welink-auto-reply`、新增 `knowledge-base` 主规格 |

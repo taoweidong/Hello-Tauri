@@ -170,7 +170,9 @@ describe('types/welink —— 知识沉淀配置归一化（knowledge-sedimentat
   }
 
   it('老配置缺 sediment 块零迁移：沉淀关闭、manual 评审、白名单空、周期 6h、归档开', () => {
-    const merged = normalizeWelinkSettings({ agent: { agentSource: 'mock' } } as unknown as Partial<WelinkSettings>).sediment
+    const merged = normalizeWelinkSettings({
+      agent: { agentSource: 'mock' },
+    } as unknown as Partial<WelinkSettings>).sediment
     expect(merged).toEqual({
       enabled: false,
       mode: 'manual',

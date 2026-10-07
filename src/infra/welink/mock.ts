@@ -172,7 +172,13 @@ export const DEMO_SCRIPT: Record<string, ScriptStep[]> = {
     {
       convId: null,
       messages: [
-        { offsetSec: 3, senderId: 'E-9003', senderName: '周涛', content: '@你 麻烦把最新的接口文档发我一份，谢谢', atMe: true },
+        {
+          offsetSec: 3,
+          senderId: 'E-9003',
+          senderName: '周涛',
+          content: '@你 麻烦把最新的接口文档发我一份，谢谢',
+          atMe: true,
+        },
       ],
     },
   ],

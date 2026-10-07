@@ -275,7 +275,9 @@ export function createPipeline(options: PipelineOptions): Pipeline {
           logger.info(`知识检索零命中，按无检索生成（job ${jobPk} · 技能「${decision.skill.name}」）`)
         }
       } catch (error) {
-        logger.warn(`知识检索失败，降级无检索生成（job ${jobPk}）：${error instanceof Error ? error.message : String(error)}`)
+        logger.warn(
+          `知识检索失败，降级无检索生成（job ${jobPk}）：${error instanceof Error ? error.message : String(error)}`,
+        )
       }
     }
 
@@ -301,7 +303,9 @@ export function createPipeline(options: PipelineOptions): Pipeline {
           logger.warn(`绑定知识文档丢失：${file}（job ${jobPk}），可重新登记或下架后改绑`)
         }
       } catch (error) {
-        logger.warn(`本地知识文档读取失败，降级无文档生成（job ${jobPk}）：${error instanceof Error ? error.message : String(error)}`)
+        logger.warn(
+          `本地知识文档读取失败，降级无文档生成（job ${jobPk}）：${error instanceof Error ? error.message : String(error)}`,
+        )
       }
     }
 
@@ -815,7 +819,9 @@ function formatRetrieved(chunks: RagChunk[], rag: WelinkRagSettings): string {
     if (budget <= head.length) break
     // 首块超限时硬截断正文（保底注入部分知识而非空串）；后续块按相关性优先装满
     const body =
-      head.length + chunk.content.length > budget ? `${chunk.content.slice(0, budget - head.length - 1)}…` : chunk.content
+      head.length + chunk.content.length > budget
+        ? `${chunk.content.slice(0, budget - head.length - 1)}…`
+        : chunk.content
     parts.push(head + body)
     total += head.length + body.length
   }

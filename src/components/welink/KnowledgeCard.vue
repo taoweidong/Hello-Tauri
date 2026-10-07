@@ -96,7 +96,13 @@ async function saveEdit() {
     return
   }
   try {
-    await knowledgeStore.saveDoc({ file, title: draft.title.trim() || file, content: draft.content, source: 'manual', overwrite: !draft.isNew })
+    await knowledgeStore.saveDoc({
+      file,
+      title: draft.title.trim() || file,
+      content: draft.content,
+      source: 'manual',
+      overwrite: !draft.isNew,
+    })
     ElMessage.success('知识文档已保存')
     editing.value = null
   } catch (error) {
@@ -209,7 +215,20 @@ const SOURCE_TYPE_LABEL: Record<string, string> = {
   qa: '问答',
 }
 
-defineExpose({ load, openNew, openEdit, saveEdit, offShelf, openRegister, saveRegister, openReview, approveDraft, rejectDraft, registering, editing })
+defineExpose({
+  load,
+  openNew,
+  openEdit,
+  saveEdit,
+  offShelf,
+  openRegister,
+  saveRegister,
+  openReview,
+  approveDraft,
+  rejectDraft,
+  registering,
+  editing,
+})
 const listEmpty = computed(() => !loading.value && knowledgeStore.docsLoaded && docs.value.length === 0)
 const queueEmpty = computed(() => knowledgeStore.draftCount === 0)
 onMounted(() => {
@@ -218,7 +237,6 @@ onMounted(() => {
     void loadQueue()
   }
 })
-
 </script>
 
 <template>
@@ -237,7 +255,9 @@ onMounted(() => {
           <ul class="kb__list">
             <li v-for="draft in knowledgeStore.drafts" :key="draft.pk" class="kb__row kb__row--draft">
               <span class="kb__title">{{ draft.title }}</span>
-              <el-tag size="small" effect="plain" type="warning">{{ SOURCE_TYPE_LABEL[draft.sourceType] || draft.sourceType }}</el-tag>
+              <el-tag size="small" effect="plain" type="warning">{{
+                SOURCE_TYPE_LABEL[draft.sourceType] || draft.sourceType
+              }}</el-tag>
               <span class="kb__draft-content">{{ draft.content }}</span>
               <span class="spacer" />
               <el-button link type="primary" size="small" @click="openReview(draft)">评审</el-button>
@@ -254,12 +274,16 @@ onMounted(() => {
           <el-button size="small" type="primary" :icon="IconPlus" @click="openNew">新建文档</el-button>
         </div>
 
-        <p v-if="listEmpty" class="kb__empty">知识库为空：新建 Markdown 文档，或把已有 md 文件放入数据根 knowledge/ 目录后「登记」。</p>
+        <p v-if="listEmpty" class="kb__empty">
+          知识库为空：新建 Markdown 文档，或把已有 md 文件放入数据根 knowledge/ 目录后「登记」。
+        </p>
 
         <ul class="kb__list">
           <li v-for="doc in docs" :key="doc.file" class="kb__row">
             <span class="kb__title">{{ doc.title }}</span>
-            <el-tag size="small" effect="plain" :type="doc.source === 'manual' ? 'info' : 'success'">{{ SOURCE_LABEL[doc.source] }}</el-tag>
+            <el-tag size="small" effect="plain" :type="doc.source === 'manual' ? 'info' : 'success'">{{
+              SOURCE_LABEL[doc.source]
+            }}</el-tag>
             <span class="kb__file mono">{{ doc.file }}</span>
             <span class="spacer" />
             <span class="kb__time">{{ doc.updatedAt }}</span>
@@ -279,7 +303,13 @@ onMounted(() => {
               <el-input v-model="editing.file" class="kb__control" placeholder="留空则按标题生成（.md）" />
             </el-form-item>
           </el-form>
-          <el-input v-model="editing.content" type="textarea" :rows="14" class="kb__textarea" placeholder="Markdown 正文……" />
+          <el-input
+            v-model="editing.content"
+            type="textarea"
+            :rows="14"
+            class="kb__textarea"
+            placeholder="Markdown 正文……"
+          />
           <div class="kb__edit-bar">
             <el-button size="small" @click="editing = null">取消</el-button>
             <el-button size="small" type="primary" @click="saveEdit">保存</el-button>
@@ -334,7 +364,14 @@ onMounted(() => {
         </div>
       </template>
 
-      <el-alert v-else type="info" :closable="false" show-icon title="知识库管理需桌面模式" description="浏览器调试模式下无法读写本地文件；检索链路可用「模拟检索」照常演示。" />
+      <el-alert
+        v-else
+        type="info"
+        :closable="false"
+        show-icon
+        title="知识库管理需桌面模式"
+        description="浏览器调试模式下无法读写本地文件；检索链路可用「模拟检索」照常演示。"
+      />
     </div>
   </section>
 </template>

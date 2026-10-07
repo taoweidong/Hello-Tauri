@@ -33,6 +33,7 @@ GitHub 的 gh CLI）拉取 MR 合并与检视信息，落库快照、离线可�
   无 Rust 可调试。
 
 **不做（本期）**：
+
 - 不接 GitHub/GitLab 云端 API（内网不可达）；Port 设计不绑 CodeHub 特有字段，为后续
   多宿主（如 gh CLI）预留适配器位。
 - 不做 MR 写操作（评论 / 批准 / 合并一律只读）。

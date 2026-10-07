@@ -142,9 +142,11 @@ describe('infra/db/welink —— 迁移 v5（技能路由留痕三列）', () =>
     expect(migrationV5.description).toBe('add_welink_job_skill_columns')
   })
 
-  it('三列均为 TEXT NOT NULL DEFAULT \'\'（老数据读出空串，展示层按「—」处理）', () => {
+  it("三列均为 TEXT NOT NULL DEFAULT ''（老数据读出空串，展示层按「—」处理）", () => {
     for (const column of ['skill_id', 'skill_name', 'skill_source']) {
-      expect(migrationV5.sql).toMatch(new RegExp(`ALTER TABLE welink_reply_jobs ADD COLUMN ${column} TEXT NOT NULL DEFAULT ''`))
+      expect(migrationV5.sql).toMatch(
+        new RegExp(`ALTER TABLE welink_reply_jobs ADD COLUMN ${column} TEXT NOT NULL DEFAULT ''`),
+      )
     }
   })
 

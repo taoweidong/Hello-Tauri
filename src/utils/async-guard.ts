@@ -14,11 +14,7 @@
  * 结果；rejection **原样传播**（通道故障语义由调用方决定是否再包一层
  * `foldRejection`）。settle 后定时器必然清除。
  */
-export async function withHardTimeout<T>(
-  task: () => Promise<T>,
-  timeoutMs: number,
-  onTimeout: () => T,
-): Promise<T> {
+export async function withHardTimeout<T>(task: () => Promise<T>, timeoutMs: number, onTimeout: () => T): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await new Promise<T>((resolve, reject) => {
@@ -34,10 +30,7 @@ export async function withHardTimeout<T>(
  * 异常折叠包装：`task` 的 rejection 经 `onFailure` 折叠为确定结果——包装后的
  * 调用**永不 reject**。成功值原样透传。
  */
-export async function foldRejection<T>(
-  task: () => Promise<T>,
-  onFailure: (error: unknown) => T,
-): Promise<T> {
+export async function foldRejection<T>(task: () => Promise<T>, onFailure: (error: unknown) => T): Promise<T> {
   try {
     return await task()
   } catch (error) {

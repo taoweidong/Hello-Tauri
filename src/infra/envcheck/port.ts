@@ -62,7 +62,10 @@ const SEVERITY: Record<EnvCheckStatus, number> = { ok: 0, warn: 1, timeout: 2, f
 
 /** 取一组步骤的最坏状态 */
 export function worstStatus(steps: EnvCheckStep[]): EnvCheckStatus {
-  return steps.reduce<EnvCheckStatus>((worst, step) => (SEVERITY[step.status] > SEVERITY[worst] ? step.status : worst), 'ok')
+  return steps.reduce<EnvCheckStatus>(
+    (worst, step) => (SEVERITY[step.status] > SEVERITY[worst] ? step.status : worst),
+    'ok',
+  )
 }
 
 /**
@@ -79,7 +82,11 @@ export function worstStatus(steps: EnvCheckStep[]): EnvCheckStatus {
  * 实现委托 `utils/async-guard` 的通用原语（quality-hardening-2026-10 D5）：
  * 本函数只负责把通用语义映射成 EnvCheckOutcome 的两种折叠形态。
  */
-export function withHardTimeout(task: () => Promise<EnvCheckOutcome>, timeoutMs: number, label: string): Promise<EnvCheckOutcome> {
+export function withHardTimeout(
+  task: () => Promise<EnvCheckOutcome>,
+  timeoutMs: number,
+  label: string,
+): Promise<EnvCheckOutcome> {
   const started = Date.now()
   return foldRejection(
     () =>

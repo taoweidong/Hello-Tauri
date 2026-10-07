@@ -29,9 +29,7 @@ watch(
 )
 
 /** 启动默认页候选：从路由表派生（A-1 单一真值），避免手写清单与侧栏漂移 */
-const routeOptions = computed(() =>
-  navRoutes().map((item) => ({ label: item.title, value: item.path })),
-)
+const routeOptions = computed(() => navRoutes().map((item) => ({ label: item.title, value: item.path })))
 
 const savedText = computed(() =>
   appStore.lastSavedAt ? new Date(appStore.lastSavedAt).toLocaleString('zh-CN') : '尚未保存',
@@ -282,7 +280,9 @@ async function migrateDir() {
     <SedimentCard
       :model-value="form.weLink?.sediment ?? {}"
       class="sed-card"
-      @update:model-value="(sediment: WelinkSettings['sediment']) => (form.weLink = { ...(form.weLink ?? {}), sediment })"
+      @update:model-value="
+        (sediment: WelinkSettings['sediment']) => (form.weLink = { ...(form.weLink ?? {}), sediment })
+      "
     />
 
     <!-- CodeHub 连接（personal-workbench）：配置持久化在这里，同步/刷新入口在检视页 -->

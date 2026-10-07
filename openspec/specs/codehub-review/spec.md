@@ -1,6 +1,7 @@
 # codehub-review Specification
 
 ## Purpose
+
 CodeHub MR 检视信息域：经内网 codehub-cli 工具拉取 MR 合并与检视信息，快照落库、
 离线可查、全程只读——内网环境下对标「gh CLI 之于 GitHub」的接入方式。
 

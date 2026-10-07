@@ -33,7 +33,10 @@ describe('csv 导出', () => {
 
   it('表头固定中文列，行按列序拼接', () => {
     const csv = toCsv([row()])
-    const lines = csv.replace(/^\uFEFF/, '').trim().split('\r\n')
+    const lines = csv
+      .replace(/^\uFEFF/, '')
+      .trim()
+      .split('\r\n')
     expect(lines[0]).toBe('编号,名称,分类,状态,金额,负责人,创建日期')
     expect(lines[1]).toBe('1,记录一,分类A,active,12.5,张三,2026-10-03 09:00:00')
   })

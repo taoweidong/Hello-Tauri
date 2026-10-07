@@ -14,7 +14,18 @@ function throwingDeps(): SysinfoBridgeDeps {
 describe('系统信息探测适配器', () => {
   it('正常路径：透传 Bridge 结果', async () => {
     const probes = createSysinfoProbes({
-      sysOverview: () => Promise.resolve({ ok: true, data: { osName: 'Windows 11', osVersion: '23H2', arch: 'x86_64', hostname: 'h', username: 'u', dataRoot: 'D:\\x' } }),
+      sysOverview: () =>
+        Promise.resolve({
+          ok: true,
+          data: {
+            osName: 'Windows 11',
+            osVersion: '23H2',
+            arch: 'x86_64',
+            hostname: 'h',
+            username: 'u',
+            dataRoot: 'D:\\x',
+          },
+        }),
       sysEnvVar: (name) => Promise.resolve(name === 'PATH' ? { ok: true, data: 'C:\\bin' } : { ok: true, data: null }),
       sysDisks: () => Promise.resolve({ ok: true, data: [{ letter: 'C', totalBytes: 1, freeBytes: 1 }] }),
       sysAdapters: () => Promise.resolve({ ok: true, data: [{ name: '以太网', enabled: true, ipv4: '10.0.0.2' }] }),

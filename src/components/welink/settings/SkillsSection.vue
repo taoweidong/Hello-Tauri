@@ -58,7 +58,9 @@ const keywordsText = computed({
 })
 
 const editingMissingPlaceholders = computed(() =>
-  editingDraft.value ? ['{{context}}', '{{question}}'].filter((token) => !editingDraft.value!.promptTemplate.includes(token)) : [],
+  editingDraft.value
+    ? ['{{context}}', '{{question}}'].filter((token) => !editingDraft.value!.promptTemplate.includes(token))
+    : [],
 )
 
 function startAdd() {
@@ -153,7 +155,9 @@ defineExpose({ startAdd, startEdit, saveEditor, closeEditor, removeSkill, setEna
           按顺序匹配，先配置先命中（上移/下移调优先级）；停用的技能不参与路由。最多 {{ MAX_WELINK_SKILLS }} 个。
         </span>
         <span class="spacer" />
-        <el-button size="small" type="primary" :icon="IconPlus" :disabled="atLimit" @click="startAdd">添加技能</el-button>
+        <el-button size="small" type="primary" :icon="IconPlus" :disabled="atLimit" @click="startAdd"
+          >添加技能</el-button
+        >
       </div>
 
       <p v-if="!skills.length" class="sk__empty">未配置技能：全部消息走「兜底技能（通用助手）」模板回复。</p>
@@ -166,7 +170,9 @@ defineExpose({ startAdd, startEdit, saveEditor, closeEditor, removeSkill, setEna
           <el-tag size="small" effect="plain" class="sk__meta">{{ skill.keywords.length }} 个关键词</el-tag>
           <span class="spacer" />
           <el-button link size="small" :disabled="index === 0" @click="move(skill.id, -1)">上移</el-button>
-          <el-button link size="small" :disabled="index === skills.length - 1" @click="move(skill.id, 1)">下移</el-button>
+          <el-button link size="small" :disabled="index === skills.length - 1" @click="move(skill.id, 1)"
+            >下移</el-button
+          >
           <el-switch
             :model-value="skill.enabled"
             size="small"
@@ -212,7 +218,8 @@ defineExpose({ startAdd, startEdit, saveEditor, closeEditor, removeSkill, setEna
                 effect="plain"
                 class="wc__token pressable"
                 @click="insertPlaceholder(token)"
-              >{{ token }}</el-tag>
+                >{{ token }}</el-tag
+              >
             </div>
             <el-input v-model="editingDraft.promptTemplate" type="textarea" :rows="6" class="wc__textarea" />
             <el-alert
@@ -253,9 +260,16 @@ defineExpose({ startAdd, startEdit, saveEditor, closeEditor, removeSkill, setEna
               placeholder="绑定本地知识库文档（可多选，最多 5 篇）"
               class="wc__control"
             >
-              <el-option v-for="doc in knowledgeStore.docs" :key="doc.file" :value="doc.file" :label="`${doc.title}（${doc.file}）`" />
+              <el-option
+                v-for="doc in knowledgeStore.docs"
+                :key="doc.file"
+                :value="doc.file"
+                :label="`${doc.title}（${doc.file}）`"
+              />
             </el-select>
-            <span class="wc__hint">命中该技能时读取文档内容，经模板的 docs 占位符注入（本地知识库口径，与 RAG 检索相互独立）</span>
+            <span class="wc__hint"
+              >命中该技能时读取文档内容，经模板的 docs 占位符注入（本地知识库口径，与 RAG 检索相互独立）</span
+            >
           </el-form-item>
           <el-form-item label="人工审核">
             <el-switch v-model="editingDraft.reviewMode" active-value="manual" inactive-value="auto" />

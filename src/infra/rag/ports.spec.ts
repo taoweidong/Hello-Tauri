@@ -17,7 +17,9 @@ const OK_TRANSPORT: RagHttpTransport = async () => ({
   body: JSON.stringify({ results: [{ content: '先查网关日志', score: 0.91, source: 'ts.md' }] }),
 })
 
-const httpOptions = (overrides: Partial<Parameters<typeof createHttpRag>[0]> = {}): Parameters<typeof createHttpRag>[0] => ({
+const httpOptions = (
+  overrides: Partial<Parameters<typeof createHttpRag>[0]> = {},
+): Parameters<typeof createHttpRag>[0] => ({
   baseUrl: 'http://rag.intranet.local',
   endpoint: '/search',
   apiKey: '',
@@ -65,17 +67,28 @@ describe('infra/rag —— rag-http 请求形状与解析', () => {
     ) as unknown as RagHttpTransport
     const client = createHttpRag(httpOptions({ apiKey: ' sk-1 ', transport }))
     await client.retrieve({ query: '报 500', filter: ' 故障 ' })
-    const [url, headers, body] = (transport as ReturnType<typeof vi.fn>).mock.calls[0] as [string, Record<string, string>, string]
+    const [url, headers, body] = (transport as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      Record<string, string>,
+      string,
+    ]
     expect(url).toBe('http://rag.intranet.local/search')
     expect(headers.authorization).toBe('Bearer sk-1')
     expect(JSON.parse(body)).toEqual({ query: '报 500', top_k: 4, filter: '故障' })
   })
 
   it('apiKey 为空不带鉴权头；query.topK 覆盖缺省 topK', async () => {
-    const transport = vi.fn(async () => ({ status: 200, body: JSON.stringify({ results: [] }) })) as unknown as RagHttpTransport
+    const transport = vi.fn(async () => ({
+      status: 200,
+      body: JSON.stringify({ results: [] }),
+    })) as unknown as RagHttpTransport
     const client = createHttpRag(httpOptions({ transport }))
     await client.retrieve({ query: 'x', topK: 7 })
-    const [, headers, body] = (transport as ReturnType<typeof vi.fn>).mock.calls[0] as [string, Record<string, string>, string]
+    const [, headers, body] = (transport as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      Record<string, string>,
+      string,
+    ]
     expect(headers.authorization).toBeUndefined()
     expect(JSON.parse(body).top_k).toBe(7)
   })
@@ -114,9 +127,9 @@ describe('infra/rag —— rag-http 请求形状与解析', () => {
     })
     const slow: RagHttpTransport = (_url, _h, _b, timeoutMs) =>
       new Promise((resolve) => setTimeout(() => resolve({ status: 200, body: '{}' }), timeoutMs + 50))
-    await expect(createHttpRag(httpOptions({ transport: slow, timeoutMs: 50 })).retrieve({ query: 'x' })).rejects.toMatchObject(
-      { kind: 'transport' },
-    )
+    await expect(
+      createHttpRag(httpOptions({ transport: slow, timeoutMs: 50 })).retrieve({ query: 'x' }),
+    ).rejects.toMatchObject({ kind: 'transport' })
     const client = createHttpRag(httpOptions({ baseUrl: 'http://8.8.8.8' }))
     await expect(client.retrieve({ query: 'x' })).rejects.toThrow('公网 IP')
   })

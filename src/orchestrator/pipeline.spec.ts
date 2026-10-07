@@ -37,7 +37,12 @@ import {
 } from '@/types/welink'
 import type { SkillAttribution } from '@/infra/db/ports'
 import type { RagClient, RagChunk, RagQuery } from '@/infra/rag'
-import { createMockKnowledgePort, resetMockKnowledge, seedMockKnowledgeFile, type KnowledgePort } from '@/infra/knowledge'
+import {
+  createMockKnowledgePort,
+  resetMockKnowledge,
+  seedMockKnowledgeFile,
+  type KnowledgePort,
+} from '@/infra/knowledge'
 
 // ---------------------------------------------------------------- 手动驱动的假时钟
 
@@ -1401,7 +1406,11 @@ describe('orchestrator/pipeline —— 技能路由接入（skill-routing）', (
     h.pipeline.enqueue(1)
     await h.pipeline.drain()
     expect(h.repo.mocks.holdJob).toHaveBeenCalledWith(1, 'skill_review')
-    expect(jobOf(h, 1)).toMatchObject({ status: 'ready', draft: '收到，我看一下，稍后回复你。', holdReason: 'skill_review' })
+    expect(jobOf(h, 1)).toMatchObject({
+      status: 'ready',
+      draft: '收到，我看一下，稍后回复你。',
+      holdReason: 'skill_review',
+    })
     expect(h.port.send).not.toHaveBeenCalled()
     const transition = h.events.find(
       (event) => event.type === 'jobStatusChanged' && (event as { holdReason?: string }).holdReason === 'skill_review',
@@ -1666,12 +1675,21 @@ describe('orchestrator/pipeline —— 本地知识文档注入（{{docs}}，kno
   it('命中技能加载绑定文档：内容经【文档·标题】头注入 {{docs}}，超出上限截断', async () => {
     seedMockKnowledgeFile(
       'knowledge/index.json',
-      JSON.stringify({ docs: [{ file: 'door.md', title: '门禁手册', updatedAt: '2026-10-06 10:00:00', source: 'manual' }] }),
+      JSON.stringify({
+        docs: [{ file: 'door.md', title: '门禁手册', updatedAt: '2026-10-06 10:00:00', source: 'manual' }],
+      }),
     )
     const h = harness({
       jobs: [job()],
       settings: {
-        sediment: { enabled: false, mode: 'manual', sessions: [], intervalHours: 6, qaArchive: false, docsMaxChars: 50 },
+        sediment: {
+          enabled: false,
+          mode: 'manual',
+          sessions: [],
+          intervalHours: 6,
+          qaArchive: false,
+          docsMaxChars: 50,
+        },
         agent: {
           ...DEFAULT_WELINK_SETTINGS.agent,
           skills: [
@@ -1696,14 +1714,22 @@ describe('orchestrator/pipeline —— 本地知识文档注入（{{docs}}，kno
   it('文件丢失静默降级：空注入继续生成，不重试不失败', async () => {
     seedMockKnowledgeFile(
       'knowledge/index.json',
-      JSON.stringify({ docs: [{ file: 'gone.md', title: '已丢失', updatedAt: '2026-10-06 10:00:00', source: 'manual' }] }),
+      JSON.stringify({
+        docs: [{ file: 'gone.md', title: '已丢失', updatedAt: '2026-10-06 10:00:00', source: 'manual' }],
+      }),
     )
     const h = harness({
       jobs: [job()],
       settings: {
         agent: {
           ...DEFAULT_WELINK_SETTINGS.agent,
-          skills: [skill({ keywords: ['500'], promptTemplate: '参考：[{{docs}}]\nQ:{{question}}', knowledgeDocs: ['gone.md'] })],
+          skills: [
+            skill({
+              keywords: ['500'],
+              promptTemplate: '参考：[{{docs}}]\nQ:{{question}}',
+              knowledgeDocs: ['gone.md'],
+            }),
+          ],
         },
       },
       knowledge: knowledgeWith,
@@ -1719,7 +1745,9 @@ describe('orchestrator/pipeline —— 本地知识文档注入（{{docs}}，kno
     seedMockKnowledgeFile('knowledge/door.md', '不该被读取的正文')
     seedMockKnowledgeFile(
       'knowledge/index.json',
-      JSON.stringify({ docs: [{ file: 'door.md', title: '门禁手册', updatedAt: '2026-10-06 10:00:00', source: 'manual' }] }),
+      JSON.stringify({
+        docs: [{ file: 'door.md', title: '门禁手册', updatedAt: '2026-10-06 10:00:00', source: 'manual' }],
+      }),
     )
     let reads = 0
     const countingPort: KnowledgePort = {

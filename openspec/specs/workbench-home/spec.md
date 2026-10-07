@@ -1,6 +1,7 @@
 # workbench-home Specification
 
 ## Purpose
+
 工作台首页与导航信息架构：首页聚焦 WeLink 与 CodeHub 两个业务域的动态汇总
 （数据管理仅为 CRUD 演示域、环境检测为系统工具，均不上首页），侧栏按分组组织，
 同时守护「既有域功能与路由不被首页改造破坏」的边界。

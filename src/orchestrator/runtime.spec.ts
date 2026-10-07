@@ -355,7 +355,8 @@ describe('M3 全链路：mock 端口 → 内存库 → mock Agent → SafetyGate
     expect(h.port.sent).toHaveLength(1)
   })
 
-  it('Agent 留痕归属到正确的 job（R4：onCall 1:N 语料不能张冠李戴）', async () => {    const h = await harness()
+  it('Agent 留痕归属到正确的 job（R4：onCall 1:N 语料不能张冠李戴）', async () => {
+    const h = await harness()
     h.port.push('G-1001', [{ content: '@我 帮忙看下' }])
 
     h.runtime.pipeline.start()

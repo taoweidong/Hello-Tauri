@@ -17,7 +17,10 @@ vi.mock('@/utils/logger', () => ({ logger }))
  * 失败后允许重试。假端口 + 假仓储，不依赖真实 codehub-cli。
  */
 
-const DETAIL: CodeHubMergeRequestDetail = { description: '正文', comments: [{ author: 'u', body: 'b', createdAt: 't' }] }
+const DETAIL: CodeHubMergeRequestDetail = {
+  description: '正文',
+  comments: [{ author: 'u', body: 'b', createdAt: 't' }],
+}
 
 function record(detail: CodeHubMergeRequestDetail | null): CodeHubMrRecord {
   return {
@@ -45,7 +48,9 @@ function fakeRepo(rows: Array<CodeHubMrRecord | null>) {
   } satisfies Pick<CodeHubRepository, 'getMr' | 'saveMrDetail'>
 }
 
-const port = { getMergeRequestDetail: vi.fn() } as unknown as CodeHubPort & { getMergeRequestDetail: ReturnType<typeof vi.fn> }
+const port = { getMergeRequestDetail: vi.fn() } as unknown as CodeHubPort & {
+  getMergeRequestDetail: ReturnType<typeof vi.fn>
+}
 
 describe('codehub 详情补拉', () => {
   beforeEach(() => {

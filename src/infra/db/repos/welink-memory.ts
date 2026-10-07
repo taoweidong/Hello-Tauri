@@ -10,7 +10,14 @@
  *  * 幂等去重、状态机并发锁、要点3 的原子性都照实现 —— 这些是被测试覆盖的语义，
  *    不能因为「反正是 mock」就省略。
  */
-import type { JobRating, SkillSource, WelinkAgentLog, WelinkConversation, WelinkJob, WelinkMessage } from '@/types/welink'
+import type {
+  JobRating,
+  SkillSource,
+  WelinkAgentLog,
+  WelinkConversation,
+  WelinkJob,
+  WelinkMessage,
+} from '@/types/welink'
 import { nowStamp } from '@/utils/time'
 import type {
   ApplyResult,

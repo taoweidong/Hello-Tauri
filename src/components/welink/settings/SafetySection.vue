@@ -87,7 +87,12 @@ const previewResult = computed(() => {
   <el-collapse-item name="safety" title="防滥发（SafetyGate 闸口）">
     <div class="wc__presets">
       <el-radio-group v-model="presetId">
-        <el-radio-button v-for="preset in presetOptions" :key="preset.id" :value="preset.id" :title="preset.description">
+        <el-radio-button
+          v-for="preset in presetOptions"
+          :key="preset.id"
+          :value="preset.id"
+          :title="preset.description"
+        >
           {{ preset.label }}
         </el-radio-button>
       </el-radio-group>
@@ -158,7 +163,9 @@ const previewResult = computed(() => {
         <div class="wc__patterns">
           <div v-for="(_, index) in safety.blacklistPatterns" :key="index" class="wc__pattern">
             <el-input v-model="safety.blacklistPatterns[index]" size="small" placeholder="正则表达式" />
-            <el-button size="small" text type="danger" @click="safety.blacklistPatterns.splice(index, 1)">删除</el-button>
+            <el-button size="small" text type="danger" @click="safety.blacklistPatterns.splice(index, 1)"
+              >删除</el-button
+            >
           </div>
           <el-button size="small" text @click="safety.blacklistPatterns.push('')">+ 添加一条</el-button>
           <p class="wc__hint">命中后转「人工待审」而不是丢弃：保留草稿让人判断，避免误伤正常回复</p>

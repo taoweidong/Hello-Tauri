@@ -38,7 +38,12 @@ export function createMockEnvChecks(options: MockEnvCheckOptions = {}): EnvCheck
         summary: '【模拟】welink-cli 可用（mock 1.0.0），环境自检通过',
         details: '浏览器调试模式无法执行本地命令，以上为模拟结论；桌面模式将真实执行 welink-cli。',
         steps: [
-          { name: '可执行检查', status: 'ok', summary: '【模拟】可正常执行（mock 1.0.0）', durationMs: Math.round(delay / 2) },
+          {
+            name: '可执行检查',
+            status: 'ok',
+            summary: '【模拟】可正常执行（mock 1.0.0）',
+            durationMs: Math.round(delay / 2),
+          },
           { name: '环境自检', status: 'ok', summary: '【模拟】CLI 环境自检通过', durationMs: Math.round(delay / 2) },
         ],
         durationMs: delay,

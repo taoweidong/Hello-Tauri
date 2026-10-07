@@ -127,7 +127,10 @@ describe('infra/envcheck/python —— 候选链降级', () => {
   })
 
   it('首个候选超时且未被恢复（py 也超时）→ 整体 timeout，不伪装成「未安装」', async () => {
-    script([{ timedOut: true, durationMs: 5000 }, { timedOut: true, durationMs: 5000 }])
+    script([
+      { timedOut: true, durationMs: 5000 },
+      { timedOut: true, durationMs: 5000 },
+    ])
     const outcome = await check.run()
     expect(outcome.status).toBe('timeout')
     expect(outcome.summary).toContain('超时')

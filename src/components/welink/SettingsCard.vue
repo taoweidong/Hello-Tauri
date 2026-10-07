@@ -192,7 +192,10 @@ const sourceLabel = computed(() => (draft.value.welinkSource === 'mock' ? '模�
                 <el-radio-button value="auto">自动外发</el-radio-button>
                 <el-radio-button value="manual">人工确认</el-radio-button>
               </el-radio-group>
-              <span class="wc__hint">manual = 草稿生成后停在「待审」，需在回复历史里确认发送；Agent 回复来源的切换在下方「大模型（Agent）」配置卡</span>
+              <span class="wc__hint"
+                >manual = 草稿生成后停在「待审」，需在回复历史里确认发送；Agent
+                回复来源的切换在下方「大模型（Agent）」配置卡</span
+              >
             </el-form-item>
           </el-form>
         </el-collapse-item>
@@ -261,7 +264,6 @@ const sourceLabel = computed(() => (draft.value.welinkSource === 'mock' ? '模�
             </p>
           </el-form>
         </el-collapse-item>
-
       </el-collapse>
 
       <!-- 连通性测试结果 -->
@@ -361,18 +363,6 @@ const sourceLabel = computed(() => (draft.value.welinkSource === 'mock' ? '模�
   color: var(--ht-warn);
   font-weight: 600;
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 .wc__test-text {
   margin: 0;

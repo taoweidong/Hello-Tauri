@@ -12,8 +12,7 @@
 
 ## 2. welink store 拆分与 S1 治理（design D1/D2）
 
-- [x] 2.1 新建 `src/orchestrator/welink-storage.ts`：`ensureWelinkStorage()`（迁移幂等）
-      + `getWelinkRepo()`（懒建单例，浏览器模式内存实现），含同目录 spec
+- [x] 2.1 新建 `src/orchestrator/welink-storage.ts`：`ensureWelinkStorage()`（迁移幂等）+ `getWelinkRepo()`（懒建单例，浏览器模式内存实现），含同目录 spec
 - [x] 2.2 展示常量迁移：`HOLD_REASON_LABEL`/`JOB_STATUS_LABEL`/`SKIP_REASON_LABEL`/
       `CONVERSATION_PAGE_LIMIT` 移至 `src/types/welink.ts`，`infra/db/ports` 原地
       re-export；既有引用方测试全绿

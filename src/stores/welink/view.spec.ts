@@ -63,9 +63,13 @@ function makeHarness(): Harness {
     port: vi.fn(() => ({ listConversations: async () => [] as unknown[] })),
     repo: runtimeRepo,
     poller: {
-      conversationState: vi.fn(
-        (): ConversationState => ({ state: 'ok', failCount: 0, backoffSec: 0, reason: '', lastOkAt: '' }),
-      ),
+      conversationState: vi.fn((): ConversationState => ({
+        state: 'ok',
+        failCount: 0,
+        backoffSec: 0,
+        reason: '',
+        lastOkAt: '',
+      })),
       refreshConversations: vi.fn(),
     },
     gate: {
@@ -107,7 +111,13 @@ describe('view：装载与 Gate 缓存回填', () => {
     expect(harness.deps.conversationsLoaded.value).toBe(true)
     expect(harness.deps.conversations.value).toHaveLength(1)
     expect(harness.runtime.gate.cacheConversation).toHaveBeenCalledWith('G-1', true, null)
-    expect(harness.deps.convoStates.value['G-1']).toEqual({ state: 'ok', failCount: 0, backoffSec: 0, reason: '', lastOkAt: '' })
+    expect(harness.deps.convoStates.value['G-1']).toEqual({
+      state: 'ok',
+      failCount: 0,
+      backoffSec: 0,
+      reason: '',
+      lastOkAt: '',
+    })
   })
 
   it('列表超限且总数更大：明确告警而不是静默截断（D-5）', async () => {

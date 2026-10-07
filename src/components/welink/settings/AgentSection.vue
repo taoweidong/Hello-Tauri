@@ -17,11 +17,7 @@ import { ElMessage } from 'element-plus'
 
 import { IconRefresh, IconRestore } from '@/components/icons'
 import { useWelinkStore } from '@/stores/welink'
-import {
-  DEFAULT_PROMPT_TEMPLATE,
-  PROMPT_PLACEHOLDERS,
-  type WelinkSettings,
-} from '@/types/welink'
+import { DEFAULT_PROMPT_TEMPLATE, PROMPT_PLACEHOLDERS, type WelinkSettings } from '@/types/welink'
 
 const agent = defineModel<WelinkSettings['agent']>({ required: true })
 
@@ -115,7 +111,9 @@ function insertPlaceholder(token: string) {
       </el-form-item>
       <el-form-item label="大模型名称">
         <el-input v-model="agent.model" class="wc__control" placeholder="如 qwen3.8-flash / deepseek-r1:14b" />
-        <span v-if="!agent.model.trim()" class="wc__warn">必填 model，缺失时每次生成都将失败（本机直接报错，不发无效请求）</span>
+        <span v-if="!agent.model.trim()" class="wc__warn"
+          >必填 model，缺失时每次生成都将失败（本机直接报错，不发无效请求）</span
+        >
       </el-form-item>
       <el-form-item label="API 密钥">
         <el-input
@@ -131,7 +129,8 @@ function insertPlaceholder(token: string) {
       <el-form-item label="接口路径">
         <el-input v-model="agent.endpoint" class="wc__control" placeholder="/v1/chat/completions" />
         <span class="wc__hint">
-          OpenAI 兼容 /chat/completions 协议（Ollama / vLLM / 企业网关 / 公有云 MaaS）；服务地址已含 /v1 类前缀时只填 /chat/completions
+          OpenAI 兼容 /chat/completions 协议（Ollama / vLLM / 企业网关 / 公有云 MaaS）；服务地址已含 /v1 类前缀时只填
+          /chat/completions
         </span>
       </el-form-item>
       <el-form-item label="超时">
@@ -150,7 +149,8 @@ function insertPlaceholder(token: string) {
           :loading="agentTesting"
           :disabled="agent.agentSource !== 'http'"
           @click="testAgent"
-        >连通性测试</el-button>
+          >连通性测试</el-button
+        >
         <span class="wc__hint">发送固定探测提示词，显示耗时与返回摘要（来源为模拟回复时按钮不可用）</span>
       </el-form-item>
     </el-form>

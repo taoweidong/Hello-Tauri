@@ -10,11 +10,11 @@
 
 ## 2. 三个容器 + 五个外部系统
 
-| 容器 | 承担 | 关键证据 |
-| --- | --- | --- |
-| WebView 前端 | 分层 `views → stores → orchestrator → infra → repositories → api`，业务全量 | `src/api/index.ts:1-10` |
-| Rust 宿主 | 25 命令薄桥接，不知道任何表结构、不含业务判断 | `src-tauri/src/lib.rs:23-51` |
-| 本机数据根 | `config/config.json`、`data/app.db`（SQLite WAL，migration v1–v5）、`table.json`、`logs/`（30 天）、`knowledge/*.md` + `knowledge/index.json`（RAG 知识源，走 `fs_read`/`fs_write`，不入 SQLite） | `src-tauri/src/storage.rs:13-17,78-127`、`AGENTS.md:82-86` |
+| 容器         | 承担                                                                                                                                                                                              | 关键证据                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| WebView 前端 | 分层 `views → stores → orchestrator → infra → repositories → api`，业务全量                                                                                                                       | `src/api/index.ts:1-10`                                    |
+| Rust 宿主    | 25 命令薄桥接，不知道任何表结构、不含业务判断                                                                                                                                                     | `src-tauri/src/lib.rs:23-51`                               |
+| 本机数据根   | `config/config.json`、`data/app.db`（SQLite WAL，migration v1–v5）、`table.json`、`logs/`（30 天）、`knowledge/*.md` + `knowledge/index.json`（RAG 知识源，走 `fs_read`/`fs_write`，不入 SQLite） | `src-tauri/src/storage.rs:13-17,78-127`、`AGENTS.md:82-86` |
 
 外部系统：`welink-cli.exe`（消息与建群）、`codehub-cli.exe`（MR 只读拉取）、大模型服务（阿里云 MaaS compatible-mode）、**知识检索服务（RAG，协议未核实）**、Windows 系统能力（System32 只读诊断 + 剪贴板/通知/打开）。
 
@@ -30,10 +30,10 @@
 
 ## 4. 两道闸门（结构性约束，机器可校验）
 
-| 闸门 | 位置 | 拦什么 |
-| --- | --- | --- |
+| 闸门                           | 位置                                                                                                                                  | 拦什么                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
 | ESLint `no-restricted-imports` | `eslint.config.mjs:112-136`（禁 `@tauri-apps/api`，仅 `api/tauri.ts` 例外）、`142-155`（UI 禁直触 `@/infra/**`、`@/repositories/**`） | 前端绕过 Bridge、UI 绕过 store |
-| Windows 命令双层闸 | TS 注册表 `src/infra/windows/registry.ts:39-111`（只登记只读诊断）+ Rust `cli.rs:36-56` `ALLOWED_STEMS` | Bridge 被当通用命令通道滥用 |
+| Windows 命令双层闸             | TS 注册表 `src/infra/windows/registry.ts:39-111`（只登记只读诊断）+ Rust `cli.rs:36-56` `ALLOWED_STEMS`                               | Bridge 被当通用命令通道滥用    |
 
 ## 5. 证据强度与不确定区
 
@@ -53,10 +53,10 @@
 
 ## 7. 下一步该路由到哪
 
-| 你接下来想问 | 该用的场景 skill |
-| --- | --- |
-| 自动回复一次轮询端到端怎么走、失败路径与留痕 | `flow-visualizer` |
-| 改 `orchestrator/pipeline` 或某张表会波及谁 | `dependency-impact-analyzer` |
-| 单 exe / 内网离线怎么部署与发布 | `deployment-topology-analyzer` |
-| 分层与闸门的债、风险与优先级 | `risk-quality-reviewer` |
-| 这套图有没有跟代码漂移 | `architecture-health` |
+| 你接下来想问                                 | 该用的场景 skill               |
+| -------------------------------------------- | ------------------------------ |
+| 自动回复一次轮询端到端怎么走、失败路径与留痕 | `flow-visualizer`              |
+| 改 `orchestrator/pipeline` 或某张表会波及谁  | `dependency-impact-analyzer`   |
+| 单 exe / 内网离线怎么部署与发布              | `deployment-topology-analyzer` |
+| 分层与闸门的债、风险与优先级                 | `risk-quality-reviewer`        |
+| 这套图有没有跟代码漂移                       | `architecture-health`          |

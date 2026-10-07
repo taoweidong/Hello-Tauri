@@ -52,7 +52,9 @@ export function agentClient(options: AgentClientOptions): AgentClient {
 
   if (source === 'http' && settings.baseUrl.trim()) {
     // 密钥只进请求头不进日志：这里只打模型名
-    logger.info(`Agent 端口：模型接口（${settings.baseUrl}${settings.endpoint} · model=${settings.model || '（未填）'}）`)
+    logger.info(
+      `Agent 端口：模型接口（${settings.baseUrl}${settings.endpoint} · model=${settings.model || '（未填）'}）`,
+    )
     cached = createHttpAgent({
       baseUrl: settings.baseUrl.trim(),
       endpoint: settings.endpoint,

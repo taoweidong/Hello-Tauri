@@ -11,7 +11,11 @@ describe('withHardTimeout', () => {
   })
 
   it('任务在预算内完成：透传成功值', async () => {
-    const pending = withHardTimeout(async () => 'ok', 1000, () => 'timeout')
+    const pending = withHardTimeout(
+      async () => 'ok',
+      1000,
+      () => 'timeout',
+    )
     await vi.advanceTimersByTimeAsync(10)
     await expect(pending).resolves.toBe('ok')
   })
@@ -39,7 +43,11 @@ describe('withHardTimeout', () => {
   })
 
   it('settle 后定时器必须清除（含超时路径与成功路径）', async () => {
-    await withHardTimeout(async () => 'ok', 1000, () => 'x')
+    await withHardTimeout(
+      async () => 'ok',
+      1000,
+      () => 'x',
+    )
     expect(vi.getTimerCount()).toBe(0)
 
     const hung = withHardTimeout(
@@ -56,7 +64,12 @@ describe('withHardTimeout', () => {
 
 describe('foldRejection', () => {
   it('成功值原样透传', async () => {
-    await expect(foldRejection(async () => 42, () => -1)).resolves.toBe(42)
+    await expect(
+      foldRejection(
+        async () => 42,
+        () => -1,
+      ),
+    ).resolves.toBe(42)
   })
 
   it('rejection 折叠为 onFailure 结果，包装后永不 reject', async () => {

@@ -71,7 +71,9 @@ export interface MockWindowsInfraState {
   envVarNames: string[]
 }
 
-export function createMockWindowsInfra(options: MockWindowsInfraOptions = {}): WindowsInfraPort & { state: MockWindowsInfraState } {
+export function createMockWindowsInfra(
+  options: MockWindowsInfraOptions = {},
+): WindowsInfraPort & { state: MockWindowsInfraState } {
   const delay = async () => {
     if (options.delayMs && options.delayMs > 0) {
       await new Promise<void>((resolve) => setTimeout(resolve, options.delayMs))

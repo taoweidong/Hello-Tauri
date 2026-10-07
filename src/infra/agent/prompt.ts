@@ -114,7 +114,15 @@ export function missingPlaceholders(template: string): string[] {
 
 /** 模板里出现的未知变量（保留原样但提示用户） */
 export function unknownPlaceholders(template: string): string[] {
-  const known = new Set(['{{context}}', '{{question}}', '{{sender}}', '{{target}}', '{{knowledge}}', '{{retrieved}}', '{{docs}}'])
+  const known = new Set([
+    '{{context}}',
+    '{{question}}',
+    '{{sender}}',
+    '{{target}}',
+    '{{knowledge}}',
+    '{{retrieved}}',
+    '{{docs}}',
+  ])
   const found = template.match(/\{\{[a-zA-Z_]+\}\}/g) ?? []
   return [...new Set(found.filter((token) => !known.has(token)))]
 }

@@ -2,14 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import {
-  IconActivity,
-  IconUsers,
-  IconGitBranch,
-  IconRefresh,
-  IconArrowRight,
-  IconCheck,
-} from '@/components/icons'
+import { IconActivity, IconUsers, IconGitBranch, IconRefresh, IconArrowRight, IconCheck } from '@/components/icons'
 
 import { platform } from '@/api'
 import type { CodeHubMrRecord } from '@/types/codehub'

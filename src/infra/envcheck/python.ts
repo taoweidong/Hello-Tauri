@@ -74,8 +74,11 @@ export function createPythonEnvCheck(options: PythonCheckOptions = {}): EnvCheck
       const attempts: EnvCheckStep[] = []
       const tried: string[] = []
       // 胜出的候选：命令名 + 解析出的版本 + 对应的探测步骤
-      let winner: { command: string; version: { major: number; minor: number; patch: number }; step: EnvCheckStep } | null =
-        null
+      let winner: {
+        command: string
+        version: { major: number; minor: number; patch: number }
+        step: EnvCheckStep
+      } | null = null
 
       for (const command of candidates) {
         tried.push(command)
@@ -89,9 +92,7 @@ export function createPythonEnvCheck(options: PythonCheckOptions = {}): EnvCheck
             attempts.push({
               name: `命令探测（${command}）`,
               status: 'fail',
-              summary: raw
-                ? `退出码 ${output.exitCode}：${raw}`
-                : `退出码 ${output.exitCode}，未回传版本号`,
+              summary: raw ? `退出码 ${output.exitCode}：${raw}` : `退出码 ${output.exitCode}，未回传版本号`,
               durationMs: Date.now() - stepStarted,
             })
             continue

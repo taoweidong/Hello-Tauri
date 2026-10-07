@@ -115,7 +115,12 @@ export const webBridge: Bridge = {
   //    window.fetch —— 浏览器直发必然撞上大模型服务的 CORS 缺失（本通道存在的
   //    原因就是绕开它），假装可用只会给出误导性失败。业务路径不会走到这里：
   //    infra/agent 工厂在 web 模式强制 mock（web.spec 有同款契约测试）。
-  async httpPostJson(_url: string, _headers: Record<string, string>, _body: string, _timeoutMs: number): Promise<HttpPostResult> {
+  async httpPostJson(
+    _url: string,
+    _headers: Record<string, string>,
+    _body: string,
+    _timeoutMs: number,
+  ): Promise<HttpPostResult> {
     throw new Error('浏览器调试模式不支持宿主 HTTP 通道，Agent 数据源请使用 mock')
   },
 
@@ -196,7 +201,8 @@ export const webBridge: Bridge = {
       return { ok: false, reason: '当前浏览器不支持 Notification API' }
     }
     try {
-      const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission
+      const permission =
+        Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission
       if (permission !== 'granted') {
         return { ok: false, reason: '浏览器通知权限未授予' }
       }

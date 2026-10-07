@@ -140,7 +140,15 @@ export const useEnvCheckStore = defineStore('envcheck', () => {
     // 先全部置 running（按钮立即转 loading），完成一项落一项
     items.value = items.value.map((state) =>
       byId.has(state.id)
-        ? { ...state, status: 'running', summary: '检测中…', details: '', steps: [], durationMs: null, finishedAt: null }
+        ? {
+            ...state,
+            status: 'running',
+            summary: '检测中…',
+            details: '',
+            steps: [],
+            durationMs: null,
+            finishedAt: null,
+          }
         : state,
     )
 
@@ -167,7 +175,14 @@ export const useEnvCheckStore = defineStore('envcheck', () => {
     if (!running.value) return
     items.value = items.value.map((state) =>
       state.status === 'running'
-        ? { ...state, status: 'idle', summary: '已取消（本次未等待结果返回）', steps: [], durationMs: null, finishedAt: null }
+        ? {
+            ...state,
+            status: 'idle',
+            summary: '已取消（本次未等待结果返回）',
+            steps: [],
+            durationMs: null,
+            finishedAt: null,
+          }
         : state,
     )
   }

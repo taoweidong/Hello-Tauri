@@ -137,7 +137,18 @@ describe('llm SettingsCard（大模型配置卡）', () => {
   })
 
   it('父级回写含技能清单的同值不再触发新一轮 push（防顶回扩展到 skills）', async () => {
-    const skill: WelinkSkill = { id: 'a', name: '故障咨询', description: '', enabled: true, keywords: [], promptTemplate: '', knowledge: '', reviewMode: 'auto', retrieval: { enabled: false }, knowledgeDocs: [] }
+    const skill: WelinkSkill = {
+      id: 'a',
+      name: '故障咨询',
+      description: '',
+      enabled: true,
+      keywords: [],
+      promptTemplate: '',
+      knowledge: '',
+      reviewMode: 'auto',
+      retrieval: { enabled: false },
+      knowledgeDocs: [],
+    }
     const wrapper = mountCard({ agentSource: 'http', baseUrl: 'http://x', model: 'm', skills: [skill] })
     await edit(wrapper, { agentSource: 'http', baseUrl: 'http://x:8080', model: 'm', skills: [skill] })
     expect(pushes(wrapper)).toHaveLength(1)

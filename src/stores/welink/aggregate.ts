@@ -43,9 +43,7 @@ export function mergeTimelinePage(existing: WelinkMessage[], fresh: WelinkMessag
 export function upsertSortedConvJob(list: WelinkJob[], job: WelinkJob): WelinkJob[] {
   const kept = list.filter((item) => item.pk !== job.pk)
   if (OPEN_JOB_STATUSES.includes(job.status)) kept.push({ ...job })
-  return kept.sort((a, b) =>
-    a.createdAt === b.createdAt ? a.pk - b.pk : a.createdAt < b.createdAt ? -1 : 1,
-  )
+  return kept.sort((a, b) => (a.createdAt === b.createdAt ? a.pk - b.pk : a.createdAt < b.createdAt ? -1 : 1))
 }
 
 /**

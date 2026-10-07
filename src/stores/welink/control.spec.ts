@@ -213,11 +213,15 @@ describe('control：状态灯推导与立即拉取', () => {
     expect(harness.status.value).toBe('stopped')
 
     harness.deps.runtimeHolder.current = harness.runtime
-    states.value = { 'G-1': { state: 'backoff', failCount: 1, backoffSec: 30, reason: 'x', lastOkAt: '' } as ConversationState }
+    states.value = {
+      'G-1': { state: 'backoff', failCount: 1, backoffSec: 30, reason: 'x', lastOkAt: '' } as ConversationState,
+    }
     control.updateRuntimeStatus()
     expect(harness.status.value).toBe('backoff')
 
-    states.value = { 'G-1': { state: 'ok', failCount: 0, backoffSec: 0, reason: '', lastOkAt: '' } as ConversationState }
+    states.value = {
+      'G-1': { state: 'ok', failCount: 0, backoffSec: 0, reason: '', lastOkAt: '' } as ConversationState,
+    }
     control.updateRuntimeStatus()
     expect(harness.status.value).toBe('running')
   })

@@ -117,7 +117,11 @@ function pickChunks(payload: unknown): RagChunk[] | null {
     const content = pickString(item, ['content', 'text', 'chunk'])
     if (!content) continue
     const score = pickScore(item)
-    chunks.push({ content, score: Number.isNaN(score) ? 0 : score, source: pickString(item, ['source', 'doc', 'title']) })
+    chunks.push({
+      content,
+      score: Number.isNaN(score) ? 0 : score,
+      source: pickString(item, ['source', 'doc', 'title']),
+    })
   }
   return chunks
 }
@@ -127,7 +131,12 @@ interface HttpOutcome {
   text: string
 }
 
-async function postViaFetch(url: string, headers: Record<string, string>, body: string, signal: AbortSignal): Promise<HttpOutcome> {
+async function postViaFetch(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  signal: AbortSignal,
+): Promise<HttpOutcome> {
   const response = await fetch(url, { method: 'POST', headers, body, signal })
   return { status: response.status, text: await response.text() }
 }
@@ -211,7 +220,11 @@ export function createHttpRag(options: HttpRagOptions): RagClient {
           error instanceof RagError
             ? error
             : new RagError(
-                aborted ? `RAG 检索超时（${options.timeoutMs}ms）` : error instanceof Error ? error.message : String(error),
+                aborted
+                  ? `RAG 检索超时（${options.timeoutMs}ms）`
+                  : error instanceof Error
+                    ? error.message
+                    : String(error),
                 aborted ? 'transport' : error instanceof RagError ? error.kind : 'transport',
                 error,
               )
@@ -239,7 +252,10 @@ export async function probeRagOnce(options: HttpRagOptions): Promise<{ latencyMs
   const started = Date.now()
   const chunks = await client.retrieve({ query: '连通性测试：VPN 连不上怎么处理' })
   const preview = chunks.length
-    ? chunks.map((chunk) => `[${chunk.score.toFixed(2)}] ${chunk.content}`).join(' / ').slice(0, 120)
+    ? chunks
+        .map((chunk) => `[${chunk.score.toFixed(2)}] ${chunk.content}`)
+        .join(' / ')
+        .slice(0, 120)
     : '（服务可达，本次零命中）'
   return { latencyMs: Date.now() - started, preview }
 }

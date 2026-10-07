@@ -118,11 +118,7 @@ export function parseClassifyReply(reply: string, candidates: WelinkSkill[]): st
 /** 技能路由唯一入口：规则 → LLM 兜底（可开关）→ fallback。永不 reject（S-A/S-H） */
 export async function routeSkill(input: RouteSkillInput): Promise<SkillDecision> {
   const enabled = input.candidates.filter((skill) => skill.enabled)
-  const byRule = matchSkillByRules(
-    input.question,
-    input.context.map((message) => message.content).join('\n'),
-    enabled,
-  )
+  const byRule = matchSkillByRules(input.question, input.context.map((message) => message.content).join('\n'), enabled)
   if (byRule) return { skill: byRule, source: 'rule' }
 
   // LLM 兜底：清单里只剩兜底技能时分类没有意义（只有一个可选），直接省掉这次调用

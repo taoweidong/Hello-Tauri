@@ -34,13 +34,23 @@ export interface WelinkData {
   editAndSend(jobPk: number, text: string): Promise<boolean>
   rateJob(jobPk: number, rating: JobRating | null): Promise<void>
   listAgentLogs(jobPk: number): Promise<WelinkAgentLog[]>
-  listJobsWithLogs(limit?: number, offset?: number, onlyDownRated?: boolean): ReturnType<WelinkRepository['listJobsWithLogs']>
+  listJobsWithLogs(
+    limit?: number,
+    offset?: number,
+    onlyDownRated?: boolean,
+  ): ReturnType<WelinkRepository['listJobsWithLogs']>
   countJobsWithLogs(onlyDownRated?: boolean): ReturnType<WelinkRepository['countJobsWithLogs']>
   clearAgentLogs(jobPk: number): Promise<number>
   removeJob(jobPk: number): Promise<boolean>
   listInbox(query: InboxQuery): ReturnType<WelinkRepository['listInbox']>
   countInbox(query: Omit<InboxQuery, 'limit' | 'offset'>): ReturnType<WelinkRepository['countInbox']>
-  searchMessages(keyword: string, from?: string, to?: string, limit?: number, offset?: number): ReturnType<WelinkRepository['searchMessages']>
+  searchMessages(
+    keyword: string,
+    from?: string,
+    to?: string,
+    limit?: number,
+    offset?: number,
+  ): ReturnType<WelinkRepository['searchMessages']>
   playDemoScript(): Promise<boolean>
   probeAgent(agent: WelinkSettings['agent']): Promise<string>
   probeRag(rag: WelinkSettings['rag']): Promise<{ latencyMs: number; preview: string }>
@@ -188,7 +198,10 @@ export function createWelinkData(deps: WelinkDataDeps): WelinkData {
     return {
       latencyMs: Date.now() - started,
       preview: chunks.length
-        ? chunks.map((chunk) => `[${chunk.score.toFixed(2)}] ${chunk.content}`).join(' / ').slice(0, 120)
+        ? chunks
+            .map((chunk) => `[${chunk.score.toFixed(2)}] ${chunk.content}`)
+            .join(' / ')
+            .slice(0, 120)
         : '（服务可达，本次零命中）',
     }
   }

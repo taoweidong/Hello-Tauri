@@ -65,7 +65,10 @@ const insecureUrl = computed(() => {
   const url = draft.value.baseUrl.trim()
   if (!url || draft.value.ragSource !== 'http') return false
   if (!/^http:\/\//i.test(url)) return false
-  const host = url.replace(/^https?:\/\//i, '').split(/[/:?#]/)[0].toLowerCase()
+  const host = url
+    .replace(/^https?:\/\//i, '')
+    .split(/[/:?#]/)[0]
+    .toLowerCase()
   return !['localhost', '127.0.0.1', '[::1]', '::1', '0.0.0.0'].includes(host)
 })
 
@@ -117,7 +120,9 @@ async function testRag() {
             </el-form-item>
             <el-form-item label="接口路径">
               <el-input v-model="draft.endpoint" class="rag__control" placeholder="/search" />
-              <span class="rag__hint">POST 检索接口；请求体 { query, top_k, filter? }，字段容错清单见设计文档 [RAG-ASSUME]</span>
+              <span class="rag__hint"
+                >POST 检索接口；请求体 { query, top_k, filter? }，字段容错清单见设计文档 [RAG-ASSUME]</span
+              >
             </el-form-item>
             <el-form-item label="API 密钥">
               <el-input
@@ -158,7 +163,8 @@ async function testRag() {
                 :loading="testing"
                 :disabled="draft.ragSource !== 'http'"
                 @click="testRag"
-              >测试检索</el-button>
+                >测试检索</el-button
+              >
               <span class="rag__hint">固定探测问题，显示耗时与命中片段摘要（模拟来源时按钮不可用）</span>
             </el-form-item>
           </el-form>
