@@ -14,6 +14,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
 import { IconUsers } from '@/components/icons'
+import { GroupGateError } from '@/orchestrator/group'
 import { useGroupStore } from '@/stores/group'
 import { useAppStore } from '@/stores/app'
 import { platform } from '@/api'
@@ -107,7 +108,13 @@ async function submit() {
       ElMessage.error(`建群失败：${job.error}`)
     }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '建群失败')
+    // 闸门拦截不是「建群失败」：没有任何对外动作发生，也没留下失败留痕。
+    // 用 warning 区分，避免用户以为群建坏了、或以为已经拉了人却被拦。
+    if (error instanceof GroupGateError) {
+      ElMessage.warning(error.message)
+    } else {
+      ElMessage.error(error instanceof Error ? error.message : '建群失败')
+    }
   }
 }
 

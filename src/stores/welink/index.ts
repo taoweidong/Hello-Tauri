@@ -22,6 +22,7 @@ import type { WelinkRepository } from '@/infra/db'
 import type { ConversationState, PollSummary, SafetySnapshot, WelinkEvent } from '@/orchestrator/events'
 import { emptySummary } from '@/orchestrator/events'
 import { createWelinkRuntime, type WelinkRuntime } from '@/orchestrator/runtime'
+import { setGroupGate } from '@/stores/group'
 import type { BootstrapReport } from '@/orchestrator/bootstrap'
 import { getWelinkRepo } from '@/orchestrator/welink-storage'
 import {
@@ -151,6 +152,10 @@ export const useWelinkStore = defineStore('welink', () => {
       settings: () => settings.value,
       emit: (event) => onEventImpl?.(event),
     })
+    // 建群闸门与消息闸门共用同一个 Gate 实例（S-02）：否则「一键全停」只封住消息、
+    // 封不住拉人进群 —— 那正是本次修的漏洞。放在 ensureRuntime 是因为这是
+    // runtime 的唯一装配点，runtime 重建时也会重新同步。
+    setGroupGate(runtimeHolder.current.gate)
     return Promise.resolve(runtimeHolder.current)
   }
 

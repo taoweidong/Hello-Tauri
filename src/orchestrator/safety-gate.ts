@@ -1,9 +1,14 @@
 /**
- * SafetyGate —— 唯一外发出口（设计 §5A）。
+ * SafetyGate —— **消息与建群两类外发动作的唯一出口**（设计 §5A）。
  *
  * **所有外发动作必经此处**：管线的外发 worker 在 `send` 之前调用 `check()`，
- * 编排层无法绕开。每一条被拦下的发送都以 `skipped` + `skip_reason` 落库留痕
- * ——「宁可不回，不可滥发」。
+ * 快速建群在 `createGroup` 之前调用 `checkGroupAction()`。每一条被拦下的发送
+ * 都以 `skipped` + `skip_reason` 落库留痕——「宁可不回，不可滥发」。
+ *
+ * > 2026-10-07 修正：此前文件头写的是「所有外发动作必经此处」，但实际只有
+ * > 消息外发受约束 —— `GroupPort.createGroup`（拉真人进群）是第二条真实外发路径，
+ * > 完全不经 Gate：无急停、无总开关、无静默时段、无熔断、无频率限制，
+ * > 「一键全停」也封不住它。审计记为 S-02（高危）。现由 `checkGroupAction` 覆盖。
  *
  * 判定顺序严格照 §5A.3 的流程图，纵向主链全通过才放行：
  *
@@ -50,11 +55,42 @@ export interface GateCheckInput {
   conversation: WelinkConversation | null
 }
 
+/**
+ * 建群闸门的判定输入。
+ *
+ * 与消息链路的差异是**本质的**，不是同一条链的简化版：
+ *  * 建群是**人工显式发起**（用户点按钮），所以**不套 L1 总开关** ——
+ *    用户关掉助手总开关仍可能想临时建个群，这与「自动回复」是两件事；
+ *  * 但**必须套 L0 急停**：一键全停的语义是「别动我的群」，且它是一条
+ *    对所有对外动作生效的总闸；
+ *  * 建群没有「场景开关/会话开关/草稿/黑名单」这些消息侧概念。
+ */
+export interface GroupGateInput {
+  /** 群名称（进错误信息，便于用户定位是哪个群被拦） */
+  groupName: string
+}
+
 export interface SafetyGate {
   /** 判定（纯函数语义：不改状态、不落库，可安全重复调用） */
   check(input: GateCheckInput): GateDecision
+  /**
+   * 快速建群的闸门判定（S-02）。
+   *
+   * **为什么单独一个方法而不复用 `check()`**：消息链路的 `check` 吃的是
+   * `WelinkJob` + 会话快照，主链里有 L2 场景开关 / L3 会话开关 / S6 草稿 /
+   * S7 黑名单 —— 这些对「人工点击建一个群」全无意义，硬套会把 L1 总开关
+   * 错当成闸门（总开关管的是自动回复，见上）。所以这里独立判定，
+   * 但**共用 L0 急停 / S8 熔断 / S4 静默 / S3 全局小时配额**——
+   * 这几项对外发次数的约束对两类动作是同质的。
+   *
+   * 返回 `defer` 表示「可自动恢复」（静默时段结束、配额整点重置），
+   * 调用方应展示原因而不是当作失败。
+   */
+  checkGroupAction(input: GroupGateInput): GateDecision
   /** 发送成功后调用：扣减配额、记录 S1 时间基线、写 S5 合并基线 */
   onSent(targetId: string, senderId: string): void
+  /** 建群成功后调用：扣减建群自身的频次/配额计数 */
+  onGroupCreated(): void
   /** L0 一键急停开关 */
   setPanic(on: boolean): void
   /** L1 助手总开关快照（控制条 start/stop 之外的第二道保险） */
@@ -142,6 +178,22 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
   const fuseHandlers: Array<(info: { scope: string; reason: string; blocked: number }) => void> = []
   /** S8 兜底：未填工号（进 Gate 即熔断，避免每条消息都走一遍） */
   let noUserIdFused = !settings.myUserId.trim()
+  /**
+   * 建群专用的频次控制（S-02 配套）。
+   *
+   * 为什么要独立计数而不是复用 `globalHourly`：两者阈值差一个数量级 ——
+   * `globalHourlyCap` 默认 30 是**每小时发消息**的上限，而建群是「拉人进群」，
+   * 量级完全不同，共用一个计数器会让「发了 30 条消息 → 建群被莫名拦下」。
+   * 建群用自己的计数器，阈值取 `max(3, ceil(globalHourlyCap / 10))`：
+   * 跟着全局上限联动（用户调小防滥发上限时建群也收紧），但有独立下限，
+   * 不至于变成「完全不能建群」。
+   *
+   * 熔断 scope 用 `create_group`，与消息侧 scene 隔离，互不影响。
+   */
+  let groupHourly = 0
+  let groupLastAt = 0
+  /** 建群场景在 fuses 里的 scope 名（与消息侧 'group_at_me' 等区分） */
+  const GROUP_FUSE_SCOPE = 'create_group'
 
   function bucketOf(date: Date): string {
     return nowStamp(date).slice(0, 13)
@@ -154,6 +206,9 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
       globalBucket = bucket
       globalHourly = 0
       globalClosedUntil = null
+      // 建群计数同桶制：跨小时一并归零，否则「每小时上限」名不副实
+      // （用 globalBucket 判定即可，无需独立桶 —— rollHour 只在全局桶变化时进来）
+      groupHourly = 0
       for (const state of convStates.values()) {
         if (state.bucket !== bucket) {
           state.bucket = bucket
@@ -161,6 +216,22 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
         }
       }
     }
+  }
+
+  /** 建群每小时上限：与全局消息上限联动，但有独立下限（见 groupHourly 注释） */
+  function groupHourlyCap(): number {
+    return Math.max(3, Math.ceil(settings.safety.globalHourlyCap / 10))
+  }
+
+  /**
+   * 建群最小间隔：复用「每会话最小回复间隔」作为节流单位（10s 默认，语义相近）。
+   *
+   * `0` 表示**关闭节流**（与消息侧 `perConvMinIntervalSec: 0` 的语义一致 ——
+   * 测试与「我就是要连续建几个群」的场景都要能彻底关掉）。不要在这里抬下限：
+   * 硬编码一个最小值会让配置失效，且测试无法隔离「间隔」与「小时上限」两条规则。
+   */
+  function groupMinIntervalMs(): number {
+    return Math.max(0, settings.safety.perConvMinIntervalSec) * 1000
   }
 
   function stateOf(convId: string): ConvState {
@@ -416,6 +487,69 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
       state.recentSender = senderId
       state.recentAt = now().getTime()
       globalHourly += 1
+    },
+
+    checkGroupAction(input) {
+      rollHour()
+      const name = input.groupName.trim() || '未命名群'
+
+      // —— L0 一键急停：对**所有**对外动作生效的总闸，建群也不豁免 ——
+      // 这是「一键全停」的语义（别动我的群），也是 panicStop() 能封住它的唯一途径。
+      if (panic) {
+        registerSkip(GROUP_FUSE_SCOPE, 'panic')
+        return { action: 'skip', reason: 'panic', detail: '全局急停中，建群已被阻断' }
+      }
+
+      // —— S8 熔断（建群独立 scope）——
+      const fuse = fuses.get(GROUP_FUSE_SCOPE)
+      if (fuse) {
+        fuse.blocked += 1
+        return {
+          action: 'skip',
+          reason: 'fused',
+          detail: `建群因「${fuse.reason}」熔断中（本窗已拦 ${fuse.blocked} 次）`,
+        }
+      }
+
+      // —— S4 静默时段：与消息同质 ———
+      if (inQuietHours()) {
+        return {
+          action: 'defer',
+          reason: 'quiet',
+          detail: `静默时段（${settings.safety.quietHours.from}–${settings.safety.quietHours.to}），时段结束后可再建群`,
+          terminal: false,
+        }
+      }
+
+      // —— 建群最小间隔（节流：连点按钮不该连续建出多个群）——
+      const minInterval = groupMinIntervalMs()
+      if (groupLastAt > 0 && now().getTime() - groupLastAt < minInterval) {
+        return {
+          action: 'defer',
+          reason: 'rate_group',
+          detail: `建群过于频繁，请 ${Math.ceil((minInterval - (now().getTime() - groupLastAt)) / 1000)} 秒后再试`,
+          terminal: false,
+        }
+      }
+
+      // —— 建群每小时上限（独立计数器，不与发消息混算）——
+      const cap = groupHourlyCap()
+      if (groupHourly >= cap) {
+        return {
+          action: 'defer',
+          reason: 'rate_group_hourly',
+          detail: `本小时已建群 ${groupHourly} 次，达上限 ${cap} 次，下一小时自动恢复`,
+          terminal: false,
+        }
+      }
+
+      return { action: 'send', reason: '', detail: `建群「${name}」放行` }
+    },
+
+    onGroupCreated() {
+      rollHour()
+      groupHourly += 1
+      groupLastAt = now().getTime()
     },
 
     setPanic(on) {

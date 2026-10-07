@@ -20,7 +20,47 @@ import type { GroupJob, GroupJobDraft, GroupTemplate, GroupTemplateDraft } from 
 import { normalizeWelinkSettings } from '@/types/welink'
 import { logger } from '@/utils/logger'
 import { runGroupCreation, validateGroupDraft } from '@/orchestrator/group'
+import { createSafetyGate, type SafetyGate } from '@/orchestrator/safety-gate'
 import { useAppStore } from '@/stores/app'
+
+/**
+ * 建群闸门实例（S-02）。
+ *
+ * 为什么是本模块自建的独立 gate，而不是复用 welink store 的 runtime：
+ *  * `stores/group` 与 `stores/welink` 是**并列**的 store，后者已依赖 runtime，
+ *    让它反向依赖会形成环（且把「建群可用性」绑死在「助手是否已启动」上）；
+ *  * 建群是**人工点击**发起的动作，本就该在助手总开关关闭时依然可用 ——
+ *    共用 runtime 会让「没开助手 → 建群按钮报错」，那是错的。
+ *
+ * 代价是 panic 状态有两份：welink runtime 的 gate 与这里的 gate。
+ * 用下面的 `setGroupGate` 把 welink store 的 panic 同步过来即可（见 welink control），
+ * 避免「一键全停封住了消息却封不住建群」—— 那正是本次修的漏洞。
+ */
+let sharedGate: SafetyGate | null = null
+
+/**
+ * 取得建群闸门：优先用 welink runtime 注入的共享实例，否则自建一个。
+ *
+ * 降级而非抛错是有意的：建群页可能在助手 runtime 装配前就被打开（路由是懒加载的），
+ * 此时自建一个「无 runtime 共享 panic」的闸门仍能挡住静默时段与频率限制。
+ * 共享实例到位后 `setGroupGate` 会切过去。
+ */
+function gate(): SafetyGate {
+  if (!sharedGate) {
+    sharedGate = createSafetyGate({ settings: normalizeWelinkSettings(useAppStore().settings.weLink) })
+  }
+  return sharedGate
+}
+
+/** 由 welink control 在 runtime 装配/重建时调用，让建群与消息共用同一个 panic 状态 */
+export function setGroupGate(instance: SafetyGate | null) {
+  sharedGate = instance
+}
+
+/** 测试用：重置共享闸门（避免跨用例泄漏状态） */
+export function resetGroupGate() {
+  sharedGate = null
+}
 
 export const useGroupStore = defineStore('group', () => {
   // ---------------- 状态 ----------------
@@ -146,7 +186,13 @@ export const useGroupStore = defineStore('group', () => {
     creating.value = true
     try {
       const settings = normalizeWelinkSettings(useAppStore().settings.weLink)
-      const { job, finalized } = await runGroupCreation({ repo: group(), port: groupClient({ settings }) }, draft)
+      const current = gate()
+      // 闸门用的是最新设置（用户可能刚在设置页改过静默时段/配额）
+      current.reload(settings)
+      const { job, finalized } = await runGroupCreation(
+        { repo: group(), port: groupClient({ settings }), gate: current },
+        draft,
+      )
       if (job.status === 'success' && !finalized) {
         logger.warn(`建群 #${job.pk} 外呼成功但终态回写被抢（疑似与启动清扫并发），历史以库内状态为准`)
       }

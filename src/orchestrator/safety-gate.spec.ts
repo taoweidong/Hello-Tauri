@@ -943,3 +943,140 @@ describe('SafetyGate —— 时钟回拨/前拨（已知取舍，防无意翻转
     expect(check(gate).action).toBe('skip')
   })
 })
+
+// ---------------------------------------------------------------- 建群闸门（S-02）
+
+/**
+ * 建群是第二条真实外发路径（拉真人进群），此前完全不受 Gate 约束 ——
+ * 无急停、无静默、无熔断、无频率限制，「一键全停」也封不住它。
+ * 这组用例就是那道回归闸。
+ */
+describe('safety-gate —— checkGroupAction（建群闸门，S-02）', () => {
+  it('默认放行，且把群名带进detail（错误信息要能定位是哪个群）', () => {
+    const { gate } = setup()
+    const verdict = gate.checkGroupAction({ groupName: '项目周会群' })
+    expect(verdict.action).toBe('send')
+    expect(verdict.detail).toContain('项目周会群')
+  })
+
+  it('L0 一键急停：封死建群（这是 panicStop() 能拦住它的唯一途径）', () => {
+    const { gate } = setup()
+    gate.setPanic(true)
+    const verdict = gate.checkGroupAction({ groupName: '项目周会群' })
+    expect(verdict.action).toBe('skip')
+    expect(verdict.reason).toBe('panic')
+  })
+
+  it('L1 总开关关闭时建群仍放行（人工点击的动作，不该被「自动回复开关」拦）', () => {
+    const { gate } = setup({ enabled: false })
+    expect(gate.checkGroupAction({ groupName: '临时群' }).action).toBe('send')
+  })
+
+  it('L0 急停优先于 L1：总开关开着也拦得住（急停是总闸）', () => {
+    const { gate } = setup({ enabled: true })
+    gate.setPanic(true)
+    expect(gate.checkGroupAction({ groupName: 'x' }).action).toBe('skip')
+  })
+
+  it('S4 静默时段：返回 defer 而非 skip（时段结束可自动恢复，不必当成失败）', () => {
+    const { gate } = setup(
+      {
+        safety: { quietHours: { enabled: true, from: '22:00', to: '08:00' } },
+      },
+      '2026-09-27 23:00:00',
+    )
+    const verdict = gate.checkGroupAction({ groupName: '深夜群' })
+    expect(verdict.action).toBe('defer')
+    if (verdict.action !== 'defer') throw new Error('期望 defer')
+    expect(verdict.reason).toBe('quiet')
+    expect(verdict.terminal).toBe(false)
+  })
+
+  it('建群最小间隔：连点被节流（防止连续建出多个群）', () => {
+    const { gate, clock } = setup({ safety: { perConvMinIntervalSec: 10 } })
+    expect(gate.checkGroupAction({ groupName: 'a' }).action).toBe('send')
+    gate.onGroupCreated()
+    // 立即再点：拦下
+    expect(gate.checkGroupAction({ groupName: 'b' }).reason).toBe('rate_group')
+    clock.advance(10_000)
+    expect(gate.checkGroupAction({ groupName: 'c' }).action).toBe('send')
+  })
+
+  it('建群每小时上限：独立计数，与发消息的全局配额**互不影响**', () => {
+    // perConvMinIntervalSec: 0 关掉 S1；perConvHourlyCap 调大到 60 让 30 条不撞 S2，
+    // 这样才能走到 S3 全局上限那一层（测的正是「全局配额满了会怎样」）
+    const { gate } = setup({
+      safety: { globalHourlyCap: 30, perConvMinIntervalSec: 0, perConvHourlyCap: 60 },
+    })
+    // 把消息侧全局配额用光：分摊到 30 个不同会话，避免先撞 S2 会话上限
+    for (let i = 0; i < 30; i += 1) gate.onSent(`G-${1000 + i}`, 'E-9001')
+    // 消息侧已满 → defer
+    expect(gate.check({ job: job(), senderId: '', conversation: conversation() }).action).toBe('defer')
+    // 建群是独立计数器 → 仍放行（这是本次修复的关键区分）
+    expect(gate.checkGroupAction({ groupName: '新群' }).action).toBe('send')
+  })
+
+  it('建群上限按 globalHourlyCap 联动但有独立下限 3（默认 30 → 3 次/小时）', () => {
+    // perConvMinIntervalSec: 0 关掉节流，否则第 2 次就先被间隔拦下、测不到小时上限
+    const { gate } = setup({ safety: { globalHourlyCap: 30, perConvMinIntervalSec: 0 } })
+    for (let i = 0; i < 3; i += 1) {
+      expect(gate.checkGroupAction({ groupName: `g${i}` }).action).toBe('send')
+      gate.onGroupCreated()
+    }
+    expect(gate.checkGroupAction({ groupName: 'g4' }).reason).toBe('rate_group_hourly')
+  })
+
+  it('globalHourlyCap 调小时建群上限同步收紧（联动而非固定值）', () => {
+    // 上限 10 → 建群上限 max(3, ceil(10/10)) = 3
+    const tight = setup({ safety: { globalHourlyCap: 10, perConvMinIntervalSec: 0 } })
+    for (let i = 0; i < 3; i += 1) tight.gate.onGroupCreated()
+    expect(tight.gate.checkGroupAction({ groupName: 'x' }).reason).toBe('rate_group_hourly')
+
+    // 上限 100 → 建群上限 max(3, 10) = 10
+    const loose = setup({ safety: { globalHourlyCap: 100, perConvMinIntervalSec: 0 } })
+    for (let i = 0; i < 10; i += 1) loose.gate.onGroupCreated()
+    expect(loose.gate.checkGroupAction({ groupName: 'x' }).reason).toBe('rate_group_hourly')
+
+    // 下限 3：即使上限调到 1，也不会变成「完全不能建群」
+    const floor = setup({ safety: { globalHourlyCap: 1, perConvMinIntervalSec: 0 } })
+    for (let i = 0; i < 3; i += 1) floor.gate.onGroupCreated()
+    expect(floor.gate.checkGroupAction({ groupName: 'x' }).reason).toBe('rate_group_hourly')
+  })
+
+  it('跨小时自动重置建群计数（与消息侧同桶制，否则「每小时上限」名不副实）', () => {
+    const { gate, clock } = setup({ safety: { globalHourlyCap: 30, perConvMinIntervalSec: 0 } })
+    for (let i = 0; i < 3; i += 1) {
+      gate.onGroupCreated()
+    }
+    expect(gate.checkGroupAction({ groupName: 'x' }).reason).toBe('rate_group_hourly')
+    clock.advance(3_600_000)
+    expect(gate.checkGroupAction({ groupName: 'x' }).action).toBe('send')
+  })
+
+  it('S8 建群熔断与消息场景隔离（建群熔断不影响群 @我 发消息）', () => {
+    const { gate } = setup({ safety: { fuseThreshold: 1, fuseWindowMin: 10 } })
+    // 连续拦 2 次建群 → 触发建群 scope 熔断（熔断原因计入 rate_* 类，panic 不计入）
+    gate.setPanic(true)
+    gate.checkGroupAction({ groupName: 'a' })
+    gate.checkGroupAction({ groupName: 'b' })
+    gate.setPanic(false)
+    // 静默时段/间隔/小时上限这三类 defer 不计入熔断（与消息侧 S3 同策略），
+    // 所以这里必须靠 hour cap 拦够次数才会熔断
+    for (let i = 0; i < 3; i += 1) {
+      gate.checkGroupAction({ groupName: `g${i}` })
+      gate.onGroupCreated()
+    }
+    const verdict = gate.checkGroupAction({ groupName: 'g4' })
+    // 至少能拦下来（小时上限），且消息侧完全不受建群侧影响
+    expect(verdict.action).toBe('defer')
+    expect(gate.fused('group_at_me')).toBe(false)
+    expect(gate.check({ job: job(), senderId: '', conversation: conversation() }).action).toBe('send')
+  })
+
+  it('reload 后新配置立即生效（用户在设置页改了静默时段/上限）', () => {
+    const { gate } = setup()
+    expect(gate.checkGroupAction({ groupName: 'x' }).action).toBe('send')
+    gate.reload(settings({ safety: { quietHours: { enabled: true, from: '00:00', to: '23:59' } } }))
+    expect(gate.checkGroupAction({ groupName: 'x' }).reason).toBe('quiet')
+  })
+})

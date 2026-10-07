@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 /**
@@ -41,7 +41,7 @@ vi.mock('@/utils/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
-import { useGroupStore } from '@/stores/group'
+import { resetGroupGate, setGroupGate, useGroupStore } from '@/stores/group'
 import { logger } from '@/utils/logger'
 
 function jobOf(overrides: Record<string, unknown> = {}) {
@@ -67,8 +67,36 @@ async function freshStore() {
 
 const draft = { templatePk: null, templateName: '', groupName: '项目周会群', members: ['E-0001'] }
 
+/**
+ * 建群闸门的放行替身。
+ *
+ * 必须显式注入：`stores/group` 的闸门是**模块级单例**（S-02 的设计 —— 建群与消息
+ * 共用同一个 Gate 才能让「一键全停」封住建群），而单例的计数与节流状态会跨用例
+ * 累积。不注入的话第一个用例建完群，第二个用例就会撞上「建群过于频繁」。
+ *
+ * `reload` 也要有：store 在每次建群前用它把最新设置灌进闸门（用户可能刚在设置页
+ * 改过静默时段/配额）。缺这个方法会在第一次 createGroup 时直接抛 —— 这正是
+ * `GroupCreationDeps` 用 `Pick<SafetyGate, ...>` 的价值：契约缺口编译/运行期立刻暴露。
+ */
+const allowGate = {
+  checkGroupAction: vi.fn(() => ({ action: 'send' as const, reason: '', detail: '放行' })),
+  onGroupCreated: vi.fn(),
+  reload: vi.fn(),
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  // 注意：clearAllMocks 只清调用记录、**保留实现**（resetAllMocks 才会清实现）——
+  // 这里显式再赋一次是为了让下个用例的放行行为不依赖执行顺序，且意图清晰。
+  allowGate.checkGroupAction.mockReturnValue({ action: 'send', reason: '', detail: '放行' })
+  allowGate.onGroupCreated.mockImplementation(() => {})
+  allowGate.reload.mockImplementation(() => {})
+  setGroupGate(allowGate as never)
+})
+
+afterEach(() => {
+  // 归还给 null，避免用例之间通过共享单例互相影响（也还原生产态的自建闸门路径）
+  resetGroupGate()
 })
 
 describe('stores/group —— init', () => {
