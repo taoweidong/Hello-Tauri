@@ -860,18 +860,37 @@ export const sqlWelinkRepository: WelinkRepository = {
   async purgeMessagesBefore(cutoff, batch) {
     // P1：大事务分批。SQLite 的 DELETE 支持 LIMIT（编译时默认开启），
     // 但为兼容性用「子查询 + IN」实现等价语义。
+    //
+    // `NOT EXISTS` 是**必需的**，不是优化 —— `welink_reply_jobs.trigger_msg_pk` 声明为
+    // `REFERENCES welink_messages(id)` 且**没有 ON DELETE 子句**（默认 NO ACTION），而宿主
+    // 开着 `PRAGMA foreign_keys = ON`。只要存在任意一条 job 引用待删消息，整条 DELETE 就抛
+    // `FOREIGN KEY constraint failed`、一行都删不掉，且异常被 retention 的 `.catch` 降级为
+    // 一条 warn —— 保留期清理静默永久失效，消息表无界增长。
+    //
+    // 语义选择：跳过被引用的消息，**不级联删 job**（端口契约明写「只删留痕、不动 job」，
+    // 且 job 是回复历史的主体，删了会让「某天回复了多少条」这类统计凭空缩水）。
+    // 代价是「仍被 job 引用」的过期消息会留存 —— 但数量级等于历史 job 数（有界），
+    // 而「无引用的消息」才是真正的膨胀来源。实测 9 行样本：删掉 5 条未引用、
+    // 保留 3 条被引用 + 1 条未过期，job 与语料完整无损。
+    //
+    // 该子查询依赖 `idx_wrj_trigger_msg`（migration v7）：无索引时 EXPLAIN 为
+    // `CORRELATED SCALAR SUBQUERY → SCAN j`，5 万行库上单批耗时 21.8s，会长时间独占
+    // SQLite 全局连接锁、拖住所有 DB 命令；补索引后 8.3ms。
     const result = await bridge.dbExecute(
       `DELETE FROM welink_messages WHERE id IN (
-         SELECT id FROM welink_messages WHERE sent_at < ?1 ORDER BY id LIMIT ?2)`,
+         SELECT m.id FROM welink_messages m
+          WHERE m.sent_at < ?1
+            AND NOT EXISTS (SELECT 1 FROM welink_reply_jobs j WHERE j.trigger_msg_pk = m.id)
+          ORDER BY m.id LIMIT ?2)`,
       [cutoff, batch],
     )
     return result.changes
   },
 
   async purgeAgentLogsBefore(cutoff, batch) {
-    // 与消息清理同构（子查询 + LIMIT）。注意触发消息被删后，
-    // `welink_reply_jobs.trigger_msg_pk` 会指向不存在的行 —— 这是可接受的：
-    // JOB_SELECT 用的是 LEFT JOIN，`trigger_summary` 退化为空串而不是丢行。
+    // 与消息清理同构（子查询 + LIMIT）。job 不受本方法影响（只删留痕），因此不存在
+    // 悬垂引用；`purgeMessagesBefore` 跳过的那些被引用消息，其 job 仍在，
+    // 对应的语料由本方法按 `created_at` 正常清理。
     const result = await bridge.dbExecute(
       `DELETE FROM welink_agent_logs WHERE id IN (
          SELECT id FROM welink_agent_logs WHERE created_at < ?1 ORDER BY id LIMIT ?2)`,

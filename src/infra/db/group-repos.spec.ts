@@ -89,7 +89,8 @@ describe('infra/db/group —— 迁移 v3', () => {
 
   it('注册进全库迁移注册表（唯一真值）', async () => {
     const { MIGRATIONS } = await import('@/infra/db')
-    expect(MIGRATIONS.map((item) => item.version)).toEqual([1, 2, 3, 4, 5, 6])
+    // 只断言「在注册表里」，不硬编码末位版本号（新增迁移时那类断言必然要跟着改）
+    expect(MIGRATIONS.map((item) => item.version)).toContain(migrationV3.version)
   })
 })
 

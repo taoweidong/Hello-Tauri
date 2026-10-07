@@ -19,6 +19,11 @@
  *
  * 失败不中断链条：单轮失败只告警并照常排下一轮（清理是「不紧急但必须发生」的
  * 后台动作，一次失败不能让它永久停摆）。
+ *
+ * **`stop()` 是暂停不是终态**（与 `codehub-sync.stopAuto()` 同语义）：关总开关后
+ * `start()` 必须能重新排程，否则「一次 stop 就永久停摆」会让本模块形同虚设 ——
+ * 而由于清理失败只走 `.catch` 告警，这类停摆是**静默**的，用户毫无感知。
+ * 永久销毁另有`dispose()`。
  */
 import type { WelinkRepository } from '@/infra/db'
 import { welink } from '@/infra/db'
@@ -63,8 +68,14 @@ export interface RetentionOptions {
 export interface Retention {
   /** 启动清理链（幂等；已在运行时不重复排程） */
   start(): void
-  /** 停止（清定时器；已在跑的清理让其自然结束且不再续排） */
+  /**
+   * 停止自动链（清定时器；已在跑的清理让其自然结束且不再续排）。
+   *
+   * **可重启**：`start()` 之后会重新排程 —— 这是「暂停」语义，与 `dispose()` 相对。
+   */
   stop(): void
+  /** 永久销毁（终态；`start()` 不再生效）。仅在明确要丢弃这个实例时使用 */
+  dispose(): void
   running(): boolean
   /** 立即跑一轮（手动触发 / 测试直接断言，与自动链共用 single-flight） */
   runOnce(): Promise<RetentionReport>
@@ -167,6 +178,26 @@ export function createRetention(options: RetentionOptions): Retention {
     },
 
     stop() {
+      // 只停「自动链」，不置disposed —— 这是**可重启**的暂停（与
+      // `codehub-sync.stopAuto()` 同一语义）。用户关一次总开关再打开，
+      // 清理器必须能重新排程；早期版本在这里置 `disposed = true` 且无复位入口，
+      // 导致 `runtime.stop()` 一次之后本进程内再也不会清理，且无任何用户可见信号
+      // —— 恰好废掉本模块存在的唯一理由（见文件头「为什么必须有这一层」）。
+      // 永久销毁请用 `dispose()`。
+      if (timer !== null) {
+        timers.clear(timer)
+        timer = null
+      }
+    },
+
+    /**
+     * 永久销毁（`disposed` 不可复位，`start()` 之后也不会再排程）。
+     *
+     * 与 `stop()` 的区别就是「暂停 vs 终态」—— 调用方需明确意图，不要拿它当暂停用。
+     * 当前生产路径没有调用方（runtime 的开关走 `stop()`），保留是为了让
+     * 「销毁一个Retention 实例」这件事有明确表达，而不是靠「谁最后持有它」隐式决定。
+     */
+    dispose() {
       disposed = true
       if (timer !== null) {
         timers.clear(timer)

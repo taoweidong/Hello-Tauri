@@ -243,6 +243,43 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
     expect(harness.messageCalls).toHaveLength(2)
   })
 
+  it('stop 是暂停不是终态：再次 start 能重新排程（关一次总开关就永久停摆是回归）', async () => {
+    harness.messageBatches = [0, 0, 0, 0]
+    harness.logBatches = [0, 0, 0, 0]
+    const retention = build()
+
+    retention.start()
+    await scheduler.advance(100)
+    expect(retention.running()).toBe(true)
+
+    // 模拟用户关总开关：runtime.stop() → retention.stop()
+    retention.stop()
+    expect(retention.running()).toBe(false)
+    expect(scheduler.queued).toBe(0)
+
+    // 再打开总开关：runtime.start() → retention.start() —— 必须能重新排程。
+    // 早期实现里 stop() 置 disposed=true 且无复位入口，此处会永久 no-op，
+    // 清理能力静默消失（本模块存在的唯一理由就是防这个）。
+    retention.start()
+    expect(scheduler.queued).toBe(1)
+    await scheduler.advance(100)
+    expect(harness.messageCalls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('dispose 是终态：dispose 后 start 不再生效（与 stop 的语义区别）', () => {
+    harness.messageBatches = [0]
+    harness.logBatches = [0]
+    const retention = build()
+
+    retention.start()
+    retention.dispose()
+    expect(retention.running()).toBe(false)
+    expect(scheduler.queued).toBe(0)
+
+    retention.start()
+    expect(scheduler.queued).toBe(0)
+  })
+
   it('单轮失败不中断链条：告警后照常排下一轮（库抖一次不能永久停摆）', async () => {
     harness.failNextMessages(1, '库挂了')
     harness.messageBatches = []

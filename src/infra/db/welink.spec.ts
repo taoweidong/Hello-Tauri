@@ -150,10 +150,16 @@ describe('infra/db/welink —— 迁移 v5（技能路由留痕三列）', () =>
     }
   })
 
-  it('MIGRATIONS 注册表以 v6 收尾且版本号严格递增（唯一真值，禁止旁路声明）', async () => {
+  it('MIGRATIONS 注册表版本号严格递增、不跳号不重复（唯一真值，禁止旁路声明）', async () => {
     const { MIGRATIONS } = await import('@/infra/db')
-    expect(MIGRATIONS.at(-1)?.version).toBe(6)
-    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2, 3, 4, 5, 6])
+    const versions = MIGRATIONS.map((migration) => migration.version)
+    // 不断言「最后一条是几」——新增迁移时那类硬编码必然要跟着改，
+    // 而漏改就变红，反而掩盖了真正的回归。这里断言的是不变式：
+    // 从 1 起连续递增（重复版本会被宿主 _migrations 去重跳过，导致静默不生效）。
+    expect(versions[0]).toBe(1)
+    for (let i = 1; i < versions.length; i += 1) {
+      expect(versions[i]).toBe(versions[i - 1] + 1)
+    }
   })
 })
 
@@ -228,13 +234,17 @@ describe('infra/db/welink —— 分页强制（P7）', () => {
     expect(params).toEqual([3, 1])
   })
 
-  it('purgeMessagesBefore 分批删除（子查询 + LIMIT，P1）', async () => {
+  it('purgeMessagesBefore 分批删除（子查询 + LIMIT + 跳过被 job 引用的行，P1）', async () => {
     db.dbExecute.mockResolvedValue({ changes: 17, lastInsertId: 0 })
     const removed = await repo.purgeMessagesBefore('2026-01-01', 500)
     expect(removed).toBe(17)
     const { sql, params } = lastExec()
     expect(sql).toContain('DELETE FROM welink_messages WHERE id IN')
-    expect(sql).toContain('ORDER BY id LIMIT ?2')
+    expect(sql).toContain('ORDER BY m.id LIMIT ?2')
+    // NOT EXISTS 不是优化而是必需：trigger_msg_pk 外键无 ON DELETE，
+    // 不跳过被引用的行整条 DELETE 会抛 FOREIGN KEY constraint failed。
+    // 语义与行为的验证在 welink-sqlite-integration.spec.ts（真库跑）。
+    expect(sql).toContain('NOT EXISTS (SELECT 1 FROM welink_reply_jobs j WHERE j.trigger_msg_pk = m.id)')
     expect(params).toEqual(['2026-01-01', 500])
   })
 

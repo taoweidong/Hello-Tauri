@@ -49,6 +49,7 @@ vi.stubGlobal('localStorage', {
 })
 
 import { MIGRATIONS } from '@/infra/db'
+import { migrationV6 } from '@/infra/db/migrations/welink-sediment'
 import { sqlSedimentRepository } from '@/infra/db/repos/sediment'
 import { memorySedimentRepository, resetSedimentMemory } from '@/infra/db/repos/sediment-memory'
 import { memoryWelinkRepository, resetWelinkMemory } from '@/infra/db/repos/welink-memory'
@@ -172,8 +173,11 @@ describe('migration v6 —— 知识沉淀四表 DDL', () => {
     expect(annIndexes.some((row) => Number(row.u) === 1)).toBe(true)
   })
 
-  it('迁移幂等：重复应用同版本 DDL 由 _migrations 语义保证（此处重复执行 v6 报错暴露而非静默）', () => {
-    expect(() => realDb.exec(MIGRATIONS.at(-1)!.sql)).toThrow()
+  it('建表类迁移非幂等：重复执行会报错（而非静默成功），幂等由 _migrations 版本表保证', () => {
+    // 明确锁定 migrationV6（建表类 DDL），不用 MIGRATIONS.at(-1)——
+    // 末尾迁移会随需求增加而变化（v7 是 CREATE INDEX IF NOT EXISTS，幂等不报错），
+    // 用位置取最后一条会让这条断言随迁移变动而失去意义。
+    expect(() => realDb.exec(migrationV6.sql)).toThrow()
   })
 })
 

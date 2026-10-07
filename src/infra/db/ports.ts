@@ -325,7 +325,13 @@ export interface WelinkRepository {
   clearAgentLogs(jobPk: number): Promise<number>
 
   // —— 维护 ——
-  /** 保留期清理：按批次删除过期消息（P1：每批 ≤500 行，由调用方循环） */
+  /**
+   * 保留期清理：按批次删除过期消息（P1：每批 ≤500 行，由调用方循环）。
+   *
+   * 语义边界：**跳过仍被 job 引用的消息，不级联删 job**。job 是回复历史的主体，
+   * 删了会让「某天回复了多少条」这类统计凭空缩水。因此「已过期且无人引用」的消息
+   * 才会被删除 —— 它才是数据膨胀的主要来源。
+   */
   purgeMessagesBefore(cutoff: string, batch: number): Promise<number>
   /**
    * 保留期清理：按批次删除过期 Agent 语料（与消息同构，按 `created_at` 过期）。

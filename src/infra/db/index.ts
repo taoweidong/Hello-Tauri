@@ -28,6 +28,7 @@ import { migrationV3 } from './migrations/group'
 import { migrationV4 } from './migrations/codehub'
 import { migrationV5 } from './migrations/welink-skill'
 import { migrationV6 } from './migrations/welink-sediment'
+import { migrationV7 } from './migrations/welink-purge-index'
 
 /**
  * 全库迁移注册表（**唯一真值**）。
@@ -36,7 +37,15 @@ import { migrationV6 } from './migrations/welink-sediment'
  * 声明 —— 两份文本靠人肉同步，漂移后建表结构取决于谁先跑，且已落库的库不会
  * 重跑迁移，缺陷会被掩盖很久。现在两边都 import 同一份定义。
  */
-export const MIGRATIONS: Migration[] = [migrationV1, migrationV2, migrationV3, migrationV4, migrationV5, migrationV6]
+export const MIGRATIONS: Migration[] = [
+  migrationV1,
+  migrationV2,
+  migrationV3,
+  migrationV4,
+  migrationV5,
+  migrationV6,
+  migrationV7,
+]
 
 let migrated: Promise<number[]> | null = null
 
