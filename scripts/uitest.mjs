@@ -321,18 +321,82 @@ function restoreBootstrap(backup) {
  * 现在只用于清理**本应用自己的**残留实例（它们会独占 user-data 目录）。
  */
 function killByName(image) {
-  spawnSync('taskkill', ['/F', '/IM', image], { stdio: 'ignore', windowsHide: true })
+  // ⚠️ 必须「先取 PID，再 killTree（= taskkill /F /T /PID）」。
+  // `taskkill /F /IM <image>` 只杀 exe 本身，**不回收它的 WebView2 子进程** ——
+  // 留下的孤儿会一直占着该应用的 user-data 目录，让之后每一次启动都起不来 WebView2
+  // （现象：进程活着但窗口全白、CDP 端口永不监听）。
+  // 2026-10-07 实测：一个被 `/IM` 杀掉的白屏实例留下 5 个孤儿（browser + 4 个子进程），
+  // 直接导致随后 3 个用例报「调试端点未就绪」。
+  for (const pid of pidsByName(image)) killTree(pid)
 }
 
-/** 该镜像名当前有几个进程在跑（0 表示没有残留）。用于「先探测再动手」 */
-function countByName(image) {
+/** 该镜像名当前所有进程的 PID（tasklist 在「没有匹配」时输出本地化提示语，要按行滤掉） */
+function pidsByName(image) {
   const r = spawnSync('tasklist', ['/FI', `IMAGENAME eq ${image}`, '/FO', 'CSV', '/NH'], {
     encoding: 'utf8',
     windowsHide: true,
   })
-  const text = r.stdout ?? ''
-  // tasklist 在「没有匹配」时输出本地化的提示语而不是空，必须按行过滤掉
-  return text.split('\n').filter((line) => line.trim() && !/没有运行|No tasks|INFO:/i.test(line)).length
+  return (r.stdout ?? '')
+    .split('\n')
+    .filter((line) => line.trim() && !/没有运行|No tasks|INFO:/i.test(line))
+    .map((line) => Number(line.split('","')[1]))
+    .filter((pid) => Number.isInteger(pid) && pid > 0)
+}
+
+/**
+ * 引用**本应用 profile** 的 msedgewebview2 幽灵进程 PID。
+ *
+ * 用命令行里的 profile 标识匹配，**不是**按镜像名 `msedgewebview2.exe` 扫 ——
+ * 后者属于所有 WebView2 应用（Edge、Outlook、其他 Tauri/Electron），按名扫是全局误伤。
+ */
+function webviewGhostPids() {
+  const marker = "$_.CommandLine -match 'Hello-Tauri|com\\.taowd\\.hello-tauri' -and $_.CommandLine -notmatch '--type='"
+  const r = spawnSync(
+    'powershell',
+    [
+      '-NoProfile',
+      '-Command',
+      `Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { ${marker} } | Select-Object -ExpandProperty ProcessId`,
+    ],
+    { encoding: 'utf8', windowsHide: true },
+  )
+  return (r.stdout ?? '')
+    .split(/\r?\n/)
+    .map((line) => Number(line.trim()))
+    .filter((pid) => Number.isInteger(pid) && pid > 0)
+}
+
+/**
+ * 启动前清掉幽灵 WebView2 进程，**并等它们真的消失**。
+ *
+ * 为什么必须做：Chromium 的 user-data 目录同一时刻只允许一个浏览器进程 ——
+ * 只要有一个幽灵占着 profile，新实例的 WebView2 就创建不起来，表现为
+ * 「进程活着但窗口全白 / CDP 端口永不监听」。
+ *
+ * 幽灵是**会自己产生的**：应用在 WebView2 启动到一半时异常终止就留下它们
+ * （release 档 `panic = "abort"`，进程被直接终止、没有机会回收子进程；
+ * 外部不带 `/T` 的强杀同理）。所以即便 killTree 本身是干净的
+ * （2026-10-07 实测 `/T` 精确回收整棵树），也必须防御这一层。
+ * 实测：一次运行中途留下 5 个幽灵，随后 3 个「重启」用例与冒烟全部失败。
+ */
+async function killWebviewGhosts() {
+  let total = 0
+  for (let round = 0; round < 6; round += 1) {
+    const pids = webviewGhostPids()
+    if (!pids.length) break
+    for (const pid of pids) killTree(pid)
+    total += pids.length
+    await sleep(600)
+  }
+  if (total) {
+    process.stdout.write(`  \x1b[90m已清理 ${total} 个占着 profile 的 WebView2 幽灵进程\x1b[0m\n`)
+  }
+  return total
+}
+
+/** 该镜像名当前有几个进程在跑（0 表示没有残留）。用于「先探测再动手」 */
+function countByName(image) {
+  return pidsByName(image).length
 }
 
 /**
@@ -393,6 +457,9 @@ async function session(exe, body) {
   // 只清本应用自己的残留实例，且**先探测再动手**；不再扫 msedgewebview2.exe，
   // 那是全机范围的误伤（理由与实测数据见 killByName 注释）。
   clearStaleInstances(basename(exe))
+  // 幽灵 WebView2 会一直占着 profile（Chromium 一个 user-data-dir 只允许一个浏览器进程），
+  // 必须等它们真的退出，否则本次启动的 WebView2 起不来
+  await killWebviewGhosts()
   await sleep(1200)
 
   const pid = launch(exe, port)
@@ -404,7 +471,8 @@ async function session(exe, body) {
     } catch (error) {
       throw new Error(
         `${error instanceof Error ? error.message : error}\n` +
-          '  排查：1) 是否有残留 msedgewebview2.exe 独占 user-data 目录；' +
+          '  排查：1) 是否有 WebView2 幽灵进程占着本应用 profile' +
+          '（可先终止全部 Hello-Tauri/msedgewebview2 进程，或删掉 exe 同目录的 .webview2 再试）；' +
           '2) exe 是否为 custom-protocol 生产构建（dev 构建不内嵌前端资源）。',
         { cause: error },
       )
@@ -1369,7 +1437,11 @@ async function runFallback(exe, blockerFile) {
       `,
       )
       assert(rootText !== blockerFile, `未发生回退，仍是 ${rootText}`)
-      assert(/appdata/i.test(rootText), `回退目标异常：${rootText}`)
+      // 回退目标**不写死 %APPDATA%**：部分机器的安全软件会拦截「非系统盘的程序写 AppData」，
+      // 此时应用会退到 exe 同目录（2026-10-07 实测：本机 %APPDATA% 直接「拒绝访问」，
+      // 只有 exe 所在盘可写）。真正的不变式是「退到了 blocker 之外的可写目录，
+      // 且应用仍能启动、给出告警」—— 至于具体退到哪，由 resolve_storage 的候选链决定。
+      assert(Boolean(rootText && rootText.trim()), `回退目标为空：${rootText}`)
       return `告警「${alert.title}」`
     })
   })

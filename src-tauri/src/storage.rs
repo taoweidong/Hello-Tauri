@@ -184,39 +184,79 @@ pub(crate) fn resolve_storage(app: &AppHandle) -> StorageLayout {
     let primary = configured.unwrap_or_else(|| PathBuf::from(PREFERRED_ROOT));
     let mut fallback = false;
 
-    let root = match probe_writable(&primary) {
-        Ok(()) => primary,
-        Err(primary_error) => {
-            fallback = true;
-            let dir = app
-                .path()
-                .app_config_dir()
-                .unwrap_or_else(|_| PathBuf::from("."));
-            match probe_writable(&dir) {
-                Ok(()) => {
-                    if !note.is_empty() {
-                        note.push_str("；");
-                    }
-                    note.push_str(&format!(
-                        "{} 不可用（{primary_error}），已回退到 {}",
-                        primary.display(),
-                        dir.display()
-                    ));
-                    dir
-                }
-                Err(fallback_error) => {
-                    // 两个位置都不可写：仍返回首选路径，具体读写命令会给出明确错误
-                    if !note.is_empty() {
-                        note.push_str("；");
-                    }
-                    note.push_str(&format!(
-                        "{} 与 {} 均不可写（{primary_error} / {fallback_error}）",
-                        primary.display(),
-                        dir.display()
-                    ));
-                    primary
-                }
+    // 候选顺序：**首选根 → 用户配置目录 → exe 同目录**。
+    //
+    // 最后一项是 2026-10-07 实测追加的：部分机器的安全软件（实数：联想电脑管家 + 火绒内核）
+    // 会拦截「**非系统盘**的程序写 `%APPDATA%`/`%LOCALAPPDATA%`」，两个位于 C 盘的候选都会
+    // `拒绝访问`，只有 exe 自己所在目录可写。缺这一项时本函数会返回一个必然失败的根，
+    // 下游 `open_db` 建目录失败 → `setup` 报错 → Tauri panic → 进程 abort
+    // （abort 还来不及回收 WebView2 子进程，留下的幽灵会让之后每次启动都白屏），
+    // 与「程序必须永远能启动，回退是兜底而非报错」的设计直接冲突。
+    let mut candidates = vec![primary.clone()];
+    let app_config_dir = app
+        .path()
+        .app_config_dir()
+        .unwrap_or_else(|_| PathBuf::from("."));
+    if !candidates.contains(&app_config_dir) {
+        candidates.push(app_config_dir);
+    }
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+    {
+        if !candidates.contains(&exe_dir) {
+            candidates.push(exe_dir);
+        }
+    }
+
+    let mut chosen: Option<PathBuf> = None;
+    let mut errors: Vec<(PathBuf, String)> = Vec::new();
+    for candidate in &candidates {
+        match probe_writable(candidate) {
+            Ok(()) => {
+                chosen = Some(candidate.clone());
+                break;
             }
+            Err(error) => errors.push((candidate.clone(), error)),
+        }
+    }
+
+    let root = match chosen {
+        Some(dir) => {
+            fallback = dir != primary;
+            if fallback {
+                // 报出「谁不可用、为什么、退到哪」——前端据 note 展示降级告警
+                let (failed, reason) = &errors[0];
+                if !note.is_empty() {
+                    note.push_str("；");
+                }
+                note.push_str(&format!(
+                    "{} 不可用（{reason}），已回退到 {}",
+                    failed.display(),
+                    dir.display()
+                ));
+            }
+            dir
+        }
+        None => {
+            // 全部候选都不可写：仍返回首选路径，具体读写命令会给出明确错误
+            if !note.is_empty() {
+                note.push_str("；");
+            }
+            note.push_str(&format!(
+                "{} 均不可写（{}）",
+                errors
+                    .iter()
+                    .map(|(dir, _)| dir.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(" 与 "),
+                errors
+                    .iter()
+                    .map(|(_, error)| error.clone())
+                    .collect::<Vec<_>>()
+                    .join(" / ")
+            ));
+            primary
         }
     };
 
@@ -367,7 +407,16 @@ mod tests {
     #[test]
     fn copy_dir_recursive_copies_nested_knowledge_tree() {
         // 用临时目录模拟 knowledge/ 子树（qa-archive/<skill>/<月>.md 三层嵌套）
-        let root = std::env::temp_dir().join(format!("ht-storage-test-{}", std::process::id()));
+        //
+        // **不用 `std::env::temp_dir()`（= `%TEMP%`，位于系统盘）**：本机实测安全软件会
+        // 拦截「非系统盘的程序写 C 盘」，而 cargo test 的二进制在 E 盘 `target/` 下 ——
+        // 直接 `拒绝访问（os error 5）`。改到测试二进制同目录，保证与测试进程同卷可写。
+        let stamp = format!("ht-storage-test-{}", std::process::id());
+        let root = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(Path::to_path_buf))
+            .unwrap_or_else(std::env::temp_dir)
+            .join(stamp);
         let from = root.join("from");
         let to = root.join("to");
         let nested = from.join("knowledge").join("qa-archive").join("door");

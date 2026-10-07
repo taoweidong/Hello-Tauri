@@ -18,10 +18,26 @@ pub struct Db(pub Mutex<Connection>);
 pub fn open_db(app: &AppHandle) -> Result<Db, String> {
     let layout = storage::resolve_storage(app);
     let path = Path::new(&layout.db_file);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建数据目录失败: {e}"))?;
-    }
-    let conn = Connection::open(path).map_err(|e| format!("打开数据库失败: {e}"))?;
+    // 建不出数据目录时**降级为内存库**，而不是返回 Err。
+    //
+    // 为什么不能 `?`（2026-10-07 实测）：`open_db` 由 `setup` 调用，错误会冒成
+    // 「Failed to setup app」→ Tauri panic → 进程 abort（`panic = "abort"`）。
+    // 而 abort 来不及回收 WebView2 子进程，孤儿会占住 WebView2 profile，
+    // 让之后**每一次**启动都白屏 —— 一个「存储路径写不了」的小问题被放大成
+    // 「应用再也起不来」。触发场景很现实：路径被文件占位、磁盘只读、
+    // 或安全软件拦截非系统盘程序写 AppData。
+    // 降级后前端仍能启动，并从 storage_info 的 note 里看到不可用原因。
+    let prepared = match path.parent() {
+        Some(parent) => std::fs::create_dir_all(parent).map_err(|error| error.to_string()),
+        None => Ok(()),
+    };
+    let conn = match prepared {
+        Ok(()) => Connection::open(path).map_err(|e| format!("打开数据库失败: {e}"))?,
+        Err(reason) => {
+            eprintln!("数据目录不可用（{reason}），本次会话降级为内存数据库（不落盘）");
+            Connection::open_in_memory().map_err(|e| format!("打开内存数据库失败: {e}"))?
+        }
+    };
     // WAL 需要目录可写；失败时退回默认 journal 模式而不是让整个应用起不来
     let _ = conn.pragma_update(None, "journal_mode", "WAL");
     let _ = conn.pragma_update(None, "synchronous", "NORMAL");

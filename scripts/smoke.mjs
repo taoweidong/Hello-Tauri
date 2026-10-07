@@ -57,7 +57,71 @@ function findExe() {
 // 注意：这里一律 shell:false。Windows 上 spawnSync(..., { shell: true }) 会吞掉
 // tasklist/taskkill 的 stdout，导致 includes() 判断永远为假（曾误报"进程已退出"）。
 function killByName(image) {
-  spawnSync('taskkill', ['/F', '/IM', image], { stdio: 'ignore', windowsHide: true })
+  // ⚠️ 必须「先取 PID，再 killTree（= taskkill /F /T /PID）」。
+  // `taskkill /F /IM <image>` 只杀 exe 本身，**不回收它的 WebView2 子进程** ——
+  // 留下的孤儿会一直占着该应用的 user-data 目录，让之后每一次启动都起不来 WebView2
+  // （现象：进程活着但窗口全白、CDP 端口永不监听）。
+  // 2026-10-07 实测：一个被 `/IM` 杀掉的白屏实例留下 5 个孤儿，随后所有启动全部失败。
+  for (const pid of pidsByName(image)) killTree(pid)
+}
+
+/** 该镜像名当前所有进程的 PID（tasklist 在「没有匹配」时输出本地化提示语，要按行滤掉） */
+function pidsByName(image) {
+  const r = spawnSync('tasklist', ['/FI', `IMAGENAME eq ${image}`, '/FO', 'CSV', '/NH'], {
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+  return (r.stdout ?? '')
+    .split('\n')
+    .filter((line) => line.trim() && !/没有运行|No tasks|INFO:/i.test(line))
+    .map((line) => Number(line.split('","')[1]))
+    .filter((pid) => Number.isInteger(pid) && pid > 0)
+}
+
+/**
+ * 引用**本应用 profile** 的 msedgewebview2 幽灵进程 PID。
+ *
+ * 用命令行里的 profile 标识匹配，**不是**按镜像名 `msedgewebview2.exe` 扫 ——
+ * 后者属于所有 WebView2 应用（Edge、Outlook、其他 Tauri/Electron），按名扫是全局误伤。
+ */
+function webviewGhostPids() {
+  const marker = "$_.CommandLine -match 'Hello-Tauri|com\\.taowd\\.hello-tauri' -and $_.CommandLine -notmatch '--type='"
+  const r = spawnSync(
+    'powershell',
+    [
+      '-NoProfile',
+      '-Command',
+      `Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { ${marker} } | Select-Object -ExpandProperty ProcessId`,
+    ],
+    { encoding: 'utf8', windowsHide: true },
+  )
+  return (r.stdout ?? '')
+    .split(/\r?\n/)
+    .map((line) => Number(line.trim()))
+    .filter((pid) => Number.isInteger(pid) && pid > 0)
+}
+
+/**
+ * 冷启动前清掉幽灵 WebView2 进程，**并等它们真的消失**。
+ *
+ * Chromium 的 user-data 目录同一时刻只允许一个浏览器进程：只要有一个幽灵占着 profile，
+ * 本次启动的 WebView2 就创建不起来 —— 进程活着 12s、却一个目录都不建（冒烟会报
+ * 「scandir ...sandbox 不存在」）。幽灵由应用异常终止产生（release 档 `panic = "abort"`，
+ * 进程被直接终止、来不及回收子进程），所以即便 killTree 的 `/T` 本身是干净的也必须防御。
+ */
+async function killWebviewGhosts() {
+  let total = 0
+  for (let round = 0; round < 6; round += 1) {
+    const pids = webviewGhostPids()
+    if (!pids.length) break
+    for (const pid of pids) killTree(pid)
+    total += pids.length
+    await sleep(600)
+  }
+  if (total) {
+    process.stdout.write(`  \x1b[90m已清理 ${total} 个占着 profile 的 WebView2 幽灵进程\x1b[0m\n`)
+  }
+  return total
 }
 
 /**
@@ -70,13 +134,7 @@ function killByName(image) {
  * 验证流程并发时互相杀掉对方的进程（已真实发生过，表现为用例大面积假失败）。
  */
 function countByName(image) {
-  const r = spawnSync('tasklist', ['/FI', `IMAGENAME eq ${image}`, '/FO', 'CSV', '/NH'], {
-    encoding: 'utf8',
-    windowsHide: true,
-  })
-  const text = r.stdout ?? ''
-  // tasklist 在「没有匹配」时输出本地化的提示语而不是空，必须按行过滤掉
-  return text.split('\n').filter((line) => line.trim() && !/没有运行|No tasks|INFO:/i.test(line)).length
+  return pidsByName(image).length
 }
 
 /**
@@ -140,6 +198,8 @@ async function main() {
   try {
     // 清场后冷启动：只清理本应用自己的残留，绝不按镜像名扫 msedgewebview2.exe
     clearStaleInstances(image)
+    // 幽灵 WebView2 会占着 profile，本次冷启动就起不来 WebView2（进程活着但一个目录都不建）
+    await killWebviewGhosts()
     await sleep(1200)
     pid = launch(exe)
 
