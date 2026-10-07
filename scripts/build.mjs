@@ -4,7 +4,17 @@
  * 用法：npm run pack
  */
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, utimesSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+} from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -116,11 +126,59 @@ runNpm(['run', 'build:web'], '前端构建 (vite)', { BUILD_TIME: buildTime })
 // （tauri-codegen 也未通过 proc_macro::track_path 跟踪前端资源）。pack 每次都重建前端，
 // 若不强制重编，前端单独变更时 cargo 会判定 crate 未过期、内嵌过期资源。
 // 触碰 lib.rs 的 mtime 即可让 cargo 重跑 build script 与宏、重新内嵌最新 dist。
+/**
+ * 确保 `src-tauri/gen` 存在，并把它做成指向 `target/gen` 的目录联接。
+ *
+ * 为什么需要（2026-10-08 实测）：`tauri-build` 会把生成的 schema 写进**源码目录**——
+ * `tauri-build/src/acl.rs` 里 `CAPABILITIES_SCHEMA_FOLDER_PATH = "gen/schemas"`，
+ * 相对 build script 的工作目录（即 `src-tauri/`），注释原话是「Saves ... in a file
+ * inside the project」。而本机只允许构建进程写 `target/`：实测同一个 build script
+ *   · 写 `target/.../out/xxx`      → 成功
+ *   · 写 `src-tauri/gen/schemas/xxx` → `拒绝访问 (os error 5)`
+ * 一旦 `src-tauri/gen` 被清理掉（它已在 .gitignore 里），这一步就会让
+ * `cargo build` 直接失败（`failed to run custom build command for hello-tauri`）。
+ * 之前长期没暴露，是因为 `gen/schemas/*.json` 一直在，`write_if_changed` 比对内容
+ * 相同就**跳过写入**——清理产物后才第一次真写。
+ *
+ * 做成联接后，写入落在 `target/gen`（允许的目录），`src-tauri/gen/schemas/*.json`
+ * 依旧可读（编辑器/tauri-cli 照常）。联接建不了（权限/文件系统不支持）就退回普通
+ * 目录——多数机器本就不需要这一步，退回后仍是原有行为。
+ */
+function ensureTauriGenDir() {
+  const link = join(root, 'src-tauri', 'gen')
+  const target = join(root, 'target', 'gen')
+
+  // 已是真实目录（未受此问题影响的机器）：保持原样，不动用户/工具生成的内容
+  try {
+    const stat = lstatSync(link)
+    if (stat.isDirectory() && !stat.isSymbolicLink()) return
+    // 已存在联接：删掉重建（可能指向被 cargo clean / 手工清理掉的旧 target）
+    rmSync(link, { recursive: true, force: true })
+  } catch {
+    // 不存在，继续创建
+  }
+
+  mkdirSync(target, { recursive: true })
+  try {
+    symlinkSync(target, link, 'junction')
+    process.stdout.write(`\n▶ 已建立 src-tauri/gen → target/gen 联接（规避构建进程写源码目录被拦）\n`)
+  } catch (error) {
+    process.stdout.write(
+      `\n⚠ 无法建立 src-tauri/gen 联接（${error.message}），退回普通目录\n` +
+        '  若随后 cargo 报「拒绝访问 (os error 5)」，通常是安全软件拦了构建进程写源码目录。\n',
+    )
+    mkdirSync(join(link, 'schemas'), { recursive: true })
+  }
+}
+
 const libRs = join(root, 'src-tauri', 'src', 'lib.rs')
 {
   const now = new Date()
   utimesSync(libRs, now, now)
 }
+
+// tauri-build 会往源码目录写生成的 schema，先把它接到 target 下（见函数注释）
+ensureTauriGenDir()
 
 run(
   'cargo',
