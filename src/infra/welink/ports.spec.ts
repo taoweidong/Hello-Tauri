@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from 'vitest'
  */
 
 import { DEMO_SCRIPT, createMockWelinkPort, MOCK_CONVERSATIONS } from '@/infra/welink/mock'
+import { createCliWelinkPort } from '@/infra/welink/welink-cli'
 import { WelinkError } from '@/infra/welink/port'
 import {
   isLocalGroupId,
@@ -361,5 +362,33 @@ describe('infra/welink —— mock 端口契约', () => {
     expect(contents.some((text) => text.includes('报 500'))).toBe(true)
     expect(contents.some((text) => text.includes('到哪一步'))).toBe(true)
     expect(contents.some((text) => text.includes('接口文档'))).toBe(true)
+  })
+})
+
+describe('infra/welink —— 群公告可选能力（knowledge-sedimentation 3.2）', () => {
+  it('mock 端口具备公告能力：群会话返回确定性样例，私聊返回空，重复拉取同 uid（幂等键）', async () => {
+    const port = createMockWelinkPort()
+    expect(typeof port.pullAnnouncements).toBe('function')
+    const group = MOCK_CONVERSATIONS.find((conv) => conv.convType === 'group')!
+    const first = await port.pullAnnouncements!(group, 10)
+    expect(first.length).toBeGreaterThan(0)
+    expect(first[0]).toMatchObject({ convId: group.convId })
+    expect(first.every((item) => item.annUid && item.title && item.content && item.publishedAt)).toBe(true)
+    const again = await port.pullAnnouncements!(group, 10)
+    expect(again.map((item) => item.annUid)).toEqual(first.map((item) => item.annUid))
+    const priv = MOCK_CONVERSATIONS.find((conv) => conv.convType === 'private')!
+    await expect(port.pullAnnouncements!(priv, 10)).resolves.toEqual([])
+  })
+
+  it('mock 公告 limit 生效（载荷可控，与 pull 的 P8 口径一致）', async () => {
+    const port = createMockWelinkPort()
+    const group = MOCK_CONVERSATIONS.find((conv) => conv.convType === 'group')!
+    const limited = await port.pullAnnouncements!(group, 1)
+    expect(limited).toHaveLength(1)
+  })
+
+  it('CLI 端口诚实缺能力：不实现 pullAnnouncements（调用侧以 in 判定后降级跳过）', () => {
+    const port = createCliWelinkPort({ cliPath: 'welink-cli', myUserId: 'E-0001' })
+    expect('pullAnnouncements' in port).toBe(false)
   })
 })

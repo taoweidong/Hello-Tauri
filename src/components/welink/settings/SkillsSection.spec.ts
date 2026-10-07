@@ -16,8 +16,14 @@ vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), warning: vi.fn(), error: vi.fn() },
 }))
 
+// 知识文档多选的数据源来自 knowledge store：这里给最小假件（列表为空即可，
+// 编辑断言直接驱动 editingDraft.knowledgeDocs，不依赖下拉交互）
+vi.mock('@/stores/welink/knowledge', () => ({
+  useKnowledgeStore: () => ({ docs: [], loadDocs: async () => undefined }),
+}))
+
 import { ElMessage } from 'element-plus'
-import { DEFAULT_WELINK_SETTINGS, MAX_WELINK_SKILLS, type WelinkSettings, type WelinkSkill } from '@/types/welink'
+import { DEFAULT_WELINK_SETTINGS, MAX_WELINK_SKILLS, PROMPT_PLACEHOLDERS, type WelinkSettings, type WelinkSkill } from '@/types/welink'
 import SkillsSection from './SkillsSection.vue'
 
 const EP_STUBS: Record<string, unknown> = {
@@ -42,6 +48,7 @@ function baseSkill(overrides: Partial<WelinkSkill> = {}): WelinkSkill {
     knowledge: '',
     reviewMode: 'auto',
     retrieval: { enabled: false },
+    knowledgeDocs: [],
     ...overrides,
   }
 }
@@ -180,5 +187,27 @@ describe('welink/settings/SkillsSection（回复技能分区）', () => {
     const h = mountSection(full)
     ;(h.wrapper.vm as unknown as { startAdd: () => void }).startAdd()
     expect(ElMessage.warning).toHaveBeenCalled()
+  })
+})
+
+describe('welink/settings/SkillsSection —— 知识文档绑定（knowledge-sedimentation 6.3）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('知识文档绑定随草稿保存进技能（上限内整字段更新）', () => {
+    const h = mountSection([])
+    const vm = h.wrapper.vm as unknown as { startAdd: () => void; editingDraft: WelinkSkill | null; saveEditor: () => void }
+    vm.startAdd()
+    if (!vm.editingDraft) throw new Error('编辑器未打开')
+    vm.editingDraft.name = '门禁助手'
+    vm.editingDraft.knowledgeDocs = ['door.md', 'contact.md']
+    vm.saveEditor()
+    expect(h.current().skills).toHaveLength(1)
+    expect(h.current().skills[0].knowledgeDocs).toEqual(['door.md', 'contact.md'])
+  })
+
+  it('模板占位符 tag 含 {{docs}}（本地知识文档口径入口可见；tag 行直接映射该常量）', () => {
+    expect(PROMPT_PLACEHOLDERS).toContain('{{docs}}')
   })
 })

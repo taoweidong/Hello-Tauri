@@ -11,6 +11,13 @@ pub(crate) const PREFERRED_ROOT: &str = "D:\\TangYuan";
 pub(crate) const CONFIG_SUBDIR: &str = "config";
 pub(crate) const DATA_SUBDIR: &str = "data";
 pub(crate) const LOGS_SUBDIR: &str = "logs";
+/// 本地知识库目录（knowledge-base / knowledge-sedimentation）：沉淀的长期知识
+/// 全在这里，存储根迁移必须随迁，否则迁移数据根会静默丢掉全部沉淀成果。
+pub(crate) const KNOWLEDGE_SUBDIR: &str = "knowledge";
+
+/// 存储根复制迁移覆盖的子目录清单（**唯一真值**）。
+/// 新增数据根子目录时必须同步这里，并补 storage 测试模块的清单断言。
+const MIGRATE_SUBDIRS: &[&str] = &[CONFIG_SUBDIR, DATA_SUBDIR, LOGS_SUBDIR, KNOWLEDGE_SUBDIR];
 
 pub(crate) const CONFIG_FILE: &str = "config.json";
 pub(crate) const TABLE_FILE: &str = "table.json";
@@ -311,7 +318,7 @@ fn do_migrate(app: &AppHandle, new_root: &str) -> Result<MigrateReport, String> 
             .is_ok();
 
         let mut copied = 0usize;
-        for sub in [CONFIG_SUBDIR, DATA_SUBDIR, LOGS_SUBDIR] {
+        for sub in MIGRATE_SUBDIRS.iter().copied() {
             let from = PathBuf::from(&current.root).join(sub);
             if from.is_dir() {
                 copied += copy_dir_recursive(&from, &target.join(sub))?;
@@ -337,4 +344,44 @@ pub struct MigrateReport {
     pub copied_files: usize,
     /// DB 是否成功做了 WAL 检查点（失败时 -wal 可能未并入主文件）
     pub db_checkpointed: bool,
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migration_subdir_list_includes_knowledge() {
+        // knowledge-sedimentation K-H：沉淀知识目录必须随存储根迁移
+        assert!(
+            MIGRATE_SUBDIRS.contains(&KNOWLEDGE_SUBDIR),
+            "迁移清单缺少 knowledge/ 子目录（迁移数据根会丢失全部沉淀知识）"
+        );
+        // 清单无重复、无空项（copy 循环对重复目录是幂等的，但清单重复说明维护粗糙）
+        let mut seen = std::collections::HashSet::new();
+        for sub in MIGRATE_SUBDIRS {
+            assert!(!sub.is_empty(), "迁移清单存在空项");
+            assert!(seen.insert(*sub), "迁移清单存在重复项：{}", sub);
+        }
+    }
+
+    #[test]
+    fn copy_dir_recursive_copies_nested_knowledge_tree() {
+        // 用临时目录模拟 knowledge/ 子树（qa-archive/<skill>/<月>.md 三层嵌套）
+        let root = std::env::temp_dir().join(format!("ht-storage-test-{}", std::process::id()));
+        let from = root.join("from");
+        let to = root.join("to");
+        let nested = from.join("knowledge").join("qa-archive").join("door");
+        std::fs::create_dir_all(&nested).expect("create nested dirs");
+        std::fs::write(nested.join("2026-10.md"), "# 问答归档
+").expect("write doc");
+        std::fs::write(from.join("knowledge").join("index.json"), "{\"docs\":[]}").expect("write index");
+
+        let copied = copy_dir_recursive(&from.join(KNOWLEDGE_SUBDIR), &to.join(KNOWLEDGE_SUBDIR)).expect("copy");
+
+        assert!(copied >= 2, "至少复制 index.json + 1 个 md（实际 {}）", copied);
+        let migrated = std::fs::read_to_string(to.join("knowledge").join("qa-archive").join("door").join("2026-10.md"))
+            .expect("migrated doc readable");
+        assert!(migrated.contains("问答归档"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

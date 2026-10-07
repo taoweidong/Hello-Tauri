@@ -337,6 +337,7 @@ describe('M3 全链路：mock 端口 → 内存库 → mock Agent → SafetyGate
             knowledge: '',
             reviewMode: 'auto',
             retrieval: { enabled: true },
+            knowledgeDocs: [],
           },
         ],
       },
@@ -564,5 +565,54 @@ describe('M3 全链路：mock 端口 → 内存库 → mock Agent → SafetyGate
     expect(a).toEqual(b)
     expect(a.messages).toBe(0)
     expect(a.agentLogs).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------- 知识沉淀装配（4.4）
+
+describe('知识沉淀装配：调度随 runtime 起停，提取独立于回复链路', () => {
+  const sedimentSettings = {
+    enabled: true,
+    mode: 'manual' as const,
+    sessions: ['G-1001'],
+    intervalHours: 1,
+    qaArchive: false,
+    docsMaxChars: 3000,
+  }
+
+  it('助手启动后沉淀调度随之启动：到点执行一轮提取（agent 收到提取提示词）', async () => {
+    const h = await harness({ sediment: sedimentSettings })
+    await h.runtime.start()
+    // 铺一条普通群消息（不带 @我：不触发回复任务，只有沉淀消费）
+    h.port.push('G-1001', [{ content: '门禁卡怎么办理？', atMe: false }])
+    await h.runtime.pullNow()
+    const replyCalls = h.agent.calls.length
+    expect(h.agent.calls.every((prompt) => !prompt.includes('候选材料'))).toBe(true)
+
+    h.scheduler.advance(3_600_000)
+    await settle()
+    const extractCalls = h.agent.calls.filter((prompt) => prompt.includes('候选材料'))
+    expect(extractCalls).toHaveLength(1)
+    expect(extractCalls[0]).toContain('门禁卡怎么办理？')
+    expect(h.agent.calls.length).toBeGreaterThan(replyCalls) // 提取调用是新增的一条
+  })
+
+  it('runtime.stop 后沉淀调度停止；runOnce（立即提取）仍可手动触发', async () => {
+    const h = await harness({ sediment: sedimentSettings })
+    await h.runtime.start()
+    h.runtime.stop()
+    h.scheduler.advance(3_600_000)
+    await settle()
+    expect(h.agent.calls.filter((prompt) => prompt.includes('候选材料'))).toHaveLength(0)
+
+    const report = await h.runtime.harvester.runOnce()
+    expect(report.skipped).toBeNull() // 手动入口不受调度停止影响
+  })
+
+  it('沉淀开关关闭时轮次自检跳过（skipped=disabled），不产生模型调用（沉淀与助手总开关相互独立）', async () => {
+    const h = await harness({ enabled: false, sediment: { ...sedimentSettings, enabled: false } })
+    const report = await h.runtime.harvester.runOnce()
+    expect(report.skipped).toBe('disabled')
+    expect(h.agent.calls.filter((prompt) => prompt.includes('候选材料'))).toHaveLength(0)
   })
 })

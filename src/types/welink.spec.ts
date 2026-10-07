@@ -162,3 +162,71 @@ describe('types/welink —— RAG 连接配置归一化（rag-retrieval）', () 
     expect(legacy.skills[0].retrieval).toEqual({ enabled: false })
   })
 })
+
+describe('types/welink —— 知识沉淀配置归一化（knowledge-sedimentation）', () => {
+  /** normalize 的入参声明是浅 Partial，构造手改 JSON 形状的输入需窄化 */
+  function normalizeSediment(sediment: Record<string, unknown>) {
+    return normalizeWelinkSettings({ sediment } as unknown as Partial<WelinkSettings>).sediment
+  }
+
+  it('老配置缺 sediment 块零迁移：沉淀关闭、manual 评审、白名单空、周期 6h、归档开', () => {
+    const merged = normalizeWelinkSettings({ agent: { agentSource: 'mock' } } as unknown as Partial<WelinkSettings>).sediment
+    expect(merged).toEqual({
+      enabled: false,
+      mode: 'manual',
+      sessions: [],
+      intervalHours: 6,
+      qaArchive: true,
+      docsMaxChars: 3000,
+    })
+  })
+
+  it('非法枚举收敛：mode 错值回 manual、qaArchive 仅布尔透传缺省回默认', () => {
+    expect(normalizeSediment({ mode: 'yolo', qaArchive: 'yes' }).mode).toBe('manual')
+    expect(normalizeSediment({ mode: 'auto', qaArchive: false }).mode).toBe('auto')
+    expect(normalizeSediment({ mode: 'auto', qaArchive: false }).qaArchive).toBe(false)
+    expect(normalizeSediment({ qaArchive: 'yes' }).qaArchive).toBe(true)
+  })
+
+  it('数值越界收敛：intervalHours 夹回 1–72、docsMaxChars 夹回 200–8000', () => {
+    const merged = normalizeSediment({ intervalHours: 0, docsMaxChars: 99 })
+    expect(merged.intervalHours).toBe(1)
+    expect(merged.docsMaxChars).toBe(200)
+    expect(normalizeSediment({ intervalHours: 999, docsMaxChars: 99_999 })).toEqual({
+      enabled: false,
+      mode: 'manual',
+      sessions: [],
+      intervalHours: 72,
+      qaArchive: true,
+      docsMaxChars: 8000,
+    })
+  })
+
+  it('白名单清洗：去空去重保序、错型丢弃、超 100 条截断', () => {
+    const merged = normalizeSediment({ sessions: [' c1 ', '', 'c1', 42, 'c2'] })
+    expect(merged.sessions).toEqual(['c1', 'c2'])
+    const hundred = Array.from({ length: 120 }, (_, i) => `conv-${i}`)
+    expect(normalizeSediment({ sessions: hundred }).sessions).toHaveLength(100)
+    expect(normalizeSediment({ sessions: 'conv-1' }).sessions).toEqual([])
+  })
+})
+
+describe('types/welink —— 技能绑定知识文档归一化（knowledge-sedimentation K-F）', () => {
+  it('knowledgeDocs 清洗：去空去重保序、错型丢弃、超上限 5 截断', () => {
+    const merged = normalizeAgent({
+      skills: [
+        {
+          id: 'a',
+          name: 'A',
+          knowledgeDocs: [' door.md ', '', 'door.md', 7, 'contact.md', 'x1', 'x2', 'x3', 'x4'],
+        },
+      ],
+    })
+    expect(merged.skills[0].knowledgeDocs).toEqual(['door.md', 'contact.md', 'x1', 'x2', 'x3'])
+  })
+
+  it('老配置零迁移：技能无 knowledgeDocs 字段 → 空绑定，路由与生成行为不变', () => {
+    const merged = normalizeAgent({ skills: [{ id: 'b', name: 'B' }] })
+    expect(merged.skills[0].knowledgeDocs).toEqual([])
+  })
+})

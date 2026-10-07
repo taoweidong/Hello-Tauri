@@ -14,6 +14,9 @@
  *  * `{{retrieved}}` 检索事实占位符（rag-retrieval）：生成前按技能检索知识库的
  *    命中片段，由 pipeline 拼装（`【知识N】(来源, 相关度)` 头 + 正文）；可信文本
  *    不消毒；空命中替换为空串；
+ *  * `{{docs}}` 本地知识文档占位符（knowledge-sedimentation K-F）：技能绑定的
+ *    knowledge/*.md 文档内容，由 pipeline 拼装（`【文档·标题】` 头 + 正文）；
+ *    经评审的可信文本不消毒；未绑定/读失败替换为空串；
  *  * 未识别的 `{{xxx}}` **原样保留**：宁可让模型看到占位符，也不要静默吞掉
  *    用户的模板意图（UI 保存时会警告变量缺失）。
  */
@@ -32,6 +35,8 @@ export interface PromptInput {
   knowledge?: string
   /** RAG 检索命中片段（pipeline 拼装好的文本，可信不消毒；rag-retrieval） */
   retrieved?: string
+  /** 本地知识文档内容（pipeline 拼装好的文本，经评审可信不消毒；knowledge-sedimentation） */
+  docs?: string
 }
 
 /**
@@ -89,13 +94,14 @@ export function renderPrompt(input: PromptInput): string {
     question,
     sender,
     target,
-    // 知识块与检索片段都是用户侧可信文本（skill-routing S-I/D8、rag-retrieval D-I）：
+    // 知识块、检索片段与本地文档都是用户侧可信文本（S-I/D8、D-I、K-F）：
     // 不消毒，也不进回复正文
     knowledge: input.knowledge ?? '',
     retrieved: input.retrieved ?? '',
+    docs: input.docs ?? '',
   }
   return input.template.replace(
-    /\{\{(context|question|sender|target|knowledge|retrieved)\}\}/g,
+    /\{\{(context|question|sender|target|knowledge|retrieved|docs)\}\}/g,
     (_match, key: string) => values[key],
   )
 }
@@ -108,7 +114,7 @@ export function missingPlaceholders(template: string): string[] {
 
 /** 模板里出现的未知变量（保留原样但提示用户） */
 export function unknownPlaceholders(template: string): string[] {
-  const known = new Set(['{{context}}', '{{question}}', '{{sender}}', '{{target}}', '{{knowledge}}', '{{retrieved}}'])
+  const known = new Set(['{{context}}', '{{question}}', '{{sender}}', '{{target}}', '{{knowledge}}', '{{retrieved}}', '{{docs}}'])
   const found = template.match(/\{\{[a-zA-Z_]+\}\}/g) ?? []
   return [...new Set(found.filter((token) => !known.has(token)))]
 }

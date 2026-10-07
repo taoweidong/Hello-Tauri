@@ -11,7 +11,9 @@
  *  * 打开/关闭助手涉及 5 个部件的启停顺序（管线先起、轮询后起；停则反过来），
  *    散落在 store 里必然写乱。
  */
-import { welink, type WelinkRepository } from '@/infra/db'
+import { sediment as sedimentRepoFactory, welink, type SedimentRepository, type WelinkRepository } from '@/infra/db'
+import { knowledgePort, type KnowledgePort } from '@/infra/knowledge'
+import { createKnowledgeHarvester, type KnowledgeHarvester } from './knowledge-harvester'
 import { agentClient, type AgentClient } from '@/infra/agent'
 import { ragClient } from '@/infra/rag'
 import { welinkClient, type WelinkPort } from '@/infra/welink'
@@ -40,6 +42,10 @@ export interface WelinkRuntimeOptions {
   staggerMs?: number
   /** 保留期清理的首轮延迟与间隔（测试传小值；生产用默认的每日一次） */
   retention?: { firstDelayMs?: number; intervalMs?: number }
+  /** 沉淀域仓储注入（测试用；默认走工厂） */
+  sedimentRepo?: SedimentRepository
+  /** 知识库端口注入（测试用；默认走工厂） */
+  knowledge?: KnowledgePort
 }
 
 export interface WelinkRuntime {
@@ -50,6 +56,8 @@ export interface WelinkRuntime {
   bootstrap: Bootstrap
   /** 保留期清理器（每日一次；手动触发与上次结果供监控页用） */
   retention: Retention
+  /** 知识沉淀管线（周期提取与「立即提取」；独立于回复链路） */
+  harvester: KnowledgeHarvester
   /** 端口实例（演示剧本 / 来源徽标用） */
   port(): WelinkPort
   agent(): AgentClient
@@ -110,6 +118,7 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
     gate,
     agent: agentInstance,
     rag: ragInstance,
+    knowledge: () => knowledgePort(),
     port: resolvePort,
     settings: () => currentSettings,
     emit,
@@ -165,6 +174,24 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
     intervalMs: options.retention?.intervalMs,
   })
 
+  /**
+   * 知识沉淀管线（K-A：与 poller/pipeline 平行的第三条链路）。
+   *
+   * 生命周期跟随 runtime 的 start/stop；是否真正干活由每轮的
+   * `settings.sediment.enabled` 自检（总开关关闭时轮次直接返回 disabled）——
+   * 调度常驻、轮次自检，避免「改配置还要重启助手」。
+   */
+  const harvester = createKnowledgeHarvester({
+    sediment: options.sedimentRepo ?? sedimentRepoFactory(),
+    welink: repo,
+    port: () => resolvePort(currentSettings),
+    knowledge: options.knowledge ?? knowledgePort(),
+    agent: agentInstance,
+    settings: () => currentSettings,
+    timers: options.timers,
+    now: options.now,
+  })
+
   let started = false
 
   return {
@@ -174,6 +201,7 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
     pipeline,
     bootstrap,
     retention,
+    harvester,
 
     port() {
       return resolvePort(currentSettings)
@@ -189,16 +217,18 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
       const report = await bootstrap.run()
       started = currentSettings.enabled
       if (started) retention.start()
+      harvester.start()
       return report
     },
 
     stop() {
       // 停的顺序与启动相反：先断生产（轮询）再断消费（管线），
-      // 避免停止瞬间还有新任务入队却没人处理。清理器最后停：它不产生任务，
-      // 但会改数据，等采集与处理都安静下来再收尾最安全。
+      // 清理器与沉淀管线最后停：它们不产生任务，但会改数据，
+      // 等采集与处理都安静下来再收尾最安全。
       poller.stop()
       pipeline.stop()
       retention.stop()
+      harvester.stop()
       started = false
     },
 

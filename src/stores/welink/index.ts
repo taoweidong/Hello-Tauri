@@ -358,6 +358,8 @@ export const useWelinkStore = defineStore('welink', () => {
     // 诊断（Agent 连通性探测，V1 治理后 UI 经 store 使用）
     probeAgent: data.probeAgent,
     probeRag: data.probeRag,
+    // 沉淀评审入口（knowledge-sedimentation：harvester 收口逻辑经 runtime 暴露）
+    ensureRuntime,
     // 工具
     jobOf: (pk: number): WelinkJob | null => jobIndex.value.get(pk) ?? null,
     skipLabel: skipLabelOf,

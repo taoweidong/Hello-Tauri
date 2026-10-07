@@ -12,16 +12,24 @@
  * 桩掉的 EP 组件做脆交互。id 不在 UI 侧手工生成：保存时留空交给
  * normalizeWelinkSettings 统一 slug 化去重。
  */
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { IconPlus, IconTrash } from '@/components/icons'
+import { useKnowledgeStore } from '@/stores/welink/knowledge'
 import {
+  MAX_SKILL_KNOWLEDGE_DOCS,
   MAX_WELINK_SKILLS,
   PROMPT_PLACEHOLDERS,
   type WelinkSettings,
   type WelinkSkill,
 } from '@/types/welink'
+
+/** 知识库清单（技能绑定知识文档的候选源；加载失败静默 —— 列表为空即可，不挡技能编辑） */
+const knowledgeStore = useKnowledgeStore()
+onMounted(() => {
+  void knowledgeStore.loadDocs().catch(() => undefined)
+})
 
 const agent = defineModel<WelinkSettings['agent']>({ required: true })
 
@@ -68,6 +76,7 @@ function startAdd() {
     promptTemplate: '',
     knowledge: '',
     reviewMode: 'auto',
+    knowledgeDocs: [],
     retrieval: { enabled: false },
   }
 }
@@ -233,6 +242,20 @@ defineExpose({ startAdd, startEdit, saveEditor, closeEditor, removeSkill, setEna
               class="kb__control"
               placeholder="过滤条件（可选，如分类标签），原样透传给检索服务"
             />
+          </el-form-item>
+          <el-form-item label="知识文档">
+            <el-select
+              v-model="editingDraft.knowledgeDocs"
+              multiple
+              filterable
+              clearable
+              :multiple-limit="MAX_SKILL_KNOWLEDGE_DOCS"
+              placeholder="绑定本地知识库文档（可多选，最多 5 篇）"
+              class="wc__control"
+            >
+              <el-option v-for="doc in knowledgeStore.docs" :key="doc.file" :value="doc.file" :label="`${doc.title}（${doc.file}）`" />
+            </el-select>
+            <span class="wc__hint">命中该技能时读取文档内容，经模板的 docs 占位符注入（本地知识库口径，与 RAG 检索相互独立）</span>
           </el-form-item>
           <el-form-item label="人工审核">
             <el-switch v-model="editingDraft.reviewMode" active-value="manual" inactive-value="auto" />

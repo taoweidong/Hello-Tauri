@@ -148,10 +148,10 @@ describe('infra/db/welink —— 迁移 v5（技能路由留痕三列）', () =>
     }
   })
 
-  it('MIGRATIONS 注册表以 v5 收尾且版本号严格递增（唯一真值，禁止旁路声明）', async () => {
+  it('MIGRATIONS 注册表以 v6 收尾且版本号严格递增（唯一真值，禁止旁路声明）', async () => {
     const { MIGRATIONS } = await import('@/infra/db')
-    expect(MIGRATIONS.at(-1)?.version).toBe(5)
-    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2, 3, 4, 5])
+    expect(MIGRATIONS.at(-1)?.version).toBe(6)
+    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2, 3, 4, 5, 6])
   })
 })
 

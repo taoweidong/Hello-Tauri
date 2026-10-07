@@ -102,6 +102,16 @@ export interface WelinkMessage extends NormalizedMessage {
   readFlag: boolean
 }
 
+/** 归一化后的群公告（knowledge-sedimentation：端口可选能力 pullAnnouncements 的输出形状） */
+export interface NormalizedAnnouncement {
+  /** 公告唯一 ID（幂等去重键，对齐消息的 msg_uid） */
+  annUid: string
+  convId: string
+  title: string
+  content: string
+  publishedAt: string
+}
+
 /** 回复任务（`welink_reply_jobs`），带列表所需的联表展示字段 */
 export interface WelinkJob {
   pk: number
@@ -155,6 +165,9 @@ export const FALLBACK_SKILL_ID = 'fallback'
 /** 技能清单上限（S-B：个人应用技能量少，防手改 config.json 灌爆） */
 export const MAX_WELINK_SKILLS = 20
 
+/** 技能绑定知识文档上限（knowledge-sedimentation K-F：绑定是精准路由不是全量灌入） */
+export const MAX_SKILL_KNOWLEDGE_DOCS = 5
+
 /**
  * 回复技能：一类问题的「匹配规则 + 专属模板 + 静态知识块 + 审核模式」。
  *
@@ -172,7 +185,7 @@ export interface WelinkSkill {
   enabled: boolean
   /** 规则匹配词条：普通文本 = 包含匹配；`/…/` 形式 = 正则（非法正则运行期跳过） */
   keywords: string[]
-  /** 技能专属模板：支持既有 4 占位符 + {{knowledge}}；空 = 回退兜底模板 */
+  /** 技能专属模板：支持既有 4 占位符 + {{knowledge}}/{{docs}}；空 = 回退兜底模板 */
   promptTemplate: string
   /** 静态知识块（FAQ/产品口径），渲染时注入 {{knowledge}}；空 = 占位符替换为空串 */
   knowledge: string
@@ -180,6 +193,8 @@ export interface WelinkSkill {
   reviewMode: SkillReviewMode
   /** 知识检索绑定（RAG）：enabled = 生成前按该技能检索知识库；filter 传给检索服务做范围过滤 */
   retrieval: { enabled: boolean; filter?: string }
+  /** 绑定的本地知识库文档（knowledge/index.json 清单内文件名，不含 .md）：路由命中后经 {{docs}} 注入（knowledge-sedimentation K-F） */
+  knowledgeDocs: string[]
 }
 
 // ---------- 配置（设计 §8） ----------
@@ -250,6 +265,8 @@ export interface WelinkSettings {
   agent: WelinkAgentSettings
   /** 知识检索（RAG）：外挂 HTTP 检索服务，生成段按技能检索后经 {{retrieved}} 注入 */
   rag: WelinkRagSettings
+  /** 知识沉淀（knowledge-sedimentation）：群消息/公告/问答 → 提取 → 评审 → knowledge/*.md 长期记忆 */
+  sediment: WelinkSedimentSettings
 }
 
 /** RAG 检索服务连接配置（设计 docs/design-welink-rag-retrieval-2026-10-05.md §6.1） */
@@ -272,7 +289,26 @@ export interface WelinkRagSettings {
   fallbackRetrieve: boolean
 }
 
-/** 提示词模板占位符（设计 §11.6，UI 高亮说明用；{{knowledge}} 技能静态口径、{{retrieved}} RAG 检索事实） */
+/** 沉淀评审模式：manual = 人工通过后才入库（评审即可信化闸门）；auto = 免审直通（显式风险） */
+export type SedimentReviewMode = 'manual' | 'auto'
+
+/** 知识沉淀配置（docs/design-welink-knowledge-sedimentation-2026-10-06.md §配置） */
+export interface WelinkSedimentSettings {
+  /** 沉淀总开关：关闭时不采集、不提取、不归档（老配置缺省即关闭，零迁移） */
+  enabled: boolean
+  /** 评审模式：manual = 提取条目先落待评审队列，人工通过才写知识库；auto = 免审直通 */
+  mode: SedimentReviewMode
+  /** 沉淀白名单（会话 ID 列表）：仅这些会话的群消息参与沉淀，空 = 不采集消息 */
+  sessions: string[]
+  /** 提取周期（小时，1–72） */
+  intervalHours: number
+  /** 已答复问答对按「技能 × 月份」自动归档为 Markdown 经验文档 */
+  qaArchive: boolean
+  /** 技能绑定知识文档注入 {{docs}} 的总长上限（字符） */
+  docsMaxChars: number
+}
+
+/** 提示词模板占位符（设计 §11.6，UI 高亮说明用；{{knowledge}} 技能静态口径、{{retrieved}} RAG 检索事实、{{docs}} 本地知识文档） */
 export const PROMPT_PLACEHOLDERS = [
   '{{context}}',
   '{{question}}',
@@ -280,6 +316,7 @@ export const PROMPT_PLACEHOLDERS = [
   '{{target}}',
   '{{knowledge}}',
   '{{retrieved}}',
+  '{{docs}}',
 ] as const
 
 /** S7 默认黑名单：防模型幻觉生成承诺性/资金类回复 */
@@ -356,6 +393,14 @@ export const DEFAULT_WELINK_SETTINGS: WelinkSettings = {
     minScore: 0,
     maxChars: 1200,
     fallbackRetrieve: false,
+  },
+  sediment: {
+    enabled: false,
+    mode: 'manual',
+    sessions: [],
+    intervalHours: 6,
+    qaArchive: true,
+    docsMaxChars: 3000,
   },
 }
 
@@ -469,6 +514,7 @@ export function normalizeWelinkSettings(input?: Partial<WelinkSettings> | null):
       fallbackKnowledge: typeof agent.fallbackKnowledge === 'string' ? agent.fallbackKnowledge.trim() : '',
     },
     rag: normalizeRagSettings(input?.rag),
+    sediment: normalizeSedimentSettings(input?.sediment),
   }
 }
 
@@ -536,6 +582,7 @@ function normalizeSkills(value: unknown): WelinkSkill[] {
       knowledge: typeof item.knowledge === 'string' ? item.knowledge.trim() : '',
       reviewMode: item.reviewMode === 'manual' ? 'manual' : 'auto',
       retrieval: normalizeRetrieval(item.retrieval),
+      knowledgeDocs: normalizeStringList(item.knowledgeDocs, MAX_SKILL_KNOWLEDGE_DOCS),
     })
   }
   return out
@@ -548,6 +595,41 @@ function normalizeRetrieval(value: unknown): WelinkSkill['retrieval'] {
   return {
     enabled: raw.enabled === true,
     ...(filter ? { filter } : {}),
+  }
+}
+
+/**
+ * 字符串清单收敛（knowledgeDocs 绑定与沉淀白名单共用）：非数组回空、去空去重保序、截断到上限。
+ *
+ * knowledgeDocs 这里只做形状清洗——「仅保留清单内文件名」在消费侧解决
+ * （infra/knowledge 端口按当前清单解析绑定，缺失文件本就不该读），配置层拿不到文件系统真源。
+ */
+function normalizeStringList(value: unknown, max: number): string[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of value) {
+    if (typeof raw !== 'string') continue
+    const item = raw.trim()
+    if (!item || seen.has(item)) continue
+    seen.add(item)
+    out.push(item)
+    if (out.length >= max) break
+  }
+  return out
+}
+
+/** 知识沉淀配置收敛：与 rag 块同款三层兜底；老配置缺 sediment 块 = 全关（零迁移） */
+function normalizeSedimentSettings(value: unknown): WelinkSedimentSettings {
+  const base = DEFAULT_WELINK_SETTINGS.sediment
+  const sediment = (value ?? {}) as Partial<WelinkSedimentSettings>
+  return {
+    enabled: sediment.enabled === true,
+    mode: sediment.mode === 'auto' ? 'auto' : 'manual',
+    sessions: normalizeStringList(sediment.sessions, 100),
+    intervalHours: clampNumber(sediment.intervalHours, 1, 72, base.intervalHours),
+    qaArchive: sediment.qaArchive !== false,
+    docsMaxChars: clampNumber(sediment.docsMaxChars, 200, 8000, base.docsMaxChars),
   }
 }
 

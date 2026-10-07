@@ -34,6 +34,7 @@ function skill(overrides: Partial<WelinkSkill> = {}): WelinkSkill {
     knowledge: '',
     reviewMode: 'auto',
     retrieval: { enabled: false },
+    knowledgeDocs: [],
     ...overrides,
   }
 }

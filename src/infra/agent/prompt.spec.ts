@@ -126,6 +126,33 @@ describe('infra/agent/prompt —— 渲染管线接入消毒', () => {
     expect(renderPrompt({ template: 'A[{{retrieved}}]B', target: null, context: [], trigger: message() })).toBe('A[]B')
     expect(unknownPlaceholders('{{retrieved}}')).toEqual([])
   })
+
+  it('{{docs}} 注入本地知识文档（knowledge-sedimentation K-F）：经评审可信文本不消毒', () => {
+    const prompt = renderPrompt({
+      template: '参考资料：{{docs}}\nQ:{{question}}',
+      target: null,
+      context: [],
+      trigger: message({ content: '门禁卡怎么办' }),
+      docs: '【文档·门禁手册】\n门禁卡找行政前台办理，需携带工牌。',
+    })
+    expect(prompt).toContain('【文档·门禁手册】')
+    expect(prompt).toContain('门禁卡找行政前台办理，需携带工牌。')
+  })
+
+  it('{{docs}} 缺省替换为空串；三口径占位符互不干扰（knowledge/retrieved/docs 并存）', () => {
+    expect(renderPrompt({ template: 'A[{{docs}}]B', target: null, context: [], trigger: message() })).toBe('A[]B')
+    expect(unknownPlaceholders('{{docs}}')).toEqual([])
+    const prompt = renderPrompt({
+      template: 'K[{{knowledge}}] R[{{retrieved}}] D[{{docs}}]',
+      target: null,
+      context: [],
+      trigger: message(),
+      knowledge: '静态块',
+      retrieved: '检索片段',
+      docs: '本地文档',
+    })
+    expect(prompt).toBe('K[静态块] R[检索片段] D[本地文档]')
+  })
 })
 
 describe('infra/agent/prompt —— 默认模板与黑名单的防注入配置', () => {

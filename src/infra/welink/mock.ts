@@ -21,7 +21,7 @@
  *
  * 与真实实现共享同一套端口夹具测试（设计 §3.3），所以这里的行为偏差会被回归抓到。
  */
-import type { NormalizedMessage, WelinkConversation, WelinkConvType } from '@/types/welink'
+import type { NormalizedAnnouncement, NormalizedMessage, WelinkConversation, WelinkConvType } from '@/types/welink'
 import { nowStamp } from '@/utils/time'
 import { WelinkError, type PullResult, type WelinkPort } from './port'
 
@@ -341,6 +341,30 @@ export function createMockWelinkPort(options: MockWelinkOptions = {}): MockWelin
       // [MOCK-CLI] 固定候选清单（真实侧来自 welink-cli list --json）
       await sleep(latencyMs)
       return MOCK_CONVERSATIONS.map((conv) => ({ ...conv }))
+    },
+
+    async pullAnnouncements(conv, limit) {
+      // [MOCK-CLI] 确定性公告样例：群会话返回固定两条（重复拉取靠 ann_uid 幂等去重，
+      // 对齐真实侧「重复拉到已落库公告」的语义）；私聊无公告概念返回空。
+      await sleep(latencyMs)
+      if (conv.convType !== 'group') return []
+      const all: NormalizedAnnouncement[] = [
+        {
+          annUid: `mock-ann-${conv.convId}-1`,
+          convId: conv.convId,
+          title: '群公告：知识库共建',
+          content: '本群沉淀的知识会进入本地知识库，用于解答常见问题，欢迎补充。',
+          publishedAt: '2026-10-06 09:00:00',
+        },
+        {
+          annUid: `mock-ann-${conv.convId}-2`,
+          convId: conv.convId,
+          title: '群公告：值班安排',
+          content: '本周接口值班：周一至周三周琳，周四至周五孙倩。',
+          publishedAt: '2026-10-06 10:00:00',
+        },
+      ]
+      return all.slice(0, Math.max(1, Math.min(limit, all.length)))
     },
 
     async pull(conv, after, limit): Promise<PullResult> {

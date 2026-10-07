@@ -14,6 +14,7 @@ import SettingsCard from '@/components/welink/SettingsCard.vue'
 import LlmSettingsCard from '@/components/welink/LlmSettingsCard.vue'
 import RagSettingsCard from '@/components/welink/RagSettingsCard.vue'
 import KnowledgeCard from '@/components/welink/KnowledgeCard.vue'
+import SedimentCard from '@/components/welink/SedimentCard.vue'
 import CodehubSettingsCard from '@/components/codehub/CodehubSettingsCard.vue'
 
 const appStore = useAppStore()
@@ -276,6 +277,13 @@ async function migrateDir() {
 
     <!-- 本地知识库（knowledge-base）：knowledge/*.md 的管理面，桌面模式可用 -->
     <KnowledgeCard class="kb-card" />
+
+    <!-- 知识沉淀（knowledge-sedimentation）：weLink.sediment 块的唯一编辑器 -->
+    <SedimentCard
+      :model-value="form.weLink?.sediment ?? {}"
+      class="sed-card"
+      @update:model-value="(sediment: WelinkSettings['sediment']) => (form.weLink = { ...(form.weLink ?? {}), sediment })"
+    />
 
     <!-- CodeHub 连接（personal-workbench）：配置持久化在这里，同步/刷新入口在检视页 -->
     <CodehubSettingsCard

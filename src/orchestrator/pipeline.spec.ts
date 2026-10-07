@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
  * Pipeline 单测（设计 §13「生成段并发 2 / 外发段串行 1 的不变量、状态机全路径、
@@ -37,6 +37,7 @@ import {
 } from '@/types/welink'
 import type { SkillAttribution } from '@/infra/db/ports'
 import type { RagClient, RagChunk, RagQuery } from '@/infra/rag'
+import { createMockKnowledgePort, resetMockKnowledge, seedMockKnowledgeFile, type KnowledgePort } from '@/infra/knowledge'
 
 // ---------------------------------------------------------------- 手动驱动的假时钟
 
@@ -359,6 +360,8 @@ function harness(
     manualSend?: boolean
     /** RAG 检索假件（rag-retrieval；不传 = 不装配检索，行为与升级前一致） */
     rag?: () => RagClient
+    /** 本地知识文档端口（knowledge-sedimentation；不传 = 不装配文档注入） */
+    knowledge?: () => KnowledgePort
     now?: string
   } = {},
 ): Harness {
@@ -451,6 +454,7 @@ function harness(
     gate,
     agent,
     rag: config.rag,
+    knowledge: config.knowledge,
     port: () => port,
     settings: () => settings,
     emit: (event) => events.push(event),
@@ -1326,6 +1330,7 @@ describe('orchestrator/pipeline —— 技能路由接入（skill-routing）', (
       knowledge: '',
       reviewMode: 'auto',
       retrieval: { enabled: false },
+      knowledgeDocs: [],
       ...overrides,
     }
   }
@@ -1459,6 +1464,7 @@ describe('orchestrator/pipeline —— 知识检索注入（rag-retrieval）', (
       knowledge: '',
       reviewMode: 'auto',
       retrieval: { enabled: true },
+      knowledgeDocs: [],
       ...overrides,
     }
   }
@@ -1586,6 +1592,7 @@ describe('orchestrator/pipeline —— RAG 工厂 getter 热更新（rag-retriev
       knowledge: '',
       reviewMode: 'auto',
       retrieval: { enabled: true },
+      knowledgeDocs: [],
       ...overrides,
     }
   }
@@ -1625,5 +1632,157 @@ describe('orchestrator/pipeline —— RAG 工厂 getter 热更新（rag-retriev
     expect(ragB.queries).toHaveLength(1)
     expect(ragA.queries).toHaveLength(1) // 旧实例不再被调用
     expect(h.agent.calls[1]).toContain('新实例 片段')
+  })
+})
+
+// ---------------------------------------------------------------- 本地知识文档注入（knowledge-sedimentation 5.2）
+
+describe('orchestrator/pipeline —— 本地知识文档注入（{{docs}}，knowledge-sedimentation）', () => {
+  beforeEach(() => {
+    resetMockKnowledge()
+  })
+
+  function skill(overrides: Partial<WelinkSkill> = {}): WelinkSkill {
+    return {
+      id: 'fault-fix',
+      name: '故障咨询',
+      description: '系统报错类问题',
+      enabled: true,
+      keywords: ['500'],
+      promptTemplate: 'Q:{{question}}',
+      knowledge: '',
+      reviewMode: 'auto',
+      retrieval: { enabled: false },
+      knowledgeDocs: [],
+      ...overrides,
+    }
+  }
+
+  function knowledgeWith(): KnowledgePort {
+    seedMockKnowledgeFile('knowledge/door.md', '门禁卡找行政前台办理，需携带工牌。')
+    return createMockKnowledgePort()
+  }
+
+  it('命中技能加载绑定文档：内容经【文档·标题】头注入 {{docs}}，超出上限截断', async () => {
+    seedMockKnowledgeFile(
+      'knowledge/index.json',
+      JSON.stringify({ docs: [{ file: 'door.md', title: '门禁手册', updatedAt: '2026-10-06 10:00:00', source: 'manual' }] }),
+    )
+    const h = harness({
+      jobs: [job()],
+      settings: {
+        sediment: { enabled: false, mode: 'manual', sessions: [], intervalHours: 6, qaArchive: false, docsMaxChars: 50 },
+        agent: {
+          ...DEFAULT_WELINK_SETTINGS.agent,
+          skills: [
+            skill({
+              keywords: ['500'],
+              promptTemplate: '参考：{{docs}}\nQ:{{question}}',
+              knowledgeDocs: ['door.md'],
+            }),
+          ],
+        },
+      },
+      knowledge: knowledgeWith,
+    })
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    expect(h.agent.calls[0]).toContain('【文档·门禁手册】')
+    // docsMaxChars=50：注入总长被截断并带省略号
+    expect(h.agent.calls[0].length).toBeLessThan(200)
+  })
+
+  it('文件丢失静默降级：空注入继续生成，不重试不失败', async () => {
+    seedMockKnowledgeFile(
+      'knowledge/index.json',
+      JSON.stringify({ docs: [{ file: 'gone.md', title: '已丢失', updatedAt: '2026-10-06 10:00:00', source: 'manual' }] }),
+    )
+    const h = harness({
+      jobs: [job()],
+      settings: {
+        agent: {
+          ...DEFAULT_WELINK_SETTINGS.agent,
+          skills: [skill({ keywords: ['500'], promptTemplate: '参考：[{{docs}}]\nQ:{{question}}', knowledgeDocs: ['gone.md'] })],
+        },
+      },
+      knowledge: knowledgeWith,
+    })
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    expect(h.agent.calls[0]).toContain('参考：[]')
+    expect(jobOf(h, 1).status).toBe('sent')
+  })
+
+  it('未绑定/模板无占位符零开销：不读取任何文件，行为与升级前一致', async () => {
+    seedMockKnowledgeFile('knowledge/door.md', '不该被读取的正文')
+    seedMockKnowledgeFile(
+      'knowledge/index.json',
+      JSON.stringify({ docs: [{ file: 'door.md', title: '门禁手册', updatedAt: '2026-10-06 10:00:00', source: 'manual' }] }),
+    )
+    let reads = 0
+    const countingPort: KnowledgePort = {
+      async listDocs() {
+        reads += 1
+        return (await knowledgeWith()).listDocs()
+      },
+      async readDoc(file) {
+        reads += 1
+        return seedContent(file)
+      },
+      async saveDoc() {
+        throw new Error('不应写入')
+      },
+      async appendDoc() {
+        throw new Error('不应写入')
+      },
+      async offShelf() {
+        return false
+      },
+      async registerDoc() {
+        throw new Error('不应写入')
+      },
+      async resolveDocs(files) {
+        reads += 1
+        return files.length ? [{ file: 'door.md', title: '门禁手册', updatedAt: '', source: 'manual' as const }] : []
+      },
+    }
+    function seedContent(file: string) {
+      return file === 'door.md' ? '不该被读取的正文' : null
+    }
+
+    // 技能已绑定但模板无 {{docs}} → 零读取
+    const h1 = harness({
+      jobs: [job()],
+      settings: {
+        agent: {
+          ...DEFAULT_WELINK_SETTINGS.agent,
+          skills: [skill({ keywords: ['500'], promptTemplate: 'Q:{{question}}', knowledgeDocs: ['door.md'] })],
+        },
+      },
+      knowledge: () => countingPort,
+    })
+    h1.pipeline.start()
+    h1.pipeline.enqueue(1)
+    await h1.pipeline.drain()
+    expect(h1.agent.calls[0]).not.toContain('不该被读取的正文')
+
+    // 模板有 {{docs}} 但未绑定 → 零读取
+    const h2 = harness({
+      jobs: [job()],
+      settings: {
+        agent: {
+          ...DEFAULT_WELINK_SETTINGS.agent,
+          skills: [skill({ keywords: ['500'], promptTemplate: '参考：[{{docs}}]\nQ:{{question}}' })],
+        },
+      },
+      knowledge: () => countingPort,
+    })
+    h2.pipeline.start()
+    h2.pipeline.enqueue(1)
+    await h2.pipeline.drain()
+    expect(h2.agent.calls[0]).toContain('参考：[]')
+    expect(reads).toBe(0)
   })
 })

@@ -12,7 +12,7 @@
  *  * `send` 返回的 `msgUid` 是**防双发的幂等键**（回执核对用），实现必须稳定：
  *    同一内容重复发送时返回相同 uid 的实现不值得信任，真实对接务必核对。
  */
-import type { NormalizedMessage, WelinkConversation, WelinkConvType } from '@/types/welink'
+import type { NormalizedAnnouncement, NormalizedMessage, WelinkConversation, WelinkConvType } from '@/types/welink'
 
 /** 拉取结果（分页语义：cursor 不透明，hasMore 决定是否续批） */
 export interface PullResult {
@@ -28,6 +28,19 @@ export interface WelinkPort {
   pull(conv: WelinkConversation, after: string, limit: number): Promise<PullResult>
   /** 发送文本消息，返回消息唯一 ID（回执核对的幂等键） */
   send(target: { convId: string; convType: WelinkConvType }, text: string): Promise<{ msgUid: string }>
+  /**
+   * 可选能力：拉取群公告（knowledge-sedimentation K-C 打桩先行）。公告此前无任何
+   * 抓取/存储（normalize 阶段 system 类正文被占位符丢弃），本方法是其数据入口。
+   *
+   * 实现方无此能力时**不实现本方法**（调用方以 `'pullAnnouncements' in port` 判定），
+   * 调用侧必须诚实降级：跳过公告采集并留运行日志，SHALL NOT 因此失败整轮沉淀。
+   *
+   * [CLI-ASSUME] 公告抓取协议未核实：welink-cli 是否有公告子命令、子命令名/参数/
+   * 字段名（标题/正文/发布时间/ann_uid）/编码/分页均待对接期按
+   * `docs/cli-integration-adaptation-2026-10-04.md` §SOP 逐项核实，核实后更新本
+   * 注释并实现 cli 适配器；mock 适配器返回确定性样例（供演示与测试）。
+   */
+  pullAnnouncements?(conv: WelinkConversation, limit: number): Promise<NormalizedAnnouncement[]>
 }
 
 /**

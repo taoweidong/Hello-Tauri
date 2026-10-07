@@ -32,6 +32,7 @@
 import type { AgentClient, AgentCallRecord } from '@/infra/agent'
 import { AgentError } from '@/infra/agent'
 import { renderPrompt, sanitizeReply, sanitizeUntrusted } from '@/infra/agent/prompt'
+import type { KnowledgePort } from '@/infra/knowledge'
 import type { RagClient, RagChunk } from '@/infra/rag'
 import type { WelinkPort } from '@/infra/welink'
 import type { WelinkRepository } from '@/infra/db'
@@ -63,6 +64,11 @@ export interface PipelineOptions {
    * 不装配检索，测试兼容老用例。
    */
   rag?: () => RagClient
+  /**
+   * 本地知识文档端口工厂（knowledge-sedimentation K-F）。用 getter 与 rag 对称；
+   * 缺省 = 不装配（老用例零改动）。仅当模板含 {{docs}} 且技能绑定了文档时才会读取。
+   */
+  knowledge?: () => KnowledgePort
   /** 消息端口获取函数（外发需要 send）。默认走端口工厂；测试注入 mock */
   port: (settings: WelinkSettings) => WelinkPort
   settings: () => WelinkSettings
@@ -226,6 +232,7 @@ export function createPipeline(options: PipelineOptions): Pipeline {
       knowledge: agentSettings.fallbackKnowledge,
       reviewMode: 'auto',
       retrieval: { enabled: settings.rag.fallbackRetrieve },
+      knowledgeDocs: [],
     }
     const ownedSlots: Array<{ prompt: string; jobPk: number; claimed: boolean }> = []
     const registerSlot = (slotPrompt: string) => {
@@ -274,10 +281,35 @@ export function createPipeline(options: PipelineOptions): Pipeline {
 
     // 模板按命中技能切换；技能模板为空时回退兜底模板（归一化允许空串，D4）
     const template = decision.skill.promptTemplate.trim() || agentSettings.promptTemplate
+
+    // —— 本地知识文档注入（knowledge-sedimentation K-F）：技能绑定文档按 {{docs}} 口径注入 ——
+    // 与 {{knowledge}}（静态块）/ {{retrieved}}（外挂检索）三口径分离；文件丢失/读失败
+    // 一律空串降级（logger.warn），不重试、不阻断生成主链路。零开销门控：模板不含
+    // {{docs}} 或技能未绑定（老配置零迁移）时不读取任何文件。
+    let docs = ''
+    const boundFiles = decision.skill.knowledgeDocs ?? []
+    if (template.includes('{{docs}}') && boundFiles.length && options.knowledge) {
+      try {
+        const loaded = await formatBoundDocs(options.knowledge(), boundFiles, settings.sediment.docsMaxChars)
+        docs = loaded.text
+        if (docs) {
+          logger.info(`本地知识文档命中 ${loaded.hit} 篇（job ${jobPk} · 技能「${decision.skill.name}」）`)
+        } else {
+          logger.info(`本地知识文档零命中，按未绑定生成（job ${jobPk} · 技能「${decision.skill.name}」）`)
+        }
+        for (const file of loaded.missing) {
+          logger.warn(`绑定知识文档丢失：${file}（job ${jobPk}），可重新登记或下架后改绑`)
+        }
+      } catch (error) {
+        logger.warn(`本地知识文档读取失败，降级无文档生成（job ${jobPk}）：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
     const prompt = renderPrompt({
       template,
       knowledge: decision.skill.knowledge,
       retrieved,
+      docs,
       target: conv,
       context: context.filter((message) => message.pk !== job.triggerMsgPk),
       trigger,
@@ -740,6 +772,37 @@ export function createPipeline(options: PipelineOptions): Pipeline {
  * 内容是企业内部可信知识，不做 sanitizeUntrusted（对齐 D8），但永不作为
  * 回复正文外发。
  */
+/**
+ * 技能绑定知识文档拼装（knowledge-sedimentation K-F）：按绑定顺序读取清单内文档，
+ * 总长受 docsMaxChars 截断（首篇超限硬截断正文，与 formatRetrieved 同策略）。
+ * 清单外的绑定文件由 resolveDocs 静默剔除（「仅保留清单内文件名」的消费侧落点）；
+ * 清单内但读不到的文件计入 missing 由调用方告警。
+ */
+async function formatBoundDocs(
+  port: KnowledgePort,
+  files: string[],
+  maxChars: number,
+): Promise<{ text: string; hit: number; missing: string[] }> {
+  const docs = await port.resolveDocs(files)
+  const parts: string[] = []
+  const missing: string[] = []
+  let total = 0
+  for (const doc of docs) {
+    const content = await port.readDoc(doc.file)
+    if (content === null) {
+      missing.push(doc.file)
+      continue
+    }
+    const head = `【文档·${doc.title}】\n`
+    const budget = maxChars - total
+    if (budget <= head.length) break
+    const body = head.length + content.length > budget ? `${content.slice(0, budget - head.length - 1)}…` : content
+    parts.push(head + body)
+    total += head.length + body.length
+  }
+  return { text: parts.join('\n\n'), hit: parts.length, missing }
+}
+
 function formatRetrieved(chunks: RagChunk[], rag: WelinkRagSettings): string {
   const parts: string[] = []
   let total = 0

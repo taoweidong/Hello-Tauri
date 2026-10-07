@@ -19,11 +19,15 @@ import { sqlGroupRepository } from './repos/welink-group'
 import { memoryGroupRepository } from './repos/welink-group-memory'
 import { sqlWelinkRepository } from './repos/welink'
 import { memoryWelinkRepository } from './repos/welink-memory'
+import { sqlSedimentRepository } from './repos/sediment'
+import { memorySedimentRepository } from './repos/sediment-memory'
+import type { SedimentRepository } from './sediment-ports'
 import { migrationV1 } from './migrations/records'
 import { migrationV2 } from './migrations/welink'
 import { migrationV3 } from './migrations/group'
 import { migrationV4 } from './migrations/codehub'
 import { migrationV5 } from './migrations/welink-skill'
+import { migrationV6 } from './migrations/welink-sediment'
 
 /**
  * 全库迁移注册表（**唯一真值**）。
@@ -32,7 +36,7 @@ import { migrationV5 } from './migrations/welink-skill'
  * 声明 —— 两份文本靠人肉同步，漂移后建表结构取决于谁先跑，且已落库的库不会
  * 重跑迁移，缺陷会被掩盖很久。现在两边都 import 同一份定义。
  */
-export const MIGRATIONS: Migration[] = [migrationV1, migrationV2, migrationV3, migrationV4, migrationV5]
+export const MIGRATIONS: Migration[] = [migrationV1, migrationV2, migrationV3, migrationV4, migrationV5, migrationV6]
 
 let migrated: Promise<number[]> | null = null
 
@@ -102,7 +106,32 @@ export function setCodehubRepository(repo: CodeHubRepository | null) {
   codehubRepo = repo
 }
 
+let sedimentRepo: SedimentRepository | null = null
+
+/** 知识沉淀仓储单例（桌面 = SQLite；浏览器 = 内存实现，Q3/D5） */
+export function sediment(): SedimentRepository {
+  if (!sedimentRepo) {
+    sedimentRepo = platform === 'tauri' ? sqlSedimentRepository : memorySedimentRepository
+  }
+  return sedimentRepo
+}
+
+/** 测试用：替换沉淀仓储实现（注入假件） */
+export function setSedimentRepository(repo: SedimentRepository | null) {
+  sedimentRepo = repo
+}
+
 export type { WelinkRepository } from './ports'
+export type { SedimentRepository } from './sediment-ports'
+export type {
+  KnowledgeDraft,
+  KnowledgeDraftInput,
+  KnowledgeDraftSource,
+  KnowledgeDraftStatus,
+  SedimentLog,
+  SentQaRecord,
+  WelinkAnnouncement,
+} from './sediment-ports'
 export type { GroupRepository } from './group-ports'
 export type { GroupJobQuery } from './group-ports'
 export type { CodeHubRepository, CodeHubMrQuery } from './codehub-ports'

@@ -47,12 +47,13 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
 - **SQLite 表结构归 TS 管**：迁移写在 `src/infra/db/migrations/`，经通用命令
   `db_migrate/db_select/db_execute/db_transaction` 下发。Rust 侧（`db.rs`）不知道任何表结构。
 - **TS 内部分层**（依赖自上而下）：`views`/`components` → `stores`（Pinia）→ `orchestrator`
-  （轮询/管线/安全闸/启动恢复/建群流程/CodeHub 同步与详情补拉）→ `infra`（welink / agent /
-  db / envcheck / windows / codehub 六个端口-适配器模块）→ `repositories`。
+  （轮询/管线/安全闸/启动恢复/建群流程/知识沉淀/CodeHub 同步与详情补拉）→ `infra`（welink / agent /
+  db / envcheck / knowledge / windows / codehub 七个端口-适配器模块）→ `repositories`。
   外部世界一律先定义 Port 接口 + `mock.ts` 实现（测试替身，真实现后到只换适配器文件）。
   **组合点例外**（quality-hardening-2026-10 D2）：store 允许消费 infra 工厂做**装配**
-  （如 `envcheck.ts → createEnvChecks`、`table.ts → recordsBackend`、`group.ts → groupClient`，
-  浏览器内存实现的切换点），业务逻辑仍归 orchestrator；UI 层（views/components）禁止
+  （如 `envcheck.ts → createEnvChecks`、`table.ts → recordsBackend`、`group.ts → groupClient`、
+  `stores/welink/knowledge.ts → knowledgePort/sediment`，浏览器内存实现的切换点），业务逻辑仍归
+  orchestrator；UI 层（views/components）禁止
   直触 `@/infra/**` 与 `@/repositories/**`（ESLint `no-restricted-imports` 闸门强制）。
 - **Windows 基础设施闸门**（`src/infra/windows/`）：系统命令执行走「TS 命令注册表
   （registry.ts）+ Rust 白名单（cli.rs `ALLOWED_STEMS`）」双层闸，只登记只读诊断类
@@ -86,8 +87,10 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
 ## 数据存储
 
 所有持久化数据在数据根目录（默认 `D:\TangYuan`，可在配置页迁移）：`config\config.json`、
-`data\app.db`（SQLite WAL）、`data\table.json`、`logs\app-YYYY-MM-DD.log`（保留 30 天）。
-真实数据根由固定引导文件 `%APPDATA%\com.taowd.hello-tauri\bootstrap.json` 指向，子目录自动创建。
+`data\app.db`（SQLite WAL）、`data\table.json`、`knowledge\*.md`（本地知识库与知识沉淀产物：
+`index.json` 清单 + `qa-archive/` 问答归档，随存储根迁移一同搬运）、`logs\app-YYYY-MM-DD.log`
+（保留 30 天）。真实数据根由固定引导文件 `%APPDATA%\com.taowd.hello-tauri\bootstrap.json` 指向，
+子目录自动创建。
 
 ## 代码约定
 
@@ -123,6 +126,9 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
   exe，子进程输出 UTF-8→GBK 兜底解码。
 - **快速建群铁律**：外呼 CLI 前必须先落 `pending` 留痕，终态（success/failed）以
   `WHERE status='pending'` 原子回写；建群**不做传输层自动重试**（响应丢失时重试会建出两个群）。
+- **知识沉淀铁律**（knowledge-sedimentation）：沉淀全程**纯本地写入**——不产生回复任务、
+  不调用消息发送、不接 safety-gate；提取条目必须经人工评审（或显式开启 auto 直通）写入知识库，
+  `pending` 条目不得进入知识库清单；knowledge/*.md 是唯一长期记忆落点（不受 SQLite 保留期影响）。
 - **CodeHub 检视铁律**：纯只读域，**不接 safety-gate、无任何外发**；列表浏览只读本地快照，
   唯一的子进程出口是「点开缺详情的 MR 按条补拉」（在飞去重归 `orchestrator/codehub-detail.ts`）。
   token 以 `--token` 参数注入并经 `registerSecret` 全链路遮蔽；本期**无游标列**（每轮按
@@ -140,6 +146,9 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
   动 `src/orchestrator/skill-router.ts`、pipeline 生成段、技能编辑 UI 前必读。
 - `docs/design-welink-rag-retrieval-2026-10-05.md` — RAG 检索增强与本地知识库设计（决策 D-A~D-J、
   `[RAG-ASSUME]` 假设清单与对接 SOP）；动 `src/infra/rag/`、pipeline 检索注入段、RAG/知识库配置卡前必读。
+- `docs/design-welink-knowledge-sedimentation-2026-10-06.md` — 知识沉淀与答复知识路由设计
+  （决策 K-A~K-J、`[CLI-ASSUME]` 公告假设清单）；动 `src/orchestrator/knowledge-harvester.ts`、
+  `src/infra/knowledge/`、沉淀相关表结构与 `{{docs}}` 注入链路前必读。
 - `openspec/specs/welink-auto-reply/spec.md` — 自动回复主规格（16 条需求，含技能路由与检索增强）；
   `openspec/specs/knowledge-base/spec.md` — 知识库管理主规格；改动经 delta 流程对照。
 - `openspec/specs/codehub-review/spec.md`、`openspec/specs/workbench-home/spec.md` — CodeHub 检视域

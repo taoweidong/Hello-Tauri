@@ -72,6 +72,21 @@ export function resetWelinkMemory() {
   flush()
 }
 
+/**
+ * 消息与任务的只读快照（知识沉淀内存仓储的原料源）。
+ *
+ * 沉淀域在 SQLite 侧直接跨表只读查询 welink_messages / welink_reply_jobs（同一数据库）；
+ * 浏览器调试模式下两个内存仓储各持一份 localStorage 状态，沉淀仓储通过本访问器
+ * 拿到同一份内存数据，保证两实现的「原料可见性」语义一致（只读，不拷贝内部数组引用）。
+ */
+export function memoryRawMaterials(): {
+  conversations: WelinkConversation[]
+  messages: WelinkMessage[]
+  jobs: WelinkJob[]
+} {
+  return { conversations: [...state.conversations], messages: [...state.messages], jobs: [...state.jobs] }
+}
+
 const byConvId = (convId: string) => state.conversations.find((item) => item.convId === convId)
 const byConvPk = (pk: number) => state.conversations.find((item) => item.pk === pk)
 

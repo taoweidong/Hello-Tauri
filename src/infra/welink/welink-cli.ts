@@ -11,6 +11,11 @@
  *
  * [CLI-ASSUME] 两个本侧约定，对接时核对：pull 无回传游标时的兜底格式 `ts:<时间>`；
  * MAX_BATCH=200 的批上限（真实 CLI 若有自己的上限，以两者较小值为准）。
+ *
+ * [CLI-ASSUME] 群公告能力（`pullAnnouncements`）**暂不实现**：welink-cli 是否有公告
+ * 子命令未核实（knowledge-sedimentation K-C 打桩先行），调用侧以
+ * `'pullAnnouncements' in port` 判定并诚实降级；对接期按
+ * `docs/cli-integration-adaptation-2026-10-04.md` SOP 核实后在此实现。
  */
 import type { WelinkConversation, WelinkConvType } from '@/types/welink'
 import { nowStamp } from '@/utils/time'
