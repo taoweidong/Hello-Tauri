@@ -1382,12 +1382,15 @@ async function runPersistence(exe, sandboxRoot, baselineCount) {
   await check('重启后记录数不变（SQLite 持久化生效）', async () => {
     return session(exe, async (client) => {
       await gotoNav(client, '数据管理')
+      // 注意竞态：列表页挂载后先渲染「0–0 / 0」再异步取数——waitFor 抓任意非空
+      // 文案会拿到加载前状态（新 exe 包体变大后该竞态稳定显形，实测 2026-10-07）。
+      // 必须等到总数等于基线才算就绪；超时未匹配则是真实的持久化回归。
       const meta = await waitFor(
         async () => {
           const value = await act(client, `return norm($('.pager__meta'));`)
-          return value ? value : null
+          return value && value.endsWith(` / ${baselineCount}`) ? value : null
         },
-        { label: '分页文案就绪', timeoutMs: 10000 },
+        { label: '分页文案就绪（含持久化总数）', timeoutMs: 10000 },
       )
       assert(meta.endsWith(`/ ${baselineCount}`), `重启后总数异常：${meta}（期望 ${baselineCount}）`)
       return meta
