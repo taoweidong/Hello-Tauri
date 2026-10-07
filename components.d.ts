@@ -58,6 +58,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SafetySection: typeof import('./src/components/welink/settings/SafetySection.vue')['default']
+    SedimentCard: typeof import('./src/components/welink/SedimentCard.vue')['default']
     SettingsCard: typeof import('./src/components/welink/SettingsCard.vue')['default']
     SkillsSection: typeof import('./src/components/welink/settings/SkillsSection.vue')['default']
     TemplateTab: typeof import('./src/components/group/TemplateTab.vue')['default']
