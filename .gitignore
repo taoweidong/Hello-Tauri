@@ -50,3 +50,21 @@ coverage/
 
 # ZCode 会话计划（工作笔记，不入库；.zcode/commands 是有意提交的，别动）
 .zcode/plans/
+
+# 凭据与私钥（S-13）
+# 为什么要显式列出：应用把 CodeHub token / LLM apiKey / RAG apiKey **明文**写进
+# 存储根的 config.json（stores/app.ts 的 saveConfig），开发者调试时常把它拷到仓库根。
+# 一旦被提交，密钥进git 历史后即使删除文件也仍在。
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+*.token
+# 本项目专有：运行时配置（含明文密钥），文件名固定便于识别
+config.json
+# 例外：Tauri 的产品配置不是密钥，必须提交
+!src-tauri/tauri.conf.json

@@ -66,3 +66,51 @@ describe('csv 导出', () => {
     expect(path).toBe('D:\\TangYuan\\exports\\x.csv')
   })
 })
+
+/**
+ * CSV 公式注入防护（S-09）。
+ *
+ * 用户可自由输入 name/category/owner 等字段，填入公式后导出并用 Excel 打开
+ * 会被求值（外联风险 + 历史上出现过的 `+cmd|'/C calc'!A0` 本地命令载荷）。
+ */
+describe('csv —— 公式注入防护（S-09）', () => {
+  it('危险前缀被前置单引号（Excel 当纯文本）', async () => {
+    const { toCsv } = await import('./csv')
+    const csv = toCsv([row({ name: '=HYPERLINK("http://evil/x","点我")' })])
+    expect(csv).toContain("'=HYPERLINK")
+    // 原文仍在（只加前缀，不丢数据）
+    expect(csv).toContain('HYPERLINK')
+  })
+
+  it('覆盖全部危险前缀：= + - @ 以及前导空白/制表符', async () => {
+    const { toCsv } = await import('./csv')
+    const payloads = [
+      '=1+1',
+      "+cmd|'/C calc'!A0",
+      "-2+3+cmd|'/C calc'!A0",
+      '@SUM(A1)',
+      '\t=1+1', // 前导制表符：Excel 忽略后仍会求值
+      ' =1+1', // 前导空格同理
+    ]
+    const csv = toCsv(payloads.map((payload, index) => row({ id: index, name: payload })))
+    for (const payload of payloads) {
+      expect(csv).toContain(`'${payload}`)
+    }
+  })
+
+  it('正常值不受影响（不加多余引号）', async () => {
+    const { toCsv } = await import('./csv')
+    const csv = toCsv([row({ name: '记录一', owner: '张三', amount: 12.5 })])
+    expect(csv).toContain('记录一')
+    expect(csv).toContain('张三')
+    // 正常文本没有被前置单引号污染
+    expect(csv).not.toContain("'记录一")
+  })
+
+  it('负数金额不被误伤（金额列是 number，前置单引号会变成文本）', async () => {
+    const { toCsv } = await import('./csv')
+    const csv = toCsv([row({ amount: -12.5 })])
+    expect(csv).toContain('-12.5')
+    expect(csv).not.toContain("'-12.5")
+  })
+})
