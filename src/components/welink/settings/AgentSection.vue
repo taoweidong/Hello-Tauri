@@ -75,8 +75,12 @@ async function testAgent() {
   }
 }
 
-/** 模板占位符缺失告警（设计 §11.6：变量缺失 → 保存警告） */
-const missingPlaceholders = computed(() => PROMPT_PLACEHOLDERS.filter((token) => !agent.value.promptTemplate.includes(token)))
+/** 模板占位符缺失告警（设计 §11.6：变量缺失 → 保存警告）。只查**必填**变量：
+ * knowledge/retrieved/docs 是可选注入口（D-E / K-F：模板未包含即不注入，属正常形态），
+ * 全量过滤会让告警在默认模板上常驻假红（uitest「无降级告警」实测 2026-10-07 被它打红）。 */
+const missingPlaceholders = computed(() =>
+  ['{{context}}', '{{question}}'].filter((token) => !agent.value.promptTemplate.includes(token)),
+)
 
 function restoreTemplate() {
   agent.value = { ...agent.value, promptTemplate: DEFAULT_PROMPT_TEMPLATE }

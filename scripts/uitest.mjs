@@ -517,7 +517,7 @@ async function runFunctional(client, sandboxRoot) {
   section('2. 路由与页面可达性')
 
   for (const [label, marker] of [
-    ['工作台', '各工作域入口与数据摘要'],
+    ['工作台', 'WeLink 与 CodeHub 动态汇总'],
     ['数据管理', '业务记录的检索与维护'],
     // 进本页会触发 WeLink 仓储 ensureSchema → 应用迁移 v2；进「快速建群」会触发
     // migration v3，本次会话后续的「迁移记录」断言必须容纳 v1+v2+v3（见第 11 节）。
@@ -1481,6 +1481,14 @@ async function main() {
   process.stdout.write(`\x1b[90m产物：${exe}（${sizeMb} MB）\x1b[0m\n`)
 
   const blockerFile = join(root, 'target', 'uitest-blocker.tmp')
+  // 前置清理：上一轮的 rmSync 可能被运行环境的批量删除保护**静默拦截**而残留
+  // blocker（实测 2026-10-07：残留导致本轮应用冷启动即回退，「无降级告警」假红）。
+  // 套件开始前必须先移除，保证功能分段跑在「首选目录可用」的前提上。
+  try {
+    rmSync(blockerFile, { force: true })
+  } catch {
+    // 删不掉就让「无降级告警」显式红出来，比静默吞掉好
+  }
   // 沙箱根每次运行唯一，无需删除旧目录即可拿到可预测基线（记录数从种子开始）。
   // 刻意不用「原地清空」：递归删几十个文件会触发运行环境的批量删除保护，
   // 在 finally 里抛出未捕获异常会连带吞掉整份测试报告。
