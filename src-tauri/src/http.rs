@@ -79,12 +79,31 @@ pub async fn http_post_json(
 }
 
 /// 传输层故障的可读化（TS 侧只按「reject = 通道故障」分类，不解析消息文本）。
+///
+/// **必须剥离 URL**（S-05）：`reqwest::Error` 的 `Display` 实现会写出
+/// ` for url (<完整 URL>)`，而 OpenAI 兼容端点常见 `?api-key=xxx` / `?key=xxx`
+/// 形态的鉴权 —— 连接失败时密钥会经由 `Err` 字符串回传前端，若前端恰好记日志
+/// 就落进了日志文件。`without_url()` 保留错误分类信息但不含 URL。
+///
+/// Rust 侧**不打印**该错误串（错误只回传前端），所以这里剥离是最后一道闸；
+/// 真要根治还需 TS 侧校验 URL 来源（`agent-http.ts` 的 `assertAllowedHost`
+/// 已拦公网 IP 字面量，但域名形式仍放行）。
 fn describe_transport_error(error: &reqwest::Error, timeout: Duration) -> String {
+    // `without_url` 取所有权而 `reqwest::Error` 不实现 Clone/Copy，
+    // 而本函数的入参是 `&Error`（多处复用），所以拿不到所有权。
+    // 改为格式化后**剥掉 Display 尾部的 ` for url (...)` 段**——
+    // reqwest 的 Display 形态固定为 `<原因> for url (<URL>)`，
+    // 截断到 " for url (" 之前即可，URL（含可能带密钥的 query）不会进消息。
+    let raw = error.to_string();
+    let detail = match raw.find(" for url (") {
+        Some(at) => raw[..at].trim_end().to_string(),
+        None => raw,
+    };
     if error.is_timeout() {
-        format!("Agent 请求超时（{}ms）：{error}", timeout.as_millis())
+        format!("Agent 请求超时（{}ms）：{detail}", timeout.as_millis())
     } else if error.is_connect() {
-        format!("Agent 连接失败：{error}")
+        format!("Agent 连接失败：{detail}")
     } else {
-        format!("Agent 请求失败：{error}")
+        format!("Agent 请求失败：{detail}")
     }
 }

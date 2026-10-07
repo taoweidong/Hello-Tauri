@@ -15,16 +15,56 @@ use crate::sysinfo::{fill_wide, to_wide};
 /// ShellExecuteW 返回值 > 32 为成功，SE_ERR_* 错误码均为 ≤32 的正数。
 const SHELL_EXECUTE_SUCCESS_MIN: isize = 33;
 
+/// 剪贴板文本读取上限：8 MB。
+///
+/// 剪贴板内容**完全由外部进程控制**（用户从浏览器复制一张 base64 图片就能到几十 MB），
+/// 不设上限等于让外部数据决定本应用的内存分配。8 MB 相对剪贴板文本绰绰有余，
+/// 又远低于「可能拖垮进程」的量级。与 `cli.rs` 的 `MAX_OUTPUT`（2 MB）、
+/// `http.rs` 的 `MAX_BODY`（2 MB）是同一纪律的三处入口，本处此前是唯一漏网的。
+const MAX_CLIPBOARD_BYTES: usize = 8 * 1024 * 1024;
+
+/// 可执行/脚本扩展名黑名单：`ShellExecuteW` 的 `open` 动词对可执行文件
+/// **等于运行**，所以本地路径侧不能只凭 `exists()` 放行。
+///
+/// 配合 `fs.rs` 的 `fs_write`（可写存储根下任意相对路径）会构成一条
+/// 「写入 → 执行」链：写一个 `logs/x.bat` 再打开它即等于执行任意脚本。
+/// 存储根内本不该出现这类文件，因此在打开侧拦一道。
+const EXECUTABLE_EXTS: &[&str] = &[
+    "exe", "com", "bat", "cmd", "ps1", "vbs", "js", "msi", "jar", "lnk", "scr", "pif",
+];
+
 /// 用系统默认程序打开 URL / 本地文件 / 本地目录。
 ///
-/// URL 仅放行 http/https；本地路径必须已存在 —— 目标由前端给定，
-/// 这里把「任意字符串交给 Shell」的暴露面收紧到两类明确场景。
+/// URL 仅放行 http/https；本地路径必须已存在**且不是可执行/脚本** ——
+/// 目标由前端给定，这里把「任意字符串交给 Shell」的暴露面收紧到两类明确场景。
 #[tauri::command]
 pub async fn shell_open(target: String) -> Result<(), String> {
-    let is_url = target.starts_with("http://") || target.starts_with("https://");
-    if !is_url && !std::path::Path::new(&target).exists() {
+    // 大小写不敏感判定：此前用 `starts_with("http://")`，`HTTP://` 会掉进
+    // 本地路径分支（不是可利用漏洞，但判定不严谨、错误信息误导）。
+    let lower = target.trim().to_ascii_lowercase();
+    let is_url = lower.starts_with("http://") || lower.starts_with("https://");
+    if is_url {
+        return open_target(&target).await;
+    }
+    let path = std::path::Path::new(&target);
+    if !path.exists() {
         return Err(format!("打开目标不存在：{target}"));
     }
+    // 可执行/脚本一律拒绝（`exists()` 不足以放行 —— `open` 动词会运行它）
+    let ext = path
+        .extension()
+        .map(|value| value.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if EXECUTABLE_EXTS.contains(&ext.as_str()) {
+        return Err(format!(
+            "拒绝打开可执行/脚本文件（{ext}）：该通道只用于打开文档与链接"
+        ));
+    }
+    open_target(&target).await
+}
+
+async fn open_target(target: &str) -> Result<(), String> {
+    let target = target.to_string();
     tauri::async_runtime::spawn_blocking(move || open_with_shell(&target))
         .await
         .map_err(|error| format!("打开线程异常退出：{error}"))?
@@ -110,6 +150,17 @@ fn clipboard_read_blocking() -> Result<Option<String>, String> {
         }
         let hmem = handle as HGLOBAL;
         let size = unsafe { GlobalSize(hmem) };
+        // 上限校验必须放在 GlobalLock **之前**：超限时内存还没被锁住，
+        // 早拒绝可避免让外部进程（谁往剪贴板写的内容我们不控制）占住全局锁。
+        // 与 cli.rs 的 MAX_OUTPUT / http.rs 的 MAX_BODY 同一纪律 ——
+        // 三个「外部数据入口」里，唯独这条此前无上限，复制一个 200MB 的 base64
+        // 图片就能让本命令分配同等内存。
+        if size > MAX_CLIPBOARD_BYTES {
+            return Err(format!(
+                "剪贴板内容过大（{size} 字节），已拒绝读取（上限 {} 字节）",
+                MAX_CLIPBOARD_BYTES
+            ));
+        }
         let ptr = unsafe { GlobalLock(hmem) };
         if ptr.is_null() {
             return Err("锁定剪贴板内存失败".into());
@@ -278,4 +329,59 @@ fn notify_blocking(title: &str, body: &str) -> Result<(), String> {
 #[cfg(not(windows))]
 fn notify_blocking(_title: &str, _body: &str) -> Result<(), String> {
     Err("当前平台不支持系统通知".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn executable_extensions_are_rejected() {
+        // 「fs_write 写入 → shell_open 执行」链的阻断点：
+        // ShellExecuteW 的 open 动词对可执行文件等于运行，故一律拒绝。
+        for ext in ["exe", "com", "bat", "cmd", "ps1", "vbs", "js", "msi", "jar", "lnk"] {
+            assert!(
+                EXECUTABLE_EXTS.contains(&ext),
+                "扩展名黑名单遗漏：{ext}"
+            );
+        }
+    }
+
+    #[test]
+    fn document_extensions_are_not_blocked() {
+        // 文档/链接/图片是本通道的正用途，不能误伤
+        for ext in ["md", "txt", "json", "log", "png", "jpg", "pdf", "xlsx"] {
+            assert!(
+                !EXECUTABLE_EXTS.contains(&ext),
+                "文档扩展名被误拦：{ext}"
+            );
+        }
+    }
+
+    #[test]
+    fn url_detection_is_case_insensitive() {
+        // 此前用 starts_with("http://")，`HTTP://` 会掉进本地路径分支
+        for target in [
+            "http://example.com",
+            "HTTP://example.com",
+            "Https://example.com",
+            "HTTPS://EXAMPLE.COM",
+        ] {
+            let lower = target.trim().to_ascii_lowercase();
+            assert!(
+                lower.starts_with("http://") || lower.starts_with("https://"),
+                "URL 协议判定大小写敏感：{target}"
+            );
+        }
+    }
+
+    #[test]
+    fn clipboard_limit_is_reasonable() {
+        // 8 MB：远大于任何合理剪贴板文本，又远低于「能拖垮进程」的量级
+        assert!(MAX_CLIPBOARD_BYTES >= 1024 * 1024, "下限过低，正常的富文本会被拒");
+        assert!(
+            MAX_CLIPBOARD_BYTES <= 64 * 1024 * 1024,
+            "上限过高，外部进程仍可用超大剪贴板施压"
+        );
+    }
 }
