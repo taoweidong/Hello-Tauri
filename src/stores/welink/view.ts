@@ -133,7 +133,6 @@ export function createConversationView(deps: ConversationViewDeps): Conversation
     // 待审任务需要在索引里可用（表格与右栏展示）—— 只取第一页，避免一次拉全量
     const holding = await repo().listJobs({ onlyHolding: true, limit: 100, offset: 0 })
     for (const job of holding) jobIndex.value.set(job.pk, job)
-    jobIndex.value = new Map(jobIndex.value)
   }
 
   // ---------------- 会话选择与时间线（消息中心 / 收件箱共用） ----------------
@@ -159,13 +158,18 @@ export function createConversationView(deps: ConversationViewDeps): Conversation
     if (seq !== timelineSeq) return
     messages.value = page
     hasMoreMessages.value = page.length >= limit
-    const jobs = (await repo().listJobsByStatus(['pending', 'discussing', 'ready', 'sending', 'failed'], 200)).filter(
-      (job) => job.targetId === convId,
-    )
+    // 过滤条件**下推到 SQL**（P-14）：原实现拉「全局最旧的 200 条未终态 job」
+    // 再在内存里按 convId 过滤 —— 未终态 job 累计超过 200 条时（助手停摆一段时间
+    // 后很常见），本会话的待办会被静默漏掉，右栏显示为空。
+    const jobs = await repo().listJobs({
+      status: ['pending', 'discussing', 'ready', 'sending', 'failed'],
+      targetId: convId,
+      limit: 200,
+      offset: 0,
+    })
     if (seq !== timelineSeq) return
     convJobs.value = jobs
-    for (const job of convJobs.value) jobIndex.value.set(job.pk, job)
-    jobIndex.value = new Map(jobIndex.value)
+    for (const job of jobs) jobIndex.value.set(job.pk, job)
   }
 
   /** 向上翻页（P7：一次 100 条）。in-flight 锁防连点：重复请求同一 before 会把

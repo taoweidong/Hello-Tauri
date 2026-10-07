@@ -50,7 +50,13 @@ function makeHarness(): Harness {
     countMessages: vi.fn(async () => 0),
     markRead: vi.fn(async () => undefined),
     listMessages: vi.fn(async () => [message('10:00')]),
-    listJobs: vi.fn(async () => []),
+    // P-14：过滤条件下推到 SQL —— 仓储按 targetId 返回，不再在内存里 filter。
+    // 假仓储**按 targetId 过滤**以模拟真实仓储行为；「下推确实发生了」由下一条
+    // 用例的参数断言守住（结果断言测不到下推，见那条用例的注释）。
+    listJobs: vi.fn(async (query: { targetId?: string }) => {
+      const all = [job(1, 'G-1'), job(2, 'G-other')]
+      return query.targetId ? all.filter((item) => item.targetId === query.targetId) : all
+    }),
     listJobsByStatus: vi.fn(async () => [job(1, 'G-1'), job(2, 'G-other')]),
     countHolding: vi.fn(async () => 0),
     upsertConversation: vi.fn(async () => undefined),
@@ -157,6 +163,21 @@ describe('view：时间线与竞态守卫（F-4）', () => {
     expect(harness.deps.messages.value).toHaveLength(1)
     expect(harness.deps.convJobs.value.map((item) => item.pk)).toEqual([1])
     expect(harness.deps.hasMoreMessages.value).toBe(false)
+  })
+
+  it('P-14：过滤条件下推到仓储（传 targetId），不在内存里 filter 全量结果', async () => {
+    const harness = makeHarness()
+    harness.deps.conversations.value = [conversation('G-1')]
+    const view = createConversationView(harness.deps)
+    await view.selectConversation('G-1')
+
+    // 关键断言：targetId 确实传给了仓储。
+    // 「结果里只有本会话 job」这条**测不到下推** —— 实现退回「拉全局再 filter」
+    // 也会得到同样的结果、照样绿。所以必须断言参数（这正是 P-02 踩过的坑：
+    // 结果断言恒真，反证时全绿）。
+    expect(harness.repo.listJobs).toHaveBeenCalledWith(
+      expect.objectContaining({ targetId: 'G-1', limit: 200, offset: 0 }),
+    )
   })
 
   it('选中不存在的会话：不查库不炸', async () => {

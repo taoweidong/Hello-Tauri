@@ -998,3 +998,60 @@ describe('orchestrator/poller —— 导出常量（外部契约）', () => {
     expect(COLD_EVERY).toBe(6)
   })
 })
+
+/**
+ * 停止守卫（P-04）。
+ *
+ * 之前 `stop()` 只清链式 timer，**清不掉本轮错峰用的 delay()**（句柄直接丢进
+ * await），且循环体内没有停止检查 —— 用户中途「暂停」后，剩余 N-1 个会话
+ * 照常起 CLI 子进程。
+ *
+ * 注意判据是 `stopped` 而**不是** `running`：手动 `pullNow()` 走`runRound(true)`，
+ * 与自动轮询的 running 无关 —— 总开关关着时用户仍应能手动拉一次。
+ */
+describe('poller —— 中途停止不再拉剩余会话（P-04）', () => {
+  it('第一个会话拉取过程中 stop()：后续会话不再被拉', async () => {
+    const pulled: string[] = []
+    // 先声明再赋值：pull 回调里要用 poller.stop()，而 poller 由 harness 创建
+    let pollerRef: ReturnType<typeof harness>['poller'] | null = null
+    const h = harness({
+      conversations: [
+        conversation({ convId: 'G-1' }),
+        conversation({ convId: 'G-2', pk: 2 }),
+        conversation({ convId: 'G-3', pk: 3 }),
+      ],
+      staggerMs: 300, // 有错峰 → 有 await delay 的窗口可被 stop 打断
+      // 第一个会话的 pull 里同步 stop（模拟用户在首屏看到数据后立刻点暂停）
+      pull: async (conv) => {
+        pulled.push(conv.convId)
+        if (conv.convId === 'G-1') pollerRef?.stop()
+        return { messages: [], cursor: '', hasMore: false }
+      },
+    })
+    pollerRef = h.poller
+
+    await h.poller.pullNow()
+
+    // 关键断言：只拉了 G-1，G-2/G-3 没被拉（修复前会拉全部 3 个）
+    expect(pulled).toEqual(['G-1'])
+  })
+
+  it('stop 后手动 pullNow 仍可拉取（停止守卫不误伤人工触发）', async () => {
+    const pulled: string[] = []
+    const h = harness({
+      conversations: [conversation({ convId: 'G-1' })],
+      pull: async (conv) => {
+        pulled.push(conv.convId)
+        return { messages: [], cursor: '', hasMore: false }
+      },
+    })
+    h.poller.start()
+    await settle()
+    h.poller.stop()
+
+    pulled.length = 0
+    await h.poller.pullNow()
+
+    expect(pulled).toEqual(['G-1'])
+  })
+})

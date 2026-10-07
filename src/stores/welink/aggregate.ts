@@ -47,6 +47,41 @@ export function upsertSortedConvJob(list: WelinkJob[], job: WelinkJob): WelinkJo
 }
 
 /**
+ * jobIndex 的写入 + 淘汰（统一出口，P-05）。
+ *
+ * ## 为什么之前是「只增不减 + 每事件全量拷贝」
+ *
+ * 原实现是 `index.set(pk, job); index = new Map(index)`，出现在 events/data/view
+ * 共 4 处。两��问题：
+ *  * **全量拷贝**：`shallowRef`靠引用变化触发下游computed 重算，所以每次写入都
+ *    `new Map(...)` 拷贝整个Map（O(n)），长跑 + 高频 `jobStatusChanged`
+ *    就是 O(n × events)；
+ *  * **无界增长**：`listJobs` / `listJobsByStatus` / `patchJob` / `refreshReviewCount`
+ *    都往里塞，**没有任何淘汰**，跑几天后 Map 里全是历史终态 job。
+ *
+ * ## 现在怎么做
+ *
+ * 写入仍走 `map.set`（Map 本身是响应式的，配合 `shallowRef` 只需**首次**建引用，
+ * 后续 `set`/`delete` 不改引用也不会丢更新 —— 因为消费方 `jobOf(pk)` 是
+ * 命令式读取，不依赖 computed 追踪）。
+ * 淘汰按「终态 且 不在待审/ 未终态」进行：
+ *
+ *  **为什么能安全淘汰终态 job**：`jobIndex` 的唯一消费点是 `jobOf(pk)`
+ *  （index.ts 导出，无其他消费者），而终态 job 不再出现在右栏待办里 ——
+ *  拿不到 pk 就不会有人问它。真要查历史请走 `listJobs`（仓储按需查库）。
+ *
+ * @param map 目标索引（原地修改）
+ * @param job 待写入的 job
+ */
+export function upsertJobIndex(index: Map<number, WelinkJob>, job: WelinkJob): void {
+  index.set(job.pk, { ...job })
+  if (!OPEN_JOB_STATUSES.includes(job.status) && !job.holdReason) {
+    // 终态且无待审原因 → 留在库里没有消费者会问，直接淘汰
+    index.delete(job.pk)
+  }
+}
+
+/**
  * jobStatusChanged 的字段推导：把事件落到任务行上，返回「待审状态是否翻转」。
  * 待审原因以事件为准（O7）：转审是 ready → ready 的同状态流转，只用 from/to
  * 判断不出「刚被转人工」，必须看事件带出的 holdReason。

@@ -492,6 +492,13 @@ export function createKnowledgeHarvester(options: HarvesterOptions): KnowledgeHa
       const schedule = () => {
         if (!running) return
         const hours = options.settings().sediment.intervalHours
+        // 排新链之前先清旧句柄 —— 与 poller/codehub-sync/pipeline 三处同款纪律。
+        // 不清会出这条链：`runRound()` 在飞时 stop→start，链尾 `schedule()` 与
+        // 新 start 的 `schedule()` 各排一根，而 `timerId` 只保留后者 ——
+        // 前者**永久失去句柄、永不清理**，此后每轮间隔再泄漏一根。
+        // 提取环节 `timeoutMs` 上限 300s，这个窗口足够宽，用户「关助手再开」
+        // 就会踩到。
+        if (timerId !== null) timers.clear(timerId)
         timerId = timers.set(
           async () => {
             if (!running) return

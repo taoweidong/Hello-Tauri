@@ -10,7 +10,14 @@ import type { Ref, ShallowRef } from 'vue'
 import { nowStamp } from '@/utils/time'
 import type { ConversationState, PollSummary, SafetySnapshot, WelinkEvent } from '@/orchestrator/events'
 import type { WelinkConversation, WelinkJob, WelinkMessage, WelinkSettings } from '@/types/welink'
-import { applyJobStatusPatch, mergeTimelinePage, upsertSortedConvJob, type RuntimeStatus } from './aggregate'
+import {
+  applyJobStatusPatch,
+  mergeTimelinePage,
+  OPEN_JOB_STATUSES,
+  upsertJobIndex,
+  upsertSortedConvJob,
+  type RuntimeStatus,
+} from './aggregate'
 
 /** 熔断横幅（S8 触发时的黄条） */
 export interface FuseBanner {
@@ -79,8 +86,7 @@ export function createEventConsumer(deps: EventConsumerDeps): WelinkEventConsume
 
   /** 任务：更新索引 + 选中会话的待办列表 */
   function patchJob(job: WelinkJob) {
-    jobIndex.value.set(job.pk, { ...job })
-    jobIndex.value = new Map(jobIndex.value)
+    upsertJobIndex(jobIndex.value, job)
     if (job.targetId === selectedConvId.value) convJobs.value = upsertSortedConvJob(convJobs.value, job)
   }
 
@@ -111,7 +117,11 @@ export function createEventConsumer(deps: EventConsumerDeps): WelinkEventConsume
           )
           if (!wasHolding && isHolding) reviewCount.value += 1
           if (wasHolding && !isHolding) reviewCount.value = Math.max(0, reviewCount.value - 1)
-          jobIndex.value = new Map(jobIndex.value)
+          // `applyJobStatusPatch` 已**原地**改了 job 的 status/updatedAt/holdReason，
+          // 这里不再 `new Map(jobIndex.value)` 触发 O(n) 拷贝（P-05）。
+          // jobIndex 的消费点是命令式 `jobOf(pk)`，不依赖引用变化触发重算。
+          // 终态且无待审原因 → 从索引淘汰（无人会再按 pk 问它）
+          if (!OPEN_JOB_STATUSES.includes(job.status) && !job.holdReason) jobIndex.value.delete(job.pk)
           if (job.targetId === selectedConvId.value) convJobs.value = upsertSortedConvJob(convJobs.value, job)
         }
         break

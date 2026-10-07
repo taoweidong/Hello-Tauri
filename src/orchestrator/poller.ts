@@ -100,6 +100,14 @@ export function createPoller(options: PollerOptions): Poller {
 
   let timer: unknown = null
   let running = false
+  /**
+   * `stop()` 递增的代号（P-04）。
+   *
+   * 用来判「本轮执行期间发生过 stop」：轮内守卫比对轮次开始时的代号，
+   * 变了就中断剩余会话。**不用布尔 `stopped`** —— 布尔会让 stop 之后的
+   * 新一轮也被跳空，「立即拉取」按钮随之失效（用户仍应能手动拉一次）。
+   */
+  let stopSeq = 0
   let visible = true
   let roundNo = 0
   /** 上一轮实际使用的每会话错峰（D-6：供设置页显示真实值，null = 还没跑过） */
@@ -220,11 +228,30 @@ export function createPoller(options: PollerOptions): Poller {
       const roundStaggerMs = effectiveStaggerMs(baseIntervalMs(), due.length, staggerCapMs)
       lastStaggerMs = roundStaggerMs
 
+      /**
+       * 「本轮中途被 stop」的判定基准（P-04）。
+       *
+       * 守卫用**代号差**而不是实时 `stopped`：
+       *  - 手动 `pullNow()` 走 `runRound(true)`，与自动轮询的 `running` 无关
+       *    —— 总开关关着时用户仍应能手动拉一次（这正是该按钮的语义）；
+       *  - 但用户「中途暂停」后，**已进入的这一轮**不该再拉剩余会话。
+       *
+       * 所以语义应是「本轮执行期间发生过 stop」，用轮次开始时的代号与当前代号
+       * 相比即可：`stop()` 只递增代号，不影响下一轮（下一轮会取到新的基准值）。
+       * 若直接读实时 `stopped`，stop 之后的新一轮会被整个跳空 ——
+       * 「立即拉取」按钮将失效（实测：stop → pullNow 拉不到任何会话）。
+       */
+      const stopSeqAtRoundStart = stopSeq
       for (const conv of due) {
+        // 停止守卫（P-04）：`stop()` 只清链式 timer，**清不掉本循环里错峰用的
+        // delay()**（它把句柄直接丢进 await），所以循环体内必须自己查 ——
+        // 否则用户中途「暂停」后，剩余 N-1 个会话照常起 CLI 子进程。
+        if (stopSeq !== stopSeqAtRoundStart) break
         const state = stateOf(conv.convId)
 
         // 会话间错峰（O2）：CLI 进程创建要留出间隔
         if (summary.polled > 0 && roundStaggerMs > 0) await delay(roundStaggerMs, timers)
+        if (stopSeq !== stopSeqAtRoundStart) break
 
         summary.polled += 1
         try {
@@ -333,6 +360,7 @@ export function createPoller(options: PollerOptions): Poller {
 
     stop() {
       running = false
+      stopSeq += 1 // 让正在跑的轮次看到「中途被停」，剩余会话不再拉（P-04）
       timers.clear(timer)
       timer = null
       logger.info('WeLink 轮询已停止（数据与未完成任务保留）')

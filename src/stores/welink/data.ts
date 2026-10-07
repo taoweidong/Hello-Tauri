@@ -61,8 +61,9 @@ export function createWelinkData(deps: WelinkDataDeps): WelinkData {
 
   async function listJobs(query: Omit<JobQuery, 'limit' | 'offset'> & { limit: number; offset: number }) {
     const jobs = await repo().listJobs(query)
+    // 只写入、不淘汰：这是历史页翻页，终态 job 可能正在被展示，
+    // 淘汰会删掉「当前页正在用」的条目。淘汰只发生在 patchJob（事件流）上。
     for (const job of jobs) jobIndex.value.set(job.pk, job)
-    jobIndex.value = new Map(jobIndex.value)
     return jobs
   }
 
@@ -94,10 +95,8 @@ export function createWelinkData(deps: WelinkDataDeps): WelinkData {
   async function rateJob(jobPk: number, rating: JobRating | null) {
     await repo().rateJob(jobPk, rating)
     const job = jobIndex.value.get(jobPk)
-    if (job) {
-      job.rating = rating
-      jobIndex.value = new Map(jobIndex.value)
-    }
+    // 原地改字段即可（Map 是响应式的，消费点是命令式 jobOf），无需 new Map 拷贝（P-05）
+    if (job) job.rating = rating
   }
 
   async function listAgentLogs(jobPk: number): Promise<WelinkAgentLog[]> {
@@ -131,7 +130,6 @@ export function createWelinkData(deps: WelinkDataDeps): WelinkData {
     const job = jobIndex.value.get(jobPk)
     const wasHolding = Boolean(job && job.status === 'ready' && job.holdReason)
     jobIndex.value.delete(jobPk)
-    jobIndex.value = new Map(jobIndex.value)
     convJobs.value = convJobs.value.filter((item) => item.pk !== jobPk)
     if (wasHolding) reviewCount.value = await repo().countHolding()
     return true
