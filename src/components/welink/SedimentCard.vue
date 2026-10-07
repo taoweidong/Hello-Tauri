@@ -157,9 +157,7 @@ const reportText = computed(() => {
                     :label="option.label"
                   />
                 </el-select>
-                <span class="sed__hint"
-                  >仅白名单会话的群消息参与提取；群公告与已答复问答不受此限（公告按白名单会话拉取）</span
-                >
+                <span class="sed__hint">仅白名单会话的群消息与群公告参与提取；已答复问答的归档不受白名单限制</span>
               </el-form-item>
               <el-form-item label="提取周期">
                 <el-input-number v-model="draft.intervalHours" :min="1" :max="72" :step="1" />

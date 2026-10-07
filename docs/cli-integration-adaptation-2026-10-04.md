@@ -91,6 +91,12 @@ bridge.cliRun（Rust 通用 CLI 通道）──► 子进程 welink-cli.exe / co
 | W6 | `--version` 可执行检查 | 退出码 0 + 首行含版本 | 基本必支持；核实输出格式 | ☐ |
 | W7 | `--help` 试跑 | Settings「试跑」按钮 | 若不支持 --help，改 `helpArgs()` | ☐ |
 | W8 | 所有子命令都带 `--json` | 文本格式解析脆弱，JSON 至少能报「结构不符」 | 核实 JSON 输出开关的真实写法（`--json` / `--format json` / 默认即 JSON） | ☐ |
+| W9 | 群公告抓取能力存在 | welink-cli 提供公告子命令（knowledge-sedimentation，`WelinkPort.pullAnnouncements`） | **先核「有没有」**：`--help` 找公告类子命令（announcement/notice/bulletin…）。**没有则什么都不用改**——调用侧 `'pullAnnouncements' in port` 判定后诚实降级跳过；有则继续 W10 | ☐ |
+| W10 | 公告子命令协议形态 | 形如 `announcements --conv <群id> --limit <n> --json`，返回 `{ ann_uid, title, content, published_at }` 数组（字段名/编码 UTF-8→GBK 兜底同消息、ann_uid 稳定幂等、重复拉取回传历史公告） | 逐项核对子命令名/参数/字段名/幂等键语义/分页（若有）；核实后实现 `welink-cli.ts` 的 `pullAnnouncements` 并更新 port.ts 与设计文档 §5 清单 | ☐ |
+
+> 核实记录（2026-10-07）：开发机**无 welink-cli 二进制**（PATH 与常见目录均无，应用配置
+> `welinkSource: 'mock'`），W9/W10 无法在本机核实，待目标内网机执行；W1~W8 同前。
+> 公告假设完整清单与设计上下文见 `docs/design-welink-knowledge-sedimentation-2026-10-06.md` §5。
 
 ### 3.2 输出归一化（`adapter.ts`，「宽进」候选字段清单 = 假设面）
 
