@@ -29,10 +29,18 @@ vi.mock('@/infra/db', () => ({
   welink: () => repoMock,
   dbMigrateAll: vi.fn(async () => []),
 }))
-vi.mock('@/utils/logger', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  onLog: vi.fn(() => () => {}),
-}))
+vi.mock('@/utils/logger', async (importOriginal) => {
+  // 部分 mock：保留 registerSecret / resetSecretsForTest 等真实导出。
+  // 本文件走 applySettings → registerWelinkSecrets 路径，需要真实的遮蔽注册表；
+  // 全量替换写法会让新增导出「缺一个就报No xxx export is defined」，
+  // 逼着每个测试文件跟着业务代码的导出列表走。
+  const actual = await importOriginal<typeof import('@/utils/logger')>()
+  return {
+    ...actual,
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    onLog: vi.fn(() => () => {}),
+  }
+})
 
 async function freshStore() {
   vi.resetModules()

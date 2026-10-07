@@ -25,6 +25,7 @@ import { createPipeline, type Pipeline } from './pipeline'
 import { createPoller, type Poller } from './poller'
 import { createRetention, type Retention, type RetentionReport } from './retention'
 import { createSafetyGate, type SafetyGate } from './safety-gate'
+import { registerWelinkSecrets } from './secrets'
 import type { TimerApi } from './timers'
 
 export interface WelinkRuntimeOptions {
@@ -247,6 +248,9 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
     reload(next) {
       currentSettings = next
       gate.reload(next)
+      // S-04：热更新路径同样要把密钥注册进日志遮蔽表 —— 用户可能刚在设置页
+      // 换了一把新 key，而这次换 key 不经过 store 的某些路径。
+      registerWelinkSecrets(next)
       logger.info('WeLink 配置已热更新（配额与冷却状态保留）')
     },
 

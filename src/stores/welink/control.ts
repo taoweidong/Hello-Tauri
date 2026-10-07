@@ -13,6 +13,7 @@ import type { WelinkRuntime } from '@/orchestrator/runtime'
 import type { BootstrapReport } from '@/orchestrator/bootstrap'
 import { emptySummary, type ConversationState, type PollSummary, type SafetySnapshot } from '@/orchestrator/events'
 import { ensureWelinkStorage } from '@/orchestrator/welink-storage'
+import { registerWelinkSecrets } from '@/orchestrator/secrets'
 import type { RuntimeStatus } from './aggregate'
 import type { FuseBanner } from './events'
 
@@ -137,6 +138,12 @@ export function createRuntimeControl(deps: RuntimeControlDeps): RuntimeControl {
   function applySettings(next?: Partial<WelinkSettings>) {
     const merged = normalizeWelinkSettings(next ?? settings.value)
     settings.value = merged
+    // S-04：把大模型 / RAG 的密钥注册进日志遮蔽表。
+    // 放在这里是因为本函数是**设置变更的唯一收敛点** —— 设置页各卡片、
+    // 配置手工编辑、迁移后重载最终都走它，不会漏。
+    // （此前只有 CodeHub token 被注册，agent/rag 的 apiKey 漏在遮蔽表外：
+    // 一旦错误串间接带上 key，就会明文进日志文件与 UI 运行日志区且不被遮蔽。）
+    registerWelinkSecrets(merged)
     runtimeHolder.current?.reload(merged)
     safety.value = { ...safety.value, globalCap: merged.safety.globalHourlyCap }
   }
