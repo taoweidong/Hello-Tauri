@@ -13,7 +13,9 @@ use crate::storage;
 /// **文件系统层面**的逃逸 —— 若存储根内存在指向根外的符号链接或目录联接
 /// （junction），拼接出来的路径词法上在根内、实际读写却落在根外。
 /// 词法检查是「第一道门」，canonicalize 复核是「第二道门」。
-fn resolve_within_root(root: &Path, relative: &str) -> Result<PathBuf, String> {
+///
+/// 提升为 `pub(crate)`：update.rs 的下载/换位通道复用同一组双闸（零逻辑改动）。
+pub(crate) fn resolve_within_root(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let rel = Path::new(relative);
     if rel.is_absolute() || relative.contains(':') {
         return Err(format!("只允许存储根下的相对路径，收到：{relative}"));
@@ -43,7 +45,9 @@ fn strip_verbatim(path: &Path) -> PathBuf {
 /// 关键细节：**canonicalize 对不存在的路径会失败**，而 `fs_write` 的常规用法
 /// 就是「写一个还不存在的文件」。因此这里向上回溯到最近的存在祖先做复核 ——
 /// 判据是「已存在的部分没有逃出根」，那么在其下新建的文件也不可能逃出。
-fn contain_root(root: &Path, target: &Path) -> Result<(), String> {
+///
+/// 提升为 `pub(crate)`：update.rs 的下载/换位通道复用同一组双闸（零逻辑改动）。
+pub(crate) fn contain_root(root: &Path, target: &Path) -> Result<(), String> {
     // root 本身也可能是个符号链接/联接，先取其真实路径再比对
     let real_root = strip_verbatim(&fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()));
     let mut probe = target;

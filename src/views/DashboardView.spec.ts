@@ -27,12 +27,16 @@ let appStore: {
 }
 let welinkStore: Record<string, unknown>
 let groupStore: Record<string, unknown>
+let updateStore: Record<string, unknown>
 const push = vi.fn()
 
 vi.mock('@/stores/codehub', () => ({ useCodehubStore: () => codehubStore }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => appStore }))
 vi.mock('@/stores/welink', () => ({ useWelinkStore: () => welinkStore }))
 vi.mock('@/stores/group', () => ({ useGroupStore: () => groupStore }))
+// 自动更新（design-auto-update）：工作台只读 status/hasUpdate 呈现小红点，mock 语义与
+// store 聚合口径一致（hasUpdate = enabled && (available|ready|hint)）
+vi.mock('@/stores/update', () => ({ useUpdateStore: () => updateStore }))
 vi.mock('@/api', () => ({ platform: 'web' }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
 vi.mock('element-plus', () => ({ ElMessage: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }))
@@ -150,6 +154,11 @@ const panelTitles = (wrapper: ReturnType<typeof mountView>) =>
 describe('DashboardView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    updateStore = {
+      status: { state: 'idle', latest: null, progress: null, error: null, lastCheckAt: null, hintVersion: null },
+      hasUpdate: false,
+      busy: false,
+    }
   })
 
   it('双域面板聚焦业务域：WeLink 助手与 CodeHub 检视，演示域不再出现', async () => {

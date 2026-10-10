@@ -11,6 +11,7 @@ import { useAppStore } from '@/stores/app'
 import { useWelinkStore } from '@/stores/welink'
 import { useCodehubStore } from '@/stores/codehub'
 import { useGroupStore } from '@/stores/group'
+import { useUpdateStore } from '@/stores/update'
 import { logger } from '@/utils/logger'
 import { shortStamp } from '@/utils/welink-display'
 
@@ -19,6 +20,8 @@ const appStore = useAppStore()
 const welinkStore = useWelinkStore()
 const codehubStore = useCodehubStore()
 const groupStore = useGroupStore()
+/** 自动更新（design-auto-update）：工作台只提示不操作（小红点），安装入口在配置页 */
+const updateStore = useUpdateStore()
 
 function fmt(n: number) {
   return n.toLocaleString('zh-CN')
@@ -314,7 +317,14 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
         </div>
         <div class="runtime__item">
           <dt>应用版本</dt>
-          <dd class="num">v{{ appStore.info?.version ?? '-' }}</dd>
+          <dd class="num">
+            v{{ appStore.info?.version ?? '-' }}
+            <span
+              v-if="updateStore.hasUpdate"
+              class="update-dot"
+              :title="`发现新版本 ${updateStore.status.latest?.version ?? updateStore.status.hintVersion ?? ''}，可在配置页安装`"
+            />
+          </dd>
         </div>
         <div class="runtime__item">
           <dt>系统 / 架构</dt>
@@ -724,6 +734,18 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
 /* 存储状态降级 = 橙点（正常复用全局 pill--ok 绿点） */
 .pill--warn::before {
   background: var(--ht-warn);
+}
+
+/* 自动更新小红点（design-auto-update：工作台仅提示不操作） */
+.update-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--ht-danger);
+  vertical-align: 2px;
+  cursor: help;
 }
 
 /* —— 空态 —— */

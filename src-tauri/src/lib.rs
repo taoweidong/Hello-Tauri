@@ -9,6 +9,7 @@ mod shell;
 mod storage;
 mod sysinfo;
 mod tray;
+mod update;
 
 use std::env;
 use std::path::{Component, Path, PathBuf};
@@ -78,6 +79,11 @@ pub fn run() {
     // `Builder::run()` 内部创建，晚一步就来不及了。
     configure_webview_profile();
 
+    // 自动更新自替换后的新进程：带 --update-prune 清理上一轮换位残留。
+    // 同样必须在 Builder 之前 —— ① 清理赶在窗口出现前；② 内部以「.old 映像可删除」
+    // 等待旧进程真正退出，先于单实例插件抢互斥量（详见 update.rs prune_leftovers）。
+    update::prune_leftovers();
+
     // T-I：开机自启走 --minimized 静默入托盘（Run 项由 autostart_set 写入，
     // 详见 autostart.rs）。
     let start_minimized = std::env::args().any(|arg| arg == "--minimized");
@@ -123,8 +129,13 @@ pub fn run() {
             db::db_transaction,
             db::db_migrate,
             cli::cli_run,
-            // —— HTTP JSON POST 通道（大模型对接：WebView fetch 受 CORS 拦截，宿主代发）——
+            // —— HTTP 通道（大模型对接 POST + 自动更新清单 GET，同构薄通道）——
             http::http_post_json,
+            http::http_get_text,
+            // —— 自动更新通道（design-auto-update：下载/验签/自替换，业务在 TS）——
+            update::update_download,
+            update::verify_minisign,
+            update::update_apply,
             // —— Windows 基础设施通道（windows-infra-foundation）——
             sysinfo::sys_overview,
             sysinfo::sys_env_var,

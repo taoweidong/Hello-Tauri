@@ -98,3 +98,88 @@ describe('tauriBridge：开机自启', () => {
     expect(invokeMock).toHaveBeenCalledWith('autostart_set', { enabled: true })
   })
 })
+
+// —— 自动更新通道（design-auto-update §10.3：契约与 Rust update.rs 一致）——
+
+describe('tauriBridge：更新通道（命令透传）', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    listenMock.mockReset()
+  })
+
+  it('httpGetText：headers 以二元组数组透传（同 httpPostJson 惯例）', async () => {
+    invokeMock.mockResolvedValue({ status: 200, body: '{}' })
+    await tauriBridge.httpGetText('http://x/latest.json', { accept: 'application/json' }, 5000)
+    expect(invokeMock).toHaveBeenCalledWith('http_get_text', {
+      url: 'http://x/latest.json',
+      headers: [['accept', 'application/json']],
+      timeoutMs: 5000,
+    })
+  })
+
+  it('updateDownload：dest/timeout/expected sha 原样透传', async () => {
+    invokeMock.mockResolvedValue({ bytes: 1, sha256: 'a'.repeat(64) })
+    await tauriBridge.updateDownload('http://x/app.exe', 'update/staging/app-0.2.0.exe', undefined, 'A'.repeat(64))
+    expect(invokeMock).toHaveBeenCalledWith('update_download', {
+      url: 'http://x/app.exe',
+      destRelative: 'update/staging/app-0.2.0.exe',
+      timeoutMs: undefined,
+      expectedSha256: 'A'.repeat(64),
+    })
+  })
+
+  it('verifyMinisign / updateApply：参数透传', async () => {
+    invokeMock.mockResolvedValue({ valid: true, reason: '' })
+    await tauriBridge.verifyMinisign('manifest', 'sig', 'PUBKEY')
+    expect(invokeMock).toHaveBeenCalledWith('verify_minisign', { message: 'manifest', signature: 'sig', publicKey: 'PUBKEY' })
+
+    invokeMock.mockResolvedValue({ ok: true, step: null, rolledBack: false, reason: null })
+    await tauriBridge.updateApply('update/staging/app-0.2.0.exe', 'a'.repeat(64))
+    expect(invokeMock).toHaveBeenCalledWith('update_apply', {
+      stagedRelative: 'update/staging/app-0.2.0.exe',
+      expectedSha256: 'a'.repeat(64),
+    })
+  })
+})
+
+describe('tauriBridge：更新通道（永不 reject 折叠契约）', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    listenMock.mockReset()
+  })
+
+  it('verifyMinisign：宿主 Err 折叠为 valid:false（公钥失败与验签失败对业务等价）', async () => {
+    invokeMock.mockRejectedValue('公钥解析失败: bad key')
+    await expect(tauriBridge.verifyMinisign('m', 's', 'k')).resolves.toMatchObject({
+      valid: false,
+      reason: expect.stringContaining('验签通道故障'),
+    })
+  })
+
+  it('updateApply：宿主 Err / IPC 故障折叠为 ok:false（不向调用方 reject）', async () => {
+    invokeMock.mockRejectedValue(new Error('invoke crashed'))
+    const outcome = await tauriBridge.updateApply('x')
+    expect(outcome.ok).toBe(false)
+    expect(outcome.reason).toContain('自替换通道故障')
+  })
+
+  it('onDownloadProgress：注册 update://progress、载荷透传、退订函数透传', async () => {
+    const unlisten = vi.fn()
+    listenMock.mockResolvedValue(unlisten)
+    const received: Array<unknown> = []
+    const dispose = await tauriBridge.onDownloadProgress((progress) => received.push(progress))
+
+    expect(listenMock).toHaveBeenCalledWith('update://progress', expect.any(Function))
+    listenMock.mock.calls[0][1]({ payload: { received: 10, total: 100 } })
+    expect(received).toEqual([{ received: 10, total: 100 }])
+
+    dispose()
+    expect(unlisten).toHaveBeenCalledTimes(1)
+  })
+
+  it('onDownloadProgress：注册故障折叠为空退订（永不 reject）', async () => {
+    listenMock.mockRejectedValue(new Error('channel broken'))
+    const dispose = await tauriBridge.onDownloadProgress(() => {})
+    expect(() => dispose()).not.toThrow()
+  })
+})

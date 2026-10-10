@@ -10,6 +10,7 @@ import { useAppStore } from '@/stores/app'
 import { useTableStore } from '@/stores/table'
 import { useCodehubStore } from '@/stores/codehub'
 import { useWelinkStore } from '@/stores/welink'
+import { useUpdateStore } from '@/stores/update'
 import { bindHostLink } from '@/stores/welink/host-link'
 import { logger } from '@/utils/logger'
 
@@ -19,6 +20,7 @@ const appStore = useAppStore()
 const tableStore = useTableStore()
 const codehubStore = useCodehubStore()
 const welinkStore = useWelinkStore()
+const updateStore = useUpdateStore()
 
 /**
  * Element Plus 区域语言（P-1）。
@@ -81,6 +83,10 @@ onMounted(async () => {
   // 托盘事件 ↔ 服务生命周期联动（T-J/K）。退订函数有意丢弃：联动层与应用同生命周期
   // （onUnmounted 全应用仅退出时触发）。
   bindHostLink(welinkStore)
+
+  // 自动更新编排（design-auto-update）：依赖 appInfo 版本号，放 load 之后。
+  // enabled=false（默认）时调度器空转，零网络行为；装配失败不影响主功能。
+  void updateStore.init()
 })
 
 // 配置改动实时同步到表格分页，修复 keep-alive 后配置不生效的问题

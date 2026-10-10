@@ -16,6 +16,7 @@ import RagSettingsCard from '@/components/welink/RagSettingsCard.vue'
 import KnowledgeCard from '@/components/welink/KnowledgeCard.vue'
 import SedimentCard from '@/components/welink/SedimentCard.vue'
 import CodehubSettingsCard from '@/components/codehub/CodehubSettingsCard.vue'
+import UpdateSettingsCard from '@/components/update/UpdateSettingsCard.vue'
 
 const appStore = useAppStore()
 const codehubStore = useCodehubStore()
@@ -324,6 +325,13 @@ async function migrateDir() {
       @update:model-value="(value) => (form.codeHub = value)"
       @update:valid="(value: boolean) => (codehubValid = value)"
     />
+
+    <!-- 软件更新（design-auto-update）：默认关闭，启用后仅访问用户配置的内网更新源 -->
+    <UpdateSettingsCard
+      :model-value="form.update ?? {}"
+      class="update-card"
+      @update:model-value="(value) => (form.update = value)"
+    />
   </div>
 </template>
 
@@ -344,6 +352,10 @@ async function migrateDir() {
 }
 
 .codehub-card {
+  margin-top: 14px;
+}
+
+.update-card {
   margin-top: 14px;
 }
 

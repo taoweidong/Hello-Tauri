@@ -4,11 +4,15 @@ import { listen } from '@tauri-apps/api/event'
 
 import type {
   AppInfo,
+  ApplyOutcome,
   BasicOutcome,
   CliResult,
   DbParam,
   DbRow,
+  DownloadOutcome,
+  DownloadProgress,
   ExecResult,
+  HttpGetResult,
   HttpPostResult,
   LogLevel,
   Migration,
@@ -18,6 +22,7 @@ import type {
   SysAdapter,
   SysDisk,
   SysOverview,
+  VerifyOutcome,
 } from '@/types'
 import type { Bridge } from './types'
 
@@ -66,6 +71,34 @@ export const tauriBridge: Bridge = {
   // headers 以二元组数组回传（serde Vec<(String, String)>），Rust 侧逐条塞进请求头
   httpPostJson: (url: string, headers: Record<string, string>, body: string, timeoutMs: number) =>
     invoke<HttpPostResult>('http_post_json', { url, headers: Object.entries(headers), body, timeoutMs }),
+
+  // —— HTTP GET 与更新通道（命令实位 src-tauri/src/http.rs / update.rs）——
+  httpGetText: (url: string, headers: Record<string, string>, timeoutMs: number) =>
+    invoke<HttpGetResult>('http_get_text', { url, headers: Object.entries(headers), timeoutMs }),
+  updateDownload: (url: string, destRelative: string, timeoutMs: number | undefined, expectedSha256?: string) =>
+    invoke<DownloadOutcome>('update_download', { url, destRelative, timeoutMs, expectedSha256 }),
+  // 永不 reject 契约（含公钥解析失败）：宿主 Err 与 IPC 故障统一折叠进 valid:false
+  verifyMinisign: async (message: string, signature: string, publicKey: string): Promise<VerifyOutcome> => {
+    try {
+      return await invoke<VerifyOutcome>('verify_minisign', { message, signature, publicKey })
+    } catch (error) {
+      return { valid: false, reason: `验签通道故障: ${errorText(error)}` }
+    }
+  },
+  // 永不 reject 契约：Rust update_apply 自身折叠失败；IPC 层故障也折叠
+  updateApply: async (stagedRelative: string, expectedSha256?: string): Promise<ApplyOutcome> => {
+    try {
+      return await invoke<ApplyOutcome>('update_apply', { stagedRelative, expectedSha256 })
+    } catch (error) {
+      // 正常成功路径进程即退出、响应不达；仍能走到 catch 说明进程活着且通道出错
+      return { ok: false, step: 'locate', rolledBack: false, reason: `自替换通道故障: ${errorText(error)}` }
+    }
+  },
+  onDownloadProgress: (cb: (progress: DownloadProgress) => void) =>
+    // listen 的 Promise reject 只发生在注册通道故障；折叠为「空退订」（同 onHostEvent）
+    listen<DownloadProgress>('update://progress', (event) => cb(event.payload))
+      .then((unlisten) => () => void unlisten())
+      .catch(() => () => {}),
 
   // —— Windows 基础设施通道（命令实位 src-tauri/src/sysinfo.rs / shell.rs）——
   sysOverview: () => probe(() => invoke<SysOverview>('sys_overview')),

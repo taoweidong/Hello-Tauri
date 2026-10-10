@@ -1,10 +1,14 @@
 import type {
   AppInfo,
+  ApplyOutcome,
   BasicOutcome,
   CliResult,
   DbParam,
   DbRow,
+  DownloadOutcome,
+  DownloadProgress,
   ExecResult,
+  HttpGetResult,
   HttpPostResult,
   LogLevel,
   Migration,
@@ -14,6 +18,7 @@ import type {
   SysAdapter,
   SysDisk,
   SysOverview,
+  VerifyOutcome,
 } from '@/types'
 
 export type Platform = 'tauri' | 'web'
@@ -101,6 +106,35 @@ export interface Bridge {
    *  * 超时在宿主侧强制生效（TS 侧另有同值超时做错误分类）。
    */
   httpPostJson(url: string, headers: Record<string, string>, body: string, timeoutMs: number): Promise<HttpPostResult>
+
+  // —— HTTP GET 文本与更新下载通道（design-auto-update：与 httpPostJson 同构的薄通道）——
+
+  /**
+   * 以宿主进程身份 GET 文本（更新清单等小正文）。契约与 httpPostJson 一致：
+   * 状态码原样回传不算失败（404/204 由调用方判定），仅传输层故障 reject；
+   * 超时在宿主侧强制生效。
+   */
+  httpGetText(url: string, headers: Record<string, string>, timeoutMs: number): Promise<HttpGetResult>
+  /**
+   * 流式下载到存储根内相对路径（Rust 侧路径双闸防逃逸），边下边算 sha256。
+   * 仅传输层故障与非 2xx reject；进度经 onDownloadProgress 事件推送。
+   * expectedSha256 非空时由宿主收尾比对，不符则删除落地文件并 reject（完整性闸①收尾）。
+   */
+  updateDownload(
+    url: string,
+    destRelative: string,
+    timeoutMs: number | undefined,
+    expectedSha256?: string,
+  ): Promise<DownloadOutcome>
+  /** minisign 验签（对象=清单文本）。永不 reject：验签失败与公钥解析失败（发布错误）都折叠进 valid:false —— 对业务等价：都不允许更新 */
+  verifyMinisign(message: string, signature: string, publicKey: string): Promise<VerifyOutcome>
+  /**
+   * 自替换四步换位（copy → rename×2 → spawn → exit）。永不 reject，失败折叠进结果对象。
+   * **成功场景响应可能不达**（宿主随即退出）：调用方以「响应可达但迟迟不归/进程消失」为重启信号。
+   */
+  updateApply(stagedRelative: string, expectedSha256?: string): Promise<ApplyOutcome>
+  /** 订阅下载进度事件（update://progress），返回退订函数。浏览器侧恒 no-op（永不 reject） */
+  onDownloadProgress(cb: (progress: DownloadProgress) => void): Promise<() => void>
 
   // —— Windows 基础设施通道（windows-infra-foundation）——
   //

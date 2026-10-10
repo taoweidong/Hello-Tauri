@@ -170,7 +170,7 @@ dumpbin /dependents release\Hello-Tauri-0.1.0-x64-20261006-1530.exe
 | Node.js ≥ 22.5     | 系统安装                                                                | —      |
 | 前端依赖           | 项目内 `node_modules/`，或内网 npm 缓存（`npm install --offline` 还原） | 178 MB |
 | Rust 工具链        | `%USERPROFILE%\.rustup\toolchains\stable-x86_64-pc-windows-msvc`        | 577 MB |
-| Crate 缓存         | `%USERPROFILE%\.cargo\registry`（258 个 crate）                         | 367 MB |
+| Crate 缓存         | `%USERPROFILE%\.cargo\registry`（259 个 crate，2026-10-11 自动更新域 +minisign-verify） | 367 MB |
 | MSVC + Windows SDK | Visual Studio 2022「使用 C++ 的桌面开发」+ SDK 10.0.22000 / 10.0.22621  | 数 GB  |
 
 不产生网络请求的三处关键点：
@@ -183,10 +183,17 @@ dumpbin /dependents release\Hello-Tauri-0.1.0-x64-20261006-1530.exe
 
 ## 内网运行说明
 
-- 运行期**零外部请求**：无 CDN 字体/图标、无更新检查、无遥测；图标为内联 SVG 组件，字体使用系统字体栈。
+- 运行期**零外部请求**：无 CDN 字体/图标、无遥测；图标为内联 SVG 组件，字体使用系统字体栈。
+  **自动更新为唯一显式例外**（默认关闭，需在配置页启用）：启用后仅 GET 用户配置的内网
+  更新源（清单 `latest.json` + 签名 `.minisig` + 产物 exe 三种请求），无任何遥测与统计。
 - 所有资源经 Vite 打包进 exe，页面刷新与路由（hash 模式）均在本地完成。
 - 配置、数据与日志写在 `D:\TangYuan\`，不依赖网络与外部服务。
 - 开发环境之外，目标机器**不需要** Node.js、Rust、npm 或 VC++ Redistributable。
+- 自动更新发布：`npm run pack` 后运行
+  `node scripts/publish-update.mjs --base-url http://<内网服务器>/update/hello-tauri --exe release/<产物>.exe --notes "说明"`，
+  产物三件套上传服务器（先传 `files/` 再传 `latest.json`）；流程与签名纪律见
+  `docs/design-auto-update-2026-10-10.md` §9.5。外网隔离环境可把三件套直接拷进
+  数据根 `update\inbox\` 走摆渡更新（设置页「扫描摆渡目录」或启动自动扫描）。
 
 ## 常用命令
 

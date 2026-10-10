@@ -39,10 +39,12 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
   是唯一例外（桌面实现），`web.ts` 是浏览器实现（localStorage），`index.ts` 运行时按
   `__TAURI_INTERNALS__` 自动选择。
 - **Rust 无业务规则**：`src-tauri/src/` 只有「开窗口 + 存储读写 + SQLite 通用通道 +
-  CLI 子进程（welink-cli / codehub-cli 共用一条通道）+ HTTP JSON POST 通道（大模型对接，
-  WebView fetch 受 CORS 拦截由宿主代发）+ Windows 基础设施只读通道 + 托盘驻留
-  （tray.rs：关窗拦截/托盘菜单/状态显示，动作语义全在前端）+ 开机自启注册表薄桥接」共 29 个
-  命令（commands 9 / db 4 / fs 2 / cli 1 / http 1 / sysinfo 4 / shell 4 / tray 2 / autostart 2）。新增功能全部写在 `src/` 的
+  CLI 子进程（welink-cli / codehub-cli 共用一条通道）+ HTTP 通道（POST=大模型对接 /
+  GET=更新清单等小文本，WebView fetch 受 CORS 拦截由宿主代发）+ Windows 基础设施只读通道 +
+  自动更新（update.rs：流式下载/minisign 验签/自替换重启，清单协议、版本判定与状态机
+  全在 TS 侧）+ 托盘驻留（tray.rs：关窗拦截/托盘菜单/状态显示，动作语义全在前端）+
+  开机自启注册表薄桥接」共 33 个
+  命令（commands 9 / db 4 / fs 2 / cli 1 / http 2 / update 3 / sysinfo 4 / shell 4 / tray 2 / autostart 2）。新增功能全部写在 `src/` 的
   TypeScript 中，不要动 Rust；新增宿主能力 = 薄桥接命令 + Bridge 双侧实现 + infra
   端口-适配器（同 windows-infra 模式）。
 - **SQLite 表结构归 TS 管**：迁移写在 `src/infra/db/migrations/`，经通用命令
@@ -82,8 +84,15 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
   测试替身与浏览器调试数据源）；`[WIN-ASSUME]` = 对真实 Windows 行为的假设（登记命令的
   参数语法、剪贴板属主语义、气球通知转 toast 等），改动前 `grep -rn "MOCK-WIN\|WIN-ASSUME" src/`
   逐项核实。
-- **运行时零外部请求**：无 CDN 字体/图标/更新检查。图标用内联 SVG（`src/components/icons.ts`），
-  字体用系统字体栈。
+  自动更新模块（`src/infra/update/`、`src-tauri/src/update.rs`）同款约定：
+  `[MOCK-UPDATE]` = 模拟实现（浏览器调试更新全流程：假清单/假进度/成功但不重启）；
+  `[UPD-ASSUME]` = 对更新链路的假设（运行映像可 rename、tauri signer 与 minisign-verify
+  的格式往返、清单 `<endpoint>`/`<endpoint>.minisig` 双 GET、staged 复核语义等——
+  2026-10-11 实施期已逐项 PoC 核实并关闭，记录见设计文档 §13 与 §16 实施勘误），
+  改动前 `grep -rn "MOCK-UPDATE\|UPD-ASSUME" src/` 逐项核对。
+- **运行时零外部请求**：无 CDN 字体/图标。图标用内联 SVG（`src/components/icons.ts`），
+  字体用系统字体栈。**自动更新为唯一显式例外**：默认关闭、启用后仅 GET 用户配置的
+  内网更新源（清单/签名/产物三种 GET，无遥测；design-auto-update U-G）。
 
 ## 数据存储
 
@@ -160,6 +169,10 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
 - `docs/design-service-residency-2026-10-10.md` — 服务常驻（系统托盘驻留）设计（决策 T-A~T-N、
   首验项 V-1~V-8）；动 `src-tauri/src/tray.rs`、`src/stores/welink/host-link.ts`、Bridge
   服务常驻通道、`AppSettings.closeBehavior` 与开机自启前必读。
+- `docs/design-auto-update-2026-10-10.md` — 自动更新（单 exe 拉取远端最新版本）设计
+  （决策 U-A~U-M、`[UPD-ASSUME]` 首验项 U-1~U-8、清单 schema 与发布规程，§16 为实施勘误）；
+  动 `src-tauri/src/update.rs`、`src/infra/update/`、`src/orchestrator/update.ts`、
+  `AppSettings.update` 与 `scripts/publish-update.mjs` 前必读。
 - `openspec/specs/welink-auto-reply/spec.md` — 自动回复主规格（16 条需求，含技能路由与检索增强）；
   `openspec/specs/knowledge-base/spec.md` — 知识库管理主规格；改动经 delta 流程对照。
 - `openspec/specs/codehub-review/spec.md`、`openspec/specs/workbench-home/spec.md` — CodeHub 检视域

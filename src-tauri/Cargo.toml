@@ -40,6 +40,17 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 # native-tls、schannel 三个 crate（都只依赖树内已有项）。
 reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
 
+# —— 自动更新（docs/design-auto-update-2026-10-10.md §10）——
+# sha2 已在 Cargo.lock（0.10.9，tauri 传递依赖）：提升为直接依赖不新增缓存 crate
+# （下载通道边下边算 sha256，apply 时对 staged 复核）。
+sha2 = "0.10"
+# minisign 验签（清单防篡改，闸①）：零依赖纯 Rust，静态链接友好。本方案唯一新增
+# crate，内网迁移前需在打包机 cargo fetch 一次（README「内网打包说明」crate 缓存 +1）。
+minisign-verify = "0.3"
+# update_apply 换位成功后的退出前延时（tokio::time::sleep）。tauri 异步命令本就跑在
+# tokio 运行时上，tokio 已在 Cargo.lock（1.53.1）：仅声明 time 特性，不新增 crate。
+tokio = { version = "1", features = ["time"] }
+
 # 仅用于 GetLocalTime（本地时区日志时间戳）+ Windows 基础设施通道
 # （sysinfo.rs / shell.rs：注册表、磁盘、网卡、ShellExecute、剪贴板、托盘气球通知）。
 # 选它而非 chrono：chrono 会拉入 iana-time-zone，该 crate 不在内网缓存中，

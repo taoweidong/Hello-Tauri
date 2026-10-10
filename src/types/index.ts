@@ -54,6 +54,12 @@ export interface AppSettings {
    * 同 weLink 的约定：Partial 允许老配置缺省，归一化由 `normalizeCodeHubSettings` 负责。
    */
   codeHub?: Partial<import('./codehub').CodeHubSettings>
+  /**
+   * 自动更新配置（design-auto-update：`config/config.json` → `AppSettings.update`）。
+   * 同 weLink 的约定：Partial 允许老配置缺省，归一化由 `normalizeUpdateSettings` 负责；
+   * 默认关闭（U-G：零外部请求的唯一显式例外）。
+   */
+  update?: Partial<import('./update').UpdateSettings>
 }
 
 export type RowStatus = 'active' | 'inactive'
@@ -97,6 +103,44 @@ export interface HttpPostResult {
   status: number
   /** 响应正文（UTF-8） */
   body: string
+}
+
+/** HTTP GET 文本通道结果（`http_get_text` 回传，更新清单拉取）。契约与 HttpPostResult 同构 */
+export interface HttpGetResult {
+  /** HTTP 状态码 */
+  status: number
+  /** 响应正文（UTF-8） */
+  body: string
+}
+
+// —— 自动更新通道（design-auto-update §11.1，契约与 Rust update.rs 一致）——
+
+/** 流式下载结果（`update_download` 回传）：实收字节与流式计算的 sha256 */
+export interface DownloadOutcome {
+  bytes: number
+  sha256: string
+}
+
+/** minisign 验签结果（`verify_minisign` 回传）。永不 reject：解析/验证失败折叠进 valid:false */
+export interface VerifyOutcome {
+  valid: boolean
+  reason: string
+}
+
+/** 自替换结果（`update_apply` 回传）。永不 reject，失败折叠进结果对象 */
+export interface ApplyOutcome {
+  ok: boolean
+  /** 失败阶段：locate/probe/copy/rename_current/rename_staged/spawn/verify */
+  step: 'locate' | 'probe' | 'copy' | 'rename_current' | 'rename_staged' | 'spawn' | 'verify' | null
+  /** 是否已回滚到替换前状态（rename_staged 失败回滚；spawn 失败不回滚——文件已是新版） */
+  rolledBack: boolean
+  reason: string | null
+}
+
+/** 下载进度（`update://progress` 事件载荷）。total 为 null 时前端降级显示已接收字节数 */
+export interface DownloadProgress {
+  received: number
+  total: number | null
 }
 
 /** 存储根迁移结果（需重启生效） */

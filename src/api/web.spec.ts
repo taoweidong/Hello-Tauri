@@ -82,4 +82,31 @@ describe('webBridge 契约', () => {
     await expect(webBridge.autostartGet()).resolves.toMatchObject({ ok: false, reason: expect.any(String) })
     await expect(webBridge.autostartSet(true)).resolves.toMatchObject({ ok: false, reason: expect.any(String) })
   })
+
+  // —— 更新通道（design-auto-update U-L：浏览器业务路径由 infra/update mock 承担，
+  //    Bridge 侧诚实报错/折叠，两侧契约对称）——
+
+  it('httpGetText / updateDownload 在浏览器模式明确报错（业务路径不会走到）', async () => {
+    await expect(webBridge.httpGetText('http://x/latest.json', {}, 1000)).rejects.toThrow(/浏览器/)
+    await expect(webBridge.updateDownload('http://x/app.exe', 'update/staging/a.exe', undefined)).rejects.toThrow(
+      /浏览器/,
+    )
+  })
+
+  it('verifyMinisign / updateApply 永不 reject：折叠为否定结果', async () => {
+    await expect(webBridge.verifyMinisign('m', 's', 'k')).resolves.toMatchObject({
+      valid: false,
+      reason: expect.stringContaining('mock'),
+    })
+    const outcome = await webBridge.updateApply('update/staging/a.exe')
+    expect(outcome.ok).toBe(false)
+    expect(outcome.reason).toContain('mock')
+  })
+
+  it('onDownloadProgress 恒 no-op：返回可安全调用的退订函数', async () => {
+    const unlisten = await webBridge.onDownloadProgress(() => {})
+    expect(typeof unlisten).toBe('function')
+    expect(() => unlisten()).not.toThrow()
+    unlisten()
+  })
 })

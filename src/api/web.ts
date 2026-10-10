@@ -1,10 +1,14 @@
 import type {
   AppInfo,
+  ApplyOutcome,
   BasicOutcome,
   CliResult,
   DbParam,
   DbRow,
+  DownloadOutcome,
+  DownloadProgress,
   ExecResult,
+  HttpGetResult,
   HttpPostResult,
   LogLevel,
   Migration,
@@ -13,6 +17,7 @@ import type {
   SysAdapter,
   SysDisk,
   SysOverview,
+  VerifyOutcome,
 } from '@/types'
 import type { Bridge, CloseBehavior, HostEventName } from './types'
 
@@ -122,6 +127,32 @@ export const webBridge: Bridge = {
     _timeoutMs: number,
   ): Promise<HttpPostResult> {
     throw new Error('浏览器调试模式不支持宿主 HTTP 通道，Agent 数据源请使用 mock')
+  },
+
+  // —— HTTP GET 与更新通道：与 httpPostJson 同理，诚实报错而非假装可用 ——
+  //    更新域的浏览器调试全流程由 infra/update 工厂强制 mock 提供（[MOCK-UPDATE]），
+  //    业务路径不会走到这里；保留它们只为 Bridge 契约两侧对齐。
+  async httpGetText(_url: string, _headers: Record<string, string>, _timeoutMs: number): Promise<HttpGetResult> {
+    throw new Error('浏览器调试模式不支持宿主 HTTP 通道，更新数据源请使用 mock')
+  },
+  async updateDownload(
+    _url: string,
+    _destRelative: string,
+    _timeoutMs: number | undefined,
+    _expectedSha256?: string,
+  ): Promise<DownloadOutcome> {
+    throw new Error('浏览器调试模式不支持宿主下载通道，更新数据源请使用 mock')
+  },
+  async verifyMinisign(_message: string, _signature: string, _publicKey: string): Promise<VerifyOutcome> {
+    // 永不 reject 契约：折叠为「验签不通过」—— 浏览器模式本就不允许更新
+    return { valid: false, reason: '浏览器调试模式不支持宿主验签，更新数据源请使用 mock' }
+  },
+  async updateApply(_stagedRelative: string, _expectedSha256?: string): Promise<ApplyOutcome> {
+    // 永不 reject 契约：浏览器无进程可替换，诚实折叠
+    return { ok: false, step: 'locate', rolledBack: false, reason: '浏览器调试模式不支持自替换，更新数据源请使用 mock' }
+  },
+  async onDownloadProgress(_cb: (progress: DownloadProgress) => void): Promise<() => void> {
+    return () => {} // 无宿主事件语义：恒 no-op 订阅（mock 客户端经回调直推进度）
   },
 
   // —— Windows 基础设施通道 ——

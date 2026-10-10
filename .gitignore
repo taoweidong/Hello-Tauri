@@ -7,6 +7,9 @@ dist/
 # 打包输出（独立 exe）
 release/
 
+# 自动更新发布产物（publish-update.mjs 的三件套：清单/签名/带版本 exe）
+publish/
+
 # Tauri / Rust 构建产物（统一输出到项目根 target/，见 .cargo/config.toml）
 target/
 src-tauri/target/
