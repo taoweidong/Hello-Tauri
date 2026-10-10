@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { webBridge } from '@/api/web'
 
@@ -61,5 +61,25 @@ describe('webBridge 契约', () => {
     })
     expect(typeof info.version).toBe('string')
     expect(info.storage).toBeDefined()
+  })
+
+  // —— 服务常驻通道（service-residency T-M：浏览器模式完整不受影响）——
+
+  it('onHostEvent 恒 no-op：返回可安全调用的退订函数', async () => {
+    const handler = vi.fn()
+    const unlisten = await webBridge.onHostEvent('host://tray-toggle', handler)
+    expect(typeof unlisten).toBe('function')
+    expect(() => unlisten()).not.toThrow()
+    unlisten()
+  })
+
+  it('traySetStatus / traySetClosePolicy 为无副作用的诚实 no-op', async () => {
+    await expect(webBridge.traySetStatus(true, '服务运行中')).resolves.toEqual({ ok: true })
+    await expect(webBridge.traySetClosePolicy('tray')).resolves.toEqual({ ok: true })
+  })
+
+  it('autostart 在浏览器模式诚实拒绝（不假装可用）', async () => {
+    await expect(webBridge.autostartGet()).resolves.toMatchObject({ ok: false, reason: expect.any(String) })
+    await expect(webBridge.autostartSet(true)).resolves.toMatchObject({ ok: false, reason: expect.any(String) })
   })
 })

@@ -23,6 +23,12 @@ export const useAppStore = defineStore('app', () => {
   const saving = ref(false)
   const lastSavedAt = ref<number | null>(null)
 
+  /**
+   * 开机自启开关（service-residency T-I）：宿主注册表态，**不是** config 态 ——
+   * 不进 settings（避免与注册表双真值漂移），真值以 `bridge.autostartGet` 回显为准。
+   */
+  const autostart = ref(false)
+
   /** 存储位置降级提示：非空时界面需要显式告知用户 */
   const storageWarning = computed(() => (storage.value?.fallback ? storage.value.note : ''))
 
@@ -46,11 +52,34 @@ export const useAppStore = defineStore('app', () => {
       info.value = appInfo
       storage.value = layout
       logger.info(layout.fallback ? `应用启动（存储降级）：${layout.note}` : `应用启动，数据目录 ${layout.root}`)
+      // 自启开关回显（T-I）：真值在注册表，load 成功后顺带读取；失败静默保持 false
+      void loadAutostart()
     } catch (error) {
       logger.error('初始化失败，使用默认配置', error)
     }
     applyTheme()
     ready.value = true
+  }
+
+  /** 读注册表 Run 项回显自启开关（ProbeResult 语义：失败保持现状，永不 reject） */
+  async function loadAutostart(): Promise<void> {
+    const result = await bridge.autostartGet()
+    if (result.ok) autostart.value = result.data === true
+  }
+
+  /**
+   * 设置开机自启。失败**回滚开关并返回 false**（永不假设成功），错误已落日志，
+   * 调用方（设置页）负责给出可见反馈。
+   */
+  async function setAutostart(enabled: boolean): Promise<boolean> {
+    const result = await bridge.autostartSet(enabled)
+    if (!result.ok) {
+      autostart.value = !enabled
+      logger.error(`开机自启设置失败：${result.reason}${result.detail ? `（${result.detail}）` : ''}`)
+      return false
+    }
+    autostart.value = enabled
+    return true
   }
 
   async function save(): Promise<boolean> {
@@ -90,8 +119,11 @@ export const useAppStore = defineStore('app', () => {
     ready,
     saving,
     lastSavedAt,
+    /** 开机自启开关（宿主注册表态，不随 config.json 持久化，T-I） */
+    autostart,
     load,
     save,
     reset,
+    setAutostart,
   }
 })

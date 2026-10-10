@@ -19,6 +19,15 @@ import type {
 export type Platform = 'tauri' | 'web'
 
 /**
+ * 宿主 → 前端事件白名单（service-residency T-H）。Rust 侧常量见 `src-tauri/src/tray.rs`，
+ * 两侧名单必须逐字一致；新增事件名 = 同时改两份常量表 + web 侧 no-op。
+ */
+export type HostEventName = 'host://window-hidden' | 'host://window-shown' | 'host://tray-toggle'
+
+/** 关窗行为（T-B，config.json `AppSettings.closeBehavior`；老配置缺省 = 'tray'） */
+export type CloseBehavior = 'tray' | 'quit'
+
+/**
  * 前端与宿主环境之间的唯一边界。
  *
  * 桌面端由 Rust 命令实现，浏览器端为语义等价实现（仅用于开发调试，Q3：不做真 SQL）。
@@ -115,4 +124,20 @@ export interface Bridge {
   clipboardWrite(text: string): Promise<BasicOutcome>
   /** 发出系统通知（标题 + 正文）；能力不可用时返回未送达结果 */
   notifySend(title: string, body: string): Promise<BasicOutcome>
+
+  // —— 服务常驻通道（service-residency）——
+  // 结果语义与 Windows 基础设施层一致（永不 reject，失败折叠进结果对象）。
+
+  /** 订阅宿主事件；返回退订函数。浏览器侧恒 no-op（永不 reject） */
+  onHostEvent(name: HostEventName, handler: () => void): Promise<() => void>
+  /** 服务状态回写托盘（菜单动态文案 + tooltip）；单一真值在前端 store.status（T-K） */
+  traySetStatus(running: boolean, statusText: string): Promise<BasicOutcome>
+  /**
+   * 关窗策略下发：前端是唯一读 config 的人，Rust 不碰配置文件（T-B/T-L）。
+   * 变更生效链路：SettingsView 编辑 → appStore（autoSave 落盘）→ App.vue watch 下发。
+   */
+  traySetClosePolicy(policy: CloseBehavior): Promise<BasicOutcome>
+  /** 开机自启：真值在注册表 HKCU Run 项、不入 config.json（T-I，避免双真值漂移） */
+  autostartGet(): Promise<ProbeResult<boolean>>
+  autostartSet(enabled: boolean): Promise<ProbeResult<boolean>>
 }

@@ -1,3 +1,4 @@
+mod autostart;
 mod cli;
 mod commands;
 mod db;
@@ -7,6 +8,7 @@ mod logging;
 mod shell;
 mod storage;
 mod sysinfo;
+mod tray;
 
 use std::env;
 use std::path::{Component, Path, PathBuf};
@@ -76,14 +78,34 @@ pub fn run() {
     // `Builder::run()` 内部创建，晚一步就来不及了。
     configure_webview_profile();
 
+    // T-I：开机自启走 --minimized 静默入托盘（Run 项由 autostart_set 写入，
+    // 详见 autostart.rs）。
+    let start_minimized = std::env::args().any(|arg| arg == "--minimized");
+
     tauri::Builder::default()
-        .setup(|app| {
+        // T-D 路线 A：单实例。二次双击 exe 不再起第二个进程（消除双实例并行轮询/
+        // 并行外发的现存滥发风险），而是唤回首实例主窗。
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            tray::show_main(app);
+        }))
+        .setup(move |app| {
             // 打开（必要时创建）SQLite，托管为全局状态
             let handle = app.handle().clone();
             let database = db::open_db(&handle)?;
             app.manage(database);
+            // 托盘必须在 setup 建好：早于任何一次用户关窗，拦截语义才完整。
+            // 建不出来即启动失败（宁可早暴露，不做静默降级）。
+            tray::build(&handle)?;
+            if start_minimized {
+                if let Some(window) = app.get_webview_window(tray::MAIN_WINDOW) {
+                    let _ = window.hide(); // 已知小代价：一帧闪现（config visible:true）
+                }
+            }
             Ok(())
         })
+        // T-A/T-B：关窗拦截（X / Alt+F4 / 任务栏关闭统一走这里），策略可经
+        // tray_set_close_policy 由前端配置覆盖
+        .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
             commands::storage_info,
             commands::storage_migrate,
@@ -111,7 +133,12 @@ pub fn run() {
             shell::shell_open,
             shell::clipboard_read,
             shell::clipboard_write,
-            shell::notify_send
+            shell::notify_send,
+            // —— 服务常驻通道（service-residency：显示回写 + 策略下发 + 自启开关）——
+            tray::tray_set_status,
+            tray::tray_set_close_policy,
+            autostart::autostart_get,
+            autostart::autostart_set
         ])
         .run(tauri::generate_context!())
         .expect("启动 Hello-Tauri 失败");

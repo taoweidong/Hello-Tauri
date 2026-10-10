@@ -327,6 +327,8 @@ export const useWelinkStore = defineStore('welink', () => {
     refreshSafety,
     pullNow: control.pullNow,
     setPageVisible: control.setPageVisible,
+    /** 调度是否在跑（service-residency：host-link 托盘「暂停/恢复」的唯一判据，T-K） */
+    runtimeRunning: control.runtimeRunning,
     // 查询
     loadConversations: view.loadConversations,
     fetchConversations: view.fetchConversations,

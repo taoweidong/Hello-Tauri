@@ -36,6 +36,12 @@ export interface AppSettings {
   sidebarCollapsed: boolean
   defaultRoute: string
   /**
+   * 关窗行为（service-residency T-B）。Partial 允许老配置缺省，缺省即 'tray'；
+   * 生效链路：设置页编辑 → appStore（autoSave 落盘）→ App.vue watch 经
+   * `bridge.traySetClosePolicy` 下发 Rust。开机自启不在此列——真值在注册表（T-I）。
+   */
+  closeBehavior?: 'tray' | 'quit'
+  /**
    * WeLink 助手配置（设计 §8：`config/config.json` → `AppSettings.weLink`）。
    *
    * 声明为 Partial：老配置文件里没有这个字段，读取时必须能缺省；

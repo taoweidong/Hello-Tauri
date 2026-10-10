@@ -1,4 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
+// service-residency：宿主事件通道（托盘动作 / 窗口显隐 → 前端决策，T-H）
+import { listen } from '@tauri-apps/api/event'
 
 import type {
   AppInfo,
@@ -74,4 +76,16 @@ export const tauriBridge: Bridge = {
   clipboardRead: () => probe(async () => invoke<string | null>('clipboard_read')),
   clipboardWrite: (text: string) => act(() => invoke<void>('clipboard_write', { text })),
   notifySend: (title: string, body: string) => act(() => invoke<void>('notify_send', { title, body })),
+
+  // —— 服务常驻通道（命令实位 src-tauri/src/tray.rs / autostart.rs）——
+  onHostEvent: (name, handler) =>
+    // listen 的 Promise reject 只发生在注册通道故障；按 act 语义折叠为「空退订」，
+    // 调用方永远拿到一个可安全调用的函数（永不 reject）
+    listen(name, () => handler())
+      .then((unlisten) => () => void unlisten())
+      .catch(() => () => {}),
+  traySetStatus: (running, statusText) => act(() => invoke<void>('tray_set_status', { running, statusText })),
+  traySetClosePolicy: (policy) => act(() => invoke<void>('tray_set_close_policy', { policy })),
+  autostartGet: () => probe(() => invoke<boolean>('autostart_get')),
+  autostartSet: (enabled) => probe(() => invoke<boolean>('autostart_set', { enabled })),
 }

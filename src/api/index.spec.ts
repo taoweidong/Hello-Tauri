@@ -56,6 +56,12 @@ describe('bridge 运行时选择', () => {
       'clipboardRead',
       'clipboardWrite',
       'notifySend',
+      // service-residency：宿主事件 + 托盘显示回写/策略下发 + 开机自启（永不 reject 语义）
+      'onHostEvent',
+      'traySetStatus',
+      'traySetClosePolicy',
+      'autostartGet',
+      'autostartSet',
     ] as const
     const { webBridge } = await import('@/api/web')
     const { tauriBridge } = await import('@/api/tauri')

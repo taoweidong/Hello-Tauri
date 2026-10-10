@@ -14,7 +14,7 @@ import type {
   SysDisk,
   SysOverview,
 } from '@/types'
-import type { Bridge } from './types'
+import type { Bridge, CloseBehavior, HostEventName } from './types'
 
 const STORAGE_KEY = 'hello-tauri:config'
 const TABLE_KEY = 'hello-tauri:table'
@@ -211,5 +211,25 @@ export const webBridge: Bridge = {
     } catch (error) {
       return { ok: false, reason: '浏览器通知发送失败', detail: String(error) }
     }
+  },
+
+  // —— 服务常驻通道（service-residency T-M：浏览器模式完整不受影响）——
+  //    无托盘、无宿主窗口、无注册表：全部诚实 no-op / 拒绝，永不 reject。
+
+  async onHostEvent(_name: HostEventName, _handler: () => void): Promise<() => void> {
+    return () => {} // 无托盘无窗口语义：恒 no-op 订阅
+  },
+  async traySetStatus(_running: boolean, _statusText: string): Promise<BasicOutcome> {
+    return { ok: true } // 无副作用的诚实 no-op
+  },
+  async traySetClosePolicy(_policy: CloseBehavior): Promise<BasicOutcome> {
+    // 浏览器无宿主窗口可拦：no-op。策略真值在 appStore（config.json），仅桌面模式下发宿主
+    return { ok: true }
+  },
+  async autostartGet(): Promise<ProbeResult<boolean>> {
+    return { ok: false, reason: '浏览器模式不支持开机自启' }
+  },
+  async autostartSet(_enabled: boolean): Promise<ProbeResult<boolean>> {
+    return { ok: false, reason: '浏览器模式不支持开机自启' }
   },
 }

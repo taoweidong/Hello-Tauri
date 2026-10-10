@@ -20,7 +20,7 @@ import CodehubSettingsCard from '@/components/codehub/CodehubSettingsCard.vue'
 const appStore = useAppStore()
 const codehubStore = useCodehubStore()
 
-const form = reactive<AppSettings>({ ...appStore.settings })
+const form = reactive<AppSettings>({ closeBehavior: 'tray', ...appStore.settings })
 
 watch(
   () => appStore.settings,
@@ -85,6 +85,22 @@ async function openDir() {
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '打开目录失败')
   }
+}
+
+// —— 服务常驻（service-residency T-B/T-I）——
+
+/**
+ * 开机自启开关。autostart 是宿主注册表态（T-I，不随「保存配置」持久化），
+ * 即开即生效；失败由 appStore 回滚开关，这里补可见反馈。
+ */
+async function applyAutostart(enabled: string | number | boolean) {
+  const want = Boolean(enabled)
+  const ok = await appStore.setAutostart(want)
+  if (!ok) {
+    ElMessage.error('开机自启设置失败，请查看日志')
+    return
+  }
+  ElMessage.success(want ? '已开启开机自启：开机后静默驻留托盘' : '已关闭开机自启')
 }
 
 const migrating = ref(false)
@@ -199,6 +215,22 @@ async function migrateDir() {
           <el-form-item label="折叠侧栏">
             <el-switch v-model="form.sidebarCollapsed" />
             <span class="form__hint">仅影响界面显示</span>
+          </el-form-item>
+
+          <div class="hairline" />
+
+          <el-form-item label="关闭窗口后">
+            <el-radio-group v-model="form.closeBehavior">
+              <el-radio value="tray">收进托盘，服务继续运行</el-radio>
+              <el-radio value="quit">退出程序</el-radio>
+            </el-radio-group>
+          </el-form-item>
+
+          <el-form-item label="开机自启">
+            <el-switch v-model="appStore.autostart" :disabled="platform !== 'tauri'" @change="applyAutostart" />
+            <span class="form__hint">{{
+              platform === 'tauri' ? '开机静默驻留托盘（登记注册表，即开即生效）' : '仅桌面模式可用'
+            }}</span>
           </el-form-item>
 
           <div class="hairline" />

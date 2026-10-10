@@ -40,8 +40,9 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
   `__TAURI_INTERNALS__` 自动选择。
 - **Rust 无业务规则**：`src-tauri/src/` 只有「开窗口 + 存储读写 + SQLite 通用通道 +
   CLI 子进程（welink-cli / codehub-cli 共用一条通道）+ HTTP JSON POST 通道（大模型对接，
-  WebView fetch 受 CORS 拦截由宿主代发）+ Windows 基础设施只读通道」共 25 个
-  命令（commands 9 / db 4 / fs 2 / cli 1 / http 1 / sysinfo 4 / shell 4）。新增功能全部写在 `src/` 的
+  WebView fetch 受 CORS 拦截由宿主代发）+ Windows 基础设施只读通道 + 托盘驻留
+  （tray.rs：关窗拦截/托盘菜单/状态显示，动作语义全在前端）+ 开机自启注册表薄桥接」共 29 个
+  命令（commands 9 / db 4 / fs 2 / cli 1 / http 1 / sysinfo 4 / shell 4 / tray 2 / autostart 2）。新增功能全部写在 `src/` 的
   TypeScript 中，不要动 Rust；新增宿主能力 = 薄桥接命令 + Bridge 双侧实现 + infra
   端口-适配器（同 windows-infra 模式）。
 - **SQLite 表结构归 TS 管**：迁移写在 `src/infra/db/migrations/`，经通用命令
@@ -118,6 +119,13 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
   `WebView2Loader.dll`/`VCRUNTIME*`/`api-ms-win-crt-*` 即失败）。`npm run tauri:build`
   不保证静态 CRT，仅作调试。
 - **`bundle.active = false`**：只出裸 exe，无安装包，打包过程不得联网（内网离线是硬需求）。
+- **托盘驻留语义**（service-residency）：点 X 默认隐藏入托盘（`closeBehavior:'quit'` 可回旧行为）；
+  Rust→前端事件是固定白名单 3 个（`host://window-hidden|window-shown|tray-toggle`，两侧常量
+  必须逐字一致）；托盘「暂停/恢复」的判据只有 `store.runtimeRunning()`，恢复走完整 bootstrap；
+  托盘「退出」= `app.exit(0)` 直杀（WAL+bootstrap 恢复兜底，无宽限期）；单实例插件
+  （tauri-plugin-single-instance **=2.4.5**，2.5+ 要求 tauri ^2.12 会顶走 2.11.6 基线）；
+  开机自启真值在注册表 HKCU Run、**不入 config.json**；隐藏态防节流靠
+  `additionalBrowserArgs` 禁 `CalculateNativeWinOcclusion`（整体替换语义，默认三项须写全）。
 - **沙箱环境跑 `verify`**：删 `coverage/`、`dist/`、写 `target/` 会被拦，需 `--escalated`
   授权模式；否则只能跑静态检查。
 - **cargo 镜像**：用 rsproxy sparse 镜像时不要加 `cargo --offline`（sparse 索引离线解析不到）。
@@ -149,6 +157,9 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
 - `docs/design-welink-knowledge-sedimentation-2026-10-06.md` — 知识沉淀与答复知识路由设计
   （决策 K-A~K-J、`[CLI-ASSUME]` 公告假设清单）；动 `src/orchestrator/knowledge-harvester.ts`、
   `src/infra/knowledge/`、沉淀相关表结构与 `{{docs}}` 注入链路前必读。
+- `docs/design-service-residency-2026-10-10.md` — 服务常驻（系统托盘驻留）设计（决策 T-A~T-N、
+  首验项 V-1~V-8）；动 `src-tauri/src/tray.rs`、`src/stores/welink/host-link.ts`、Bridge
+  服务常驻通道、`AppSettings.closeBehavior` 与开机自启前必读。
 - `openspec/specs/welink-auto-reply/spec.md` — 自动回复主规格（16 条需求，含技能路由与检索增强）；
   `openspec/specs/knowledge-base/spec.md` — 知识库管理主规格；改动经 delta 流程对照。
 - `openspec/specs/codehub-review/spec.md`、`openspec/specs/workbench-home/spec.md` — CodeHub 检视域

@@ -72,6 +72,12 @@ export function createRuntimeControl(deps: RuntimeControlDeps): RuntimeControl {
     refreshSafety,
   } = deps
 
+  /**
+   * 应用级装配标记（service-residency T-J）：init 的完整装配（迁移/急停降级）每个
+   * 进程只做一次 —— App.vue 启动即装配，此后视图重入（首次进助手页）只做只读刷新。
+   */
+  let initialized = false
+
   function runtimeRunning(): boolean {
     return Boolean(runtimeHolder.current?.running())
   }
@@ -110,11 +116,25 @@ export function createRuntimeControl(deps: RuntimeControlDeps): RuntimeControl {
   }
 
   /**
-   * 载入页面时调用：只做只读装载，不启动调度（不点开关不该跑轮询）。
+   * 载入时调用：首次做完整装配（日志旁路 / 急停降级 / 迁移 / 装载，不启动调度——
+   * 不点开关不该跑轮询）；已装配过则收敛为幂等只读刷新。
+   *
    * 返回 `panicRecovered`：上次会话以急停结束时为 true —— 降级已在本 store
    * 生效，调用方需把它写回持久层并显式告知用户（appStore 归视图持有）。
+   * 幂等分支恒为 false：降级只在首次装配时呈现一次，避免双弹（T-J）。
    */
   async function init(next?: Partial<WelinkSettings>): Promise<{ panicRecovered: boolean }> {
+    if (initialized) {
+      // 应用级装配（T-J）先行完成时，视图重入只做只读刷新：
+      // 不重复迁移（ensureSchema）、不重复复位 panicked、不动运行状态灯。
+      // 配置热更新不在这里做 —— 设置卡片直接调 applySettings（store 副本始终最新），
+      // 这里重复应用反而可能用持久层旧值顶回未保存的热更新。
+      await loadConversations()
+      await refreshReviewCount()
+      await refreshSafety()
+      return { panicRecovered: false }
+    }
+    initialized = true
     ensureLogSubscription()
     applySettings(next)
     // 急停跨重启不复活（评审 P1）：读到落盘的 panicked 标记 → 强制人工确认模式，

@@ -14,7 +14,15 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# service-residency（docs/design-service-residency-2026-10-10.md T-A~T-N）：tray-icon
+# feature 开启内置托盘与菜单（tray-icon/muda 已在 Cargo.lock 锁定，不新增 crate；
+# Windows 下纯 windows-sys 静态实现，PE 导入表零新增 DLL）。
+tauri = { version = "2", features = ["tray-icon"] }
+# T-D 路线 A：单实例（Windows 实现 = CreateMutexW + 消息唤回，静态链接）。
+# 二次双击 exe → 唤回已有窗口，消除双进程并行轮询/外发的现存风险。
+# 固定 2.4.5：2.5.0 起要求 tauri ^2.12，会把 tauri 从 2.11.6 基线顶走（Cargo.lock
+# 的 tray-icon/muda 随之漂移、内网缓存面扩大）；2.4.5 兼容 tauri ^2.10。
+tauri-plugin-single-instance = "=2.4.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

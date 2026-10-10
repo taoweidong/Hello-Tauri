@@ -247,7 +247,7 @@ pub async fn notify_send(title: String, body: String) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn notify_blocking(title: &str, body: &str) -> Result<(), String> {
+pub(crate) fn notify_blocking(title: &str, body: &str) -> Result<(), String> {
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::Shell::{
@@ -327,7 +327,7 @@ fn notify_blocking(title: &str, body: &str) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn notify_blocking(_title: &str, _body: &str) -> Result<(), String> {
+pub(crate) fn notify_blocking(_title: &str, _body: &str) -> Result<(), String> {
     Err("当前平台不支持系统通知".into())
 }
 

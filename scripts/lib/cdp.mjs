@@ -116,8 +116,11 @@ export async function connect(wsUrl) {
       userGesture: true,
     })
     if (result.exceptionDetails) {
-      const text = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? '页面脚本执行异常'
-      throw new Error(text.split('\n')[0])
+      // promise 以原始字符串拒绝时（如 Tauri 命令返回 Err("...")），description 为空，
+      // 原因在 exception.value —— 不取出来就只剩一句 "Uncaught (in promise)"，最难查。
+      const ex = result.exceptionDetails.exception
+      const text = ex?.description ?? ex?.value ?? result.exceptionDetails.text ?? '页面脚本执行异常'
+      throw new Error(String(text).split('\n')[0])
     }
     return result.result?.value
   }

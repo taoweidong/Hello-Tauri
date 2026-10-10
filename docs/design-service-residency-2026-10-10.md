@@ -1,7 +1,7 @@
 # 服务常驻（系统托盘驻留）设计 — 2026-10-10
 
-> 状态：**设计方案（含核心代码开发稿），未实施**。本文档是唯一交付物，本次不修改任何代码；
-> 文中全部代码为「实现期可直接落库」的开发稿，行号引用均对照 2026-10-10 的 main 分支实测。
+> 状态：**已实施（2026-10-10，P0+P1+P2 全量交付）**。设计正文保留原稿；实施期对代码稿的
+> 偏差与首验结论见 §15「实施核对记录」，以该节为最终事实。
 
 ## 1. 背景与目标
 
@@ -23,36 +23,36 @@
 
 ## 2. 现状盘点（实查证据）
 
-| # | 事实 | 出处 |
-|---|------|------|
-| 1 | 全仓无 `on_window_event` / `WindowEvent` / `CloseRequested` / `prevent_close` / `RunEvent` / 托盘代码——点 X 走 Tauri v2 默认语义：**最后一个窗口关闭即退出进程** | `src-tauri/src/lib.rs:79-117`（仅 setup 开库 + 25 命令注册） |
-| 2 | `tauri` 依赖 `features = []`；**`tray-icon 0.24.2` 与 `muda` 已在 `Cargo.lock`**（3830 / 1924 行，tauri 2.11.6 的可选依赖），启用 feature 不新增 crate、版本已锁定 | `src-tauri/Cargo.toml:17`、`Cargo.lock:3288-3291` |
-| 3 | 无任何 `tauri-plugin-*` 依赖（单实例/自启若用插件属新增 crate，见 §7 评估） | `Cargo.lock`（grep `tauri-plugin` 为空） |
-| 4 | WeLink 轮询**只在进过一次助手页后启动**：`WeLinkView.onMounted → store.init → 若 enabled 则 store.start()`；之后靠 MainLayout 无 include 的 keep-alive + store 单例（`runtimeHolder`）存活，切页不断 | `src/views/WeLinkView.vue:186-197`、`src/stores/welink/index.ts:139,149-159`、`src/layouts/MainLayout.vue:160-166` |
-| 5 | 调度是**「本轮完成（含失败）才排下一轮」的 setTimeout 链**，且计时源可注入（`TimerApi` 抽象）——这是隐藏态节流风险的对冲缝（§6.3） | `src/orchestrator/poller.ts:286-293`、`src/orchestrator/timers.ts:9-22` |
-| 6 | 页面隐藏时轮询 ×3 降频（`document.visibilitychange` → `poller.setVisible`，`hiddenFactor=3`） | `src/views/WeLinkView.vue:162-173`、`src/orchestrator/poller.ts:155-166,395-400` |
-| 7 | 数据持久化：SQLite 单连接 + WAL + `synchronous=NORMAL`；**无 close/checkpoint 通道，连接与进程同生命周期** | `src-tauri/src/db.rs:18-46` |
-| 8 | 进程被杀后重启有完备恢复：bootstrap 三分支（sending 有回执补 sent / 无回执挂起；ready/pending 重入队；failed 不自动重投）；急停 `panicked` 跨重启强制降级 manual | `src/orchestrator/bootstrap.ts:98-163`、`src/stores/welink/control.ts:120-128` |
-| 9 | Rust→前端**没有事件推送通道**（全仓零 `.emit`/`listen`），但权限层已就绪：`core:default` 含 `core:event:default`（listen/emit 放行） | `src-tauri/capabilities/default.json:1-6` |
-| 10 | Bridge 契约注释明文扩展规约：「新增宿主能力先扩 types.ts，再双侧实现」；`tauri.ts` 是前端唯一 Tauri import 例外（`@tauri-apps/api/core`） | `src/api/types.ts:21-26`、`src/api/tauri.ts:1` |
-| 11 | 通知通道已有 Windows 原生实现（Shell_NotifyIconW 气球，fire-and-forget、临时消息窗口、10s 延迟清理）——首次入托盘提示可复用，但它是**私有函数**，跨模块需提为 `pub(crate)` | `src-tauri/src/shell.rs:242-332` |
-| 12 | 窗口配置仅一个 `main` 窗（visible 未设=默认显示）；`bundle.active=false` 但 `bundle.icon` 含 `icons/icon.ico` + `32x32.png`（codegen 期嵌入，与是否打包无关） | `src-tauri/tauri.conf.json:12-32` |
-| 13 | 打包/验证对 src-tauri 改动的硬闸：PE 导入表禁运 `WebView2Loader/VCRUNTIME*/msvcp*/api-ms-win-crt-*`，两处交叉校验（构建脚本 + verify 阶段 7） | `scripts/build.mjs:208-273,258-259`、`scripts/verify.mjs:513-556` |
-| 14 | **应用级服务装配已有同域先例**：CodeHub 在 `App.vue` 装配「迁移 → 装载 → 按配置起自动同步」，注释明确「周期轮询是后台职责，不该等用户走进检视页才开始」 | `src/App.vue:43-46` |
-| 15 | 配置读取有「老配置缺字段 → 默认值合并」的 Partial 兜底惯例（`weLink`/`codeHub` 均如此） | `src/types/index.ts:28-48`、`src/stores/app.ts:33-54` |
-| 16 | `windows-sys 0.61` 已启用 `Win32_UI_Shell`、`Win32_UI_WindowsAndMessaging`、`Win32_System_Registry` 等 feature——开机自启（注册表 Run 项）**零新增依赖** | `src-tauri/Cargo.toml:41-58` |
+| #   | 事实                                                                                                                                                                                                 | 出处                                                                                                               |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 1   | 全仓无 `on_window_event` / `WindowEvent` / `CloseRequested` / `prevent_close` / `RunEvent` / 托盘代码——点 X 走 Tauri v2 默认语义：**最后一个窗口关闭即退出进程**                                     | `src-tauri/src/lib.rs:79-117`（仅 setup 开库 + 25 命令注册）                                                       |
+| 2   | `tauri` 依赖 `features = []`；**`tray-icon 0.24.2` 与 `muda` 已在 `Cargo.lock`**（3830 / 1924 行，tauri 2.11.6 的可选依赖），启用 feature 不新增 crate、版本已锁定                                   | `src-tauri/Cargo.toml:17`、`Cargo.lock:3288-3291`                                                                  |
+| 3   | 无任何 `tauri-plugin-*` 依赖（单实例/自启若用插件属新增 crate，见 §7 评估）                                                                                                                          | `Cargo.lock`（grep `tauri-plugin` 为空）                                                                           |
+| 4   | WeLink 轮询**只在进过一次助手页后启动**：`WeLinkView.onMounted → store.init → 若 enabled 则 store.start()`；之后靠 MainLayout 无 include 的 keep-alive + store 单例（`runtimeHolder`）存活，切页不断 | `src/views/WeLinkView.vue:186-197`、`src/stores/welink/index.ts:139,149-159`、`src/layouts/MainLayout.vue:160-166` |
+| 5   | 调度是**「本轮完成（含失败）才排下一轮」的 setTimeout 链**，且计时源可注入（`TimerApi` 抽象）——这是隐藏态节流风险的对冲缝（§6.3）                                                                    | `src/orchestrator/poller.ts:286-293`、`src/orchestrator/timers.ts:9-22`                                            |
+| 6   | 页面隐藏时轮询 ×3 降频（`document.visibilitychange` → `poller.setVisible`，`hiddenFactor=3`）                                                                                                        | `src/views/WeLinkView.vue:162-173`、`src/orchestrator/poller.ts:155-166,395-400`                                   |
+| 7   | 数据持久化：SQLite 单连接 + WAL + `synchronous=NORMAL`；**无 close/checkpoint 通道，连接与进程同生命周期**                                                                                           | `src-tauri/src/db.rs:18-46`                                                                                        |
+| 8   | 进程被杀后重启有完备恢复：bootstrap 三分支（sending 有回执补 sent / 无回执挂起；ready/pending 重入队；failed 不自动重投）；急停 `panicked` 跨重启强制降级 manual                                     | `src/orchestrator/bootstrap.ts:98-163`、`src/stores/welink/control.ts:120-128`                                     |
+| 9   | Rust→前端**没有事件推送通道**（全仓零 `.emit`/`listen`），但权限层已就绪：`core:default` 含 `core:event:default`（listen/emit 放行）                                                                 | `src-tauri/capabilities/default.json:1-6`                                                                          |
+| 10  | Bridge 契约注释明文扩展规约：「新增宿主能力先扩 types.ts，再双侧实现」；`tauri.ts` 是前端唯一 Tauri import 例外（`@tauri-apps/api/core`）                                                            | `src/api/types.ts:21-26`、`src/api/tauri.ts:1`                                                                     |
+| 11  | 通知通道已有 Windows 原生实现（Shell_NotifyIconW 气球，fire-and-forget、临时消息窗口、10s 延迟清理）——首次入托盘提示可复用，但它是**私有函数**，跨模块需提为 `pub(crate)`                            | `src-tauri/src/shell.rs:242-332`                                                                                   |
+| 12  | 窗口配置仅一个 `main` 窗（visible 未设=默认显示）；`bundle.active=false` 但 `bundle.icon` 含 `icons/icon.ico` + `32x32.png`（codegen 期嵌入，与是否打包无关）                                        | `src-tauri/tauri.conf.json:12-32`                                                                                  |
+| 13  | 打包/验证对 src-tauri 改动的硬闸：PE 导入表禁运 `WebView2Loader/VCRUNTIME*/msvcp*/api-ms-win-crt-*`，两处交叉校验（构建脚本 + verify 阶段 7）                                                        | `scripts/build.mjs:208-273,258-259`、`scripts/verify.mjs:513-556`                                                  |
+| 14  | **应用级服务装配已有同域先例**：CodeHub 在 `App.vue` 装配「迁移 → 装载 → 按配置起自动同步」，注释明确「周期轮询是后台职责，不该等用户走进检视页才开始」                                              | `src/App.vue:43-46`                                                                                                |
+| 15  | 配置读取有「老配置缺字段 → 默认值合并」的 Partial 兜底惯例（`weLink`/`codeHub` 均如此）                                                                                                              | `src/types/index.ts:28-48`、`src/stores/app.ts:33-54`                                                              |
+| 16  | `windows-sys 0.61` 已启用 `Win32_UI_Shell`、`Win32_UI_WindowsAndMessaging`、`Win32_System_Registry` 等 feature——开机自启（注册表 Run 项）**零新增依赖**                                              | `src-tauri/Cargo.toml:41-58`                                                                                       |
 
 ## 3. 总体方案
 
 ### 3.1 分层落位（对齐 AGENTS.md 架构边界）
 
-| 关注点 | 落点 | 边界依据 |
-|--------|------|----------|
-| 托盘图标/菜单、关窗拦截、窗口显隐、退出 | Rust 新增 `src-tauri/src/tray.rs` | 属既有「开窗口」职责（25 命令 = 开窗口+存储+通道），零业务规则 |
-| 服务启停/暂停/恢复决策 | TS：`src/stores/welink/host-link.ts`（新）+ `App.vue` 装配 | Rust 只把托盘动作翻译成 host 事件推给前端；**前端是唯一决策方** |
-| 宿主→前端事件通道 | `src/api/types.ts` Bridge 扩 `onHostEvent`，双侧实现 | 「先扩契约再双侧实现」规约（types.ts:25） |
-| 关闭行为/状态显示配置 | `AppSettings` + SettingsView「界面偏好」卡 | 应用级配置归 `stores/app.ts`（config.json） |
-| 开机自启 | Rust 新增 `src-tauri/src/autostart.rs` 薄桥接命令 + UI 开关 | 注册表读写属宿主基础设施；同 windows-infra 永不-reject 结果语义 |
+| 关注点                                  | 落点                                                        | 边界依据                                                        |
+| --------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------- |
+| 托盘图标/菜单、关窗拦截、窗口显隐、退出 | Rust 新增 `src-tauri/src/tray.rs`                           | 属既有「开窗口」职责（25 命令 = 开窗口+存储+通道），零业务规则  |
+| 服务启停/暂停/恢复决策                  | TS：`src/stores/welink/host-link.ts`（新）+ `App.vue` 装配  | Rust 只把托盘动作翻译成 host 事件推给前端；**前端是唯一决策方** |
+| 宿主→前端事件通道                       | `src/api/types.ts` Bridge 扩 `onHostEvent`，双侧实现        | 「先扩契约再双侧实现」规约（types.ts:25）                       |
+| 关闭行为/状态显示配置                   | `AppSettings` + SettingsView「界面偏好」卡                  | 应用级配置归 `stores/app.ts`（config.json）                     |
+| 开机自启                                | Rust 新增 `src-tauri/src/autostart.rs` 薄桥接命令 + UI 开关 | 注册表读写属宿主基础设施；同 windows-infra 永不-reject 结果语义 |
 
 核心原则：**托盘只是「显示器 + 按钮」，所有语义（暂停什么、恢复什么、状态文案）都在 TS 编排层**。
 Rust 侧仅新增 3 个薄桥接命令（`tray_set_status` / `tray_set_close_policy` / `autostart_get|set`），
@@ -184,10 +184,10 @@ Alt+F4、任务栏右键「关闭窗口」同样触发 CloseRequested，行为�
 
 两个实现路线（§11 首验后择一）：
 
-| 路线 | 做法 | 成本/风险 |
-|------|------|-----------|
-| A（推荐先试） | `tauri-plugin-single-instance = "2"`（Windows 实现 = CreateMutexW + 消息唤回） | 新增 2 个 crate（插件本体 + `tauri-plugin` 宏支撑），均 windows-sys 静态实现、无 DLL；**内网 cargo 缓存需补源** |
-| B（缓存受限时的自研） | `windows-sys`（feature 全具备）：启动早期 `CreateMutexW("Local\\com.taowd.hello-tauri")`，`ERROR_ALREADY_EXISTS` → 第二实例 `EnumWindows`+`GetWindowThreadProcessId` 定位首实例主窗 → `PostMessageW(WM_APP+1)` 后 `exit(0)`；首实例用 `Builder::on_message`（Windows 消息钩子）收到即 `show_main` | 零新增依赖；代价是 ~80 行自研 Win32 代码 + 窗口枚举脆弱性（需按 exe 路径过滤同名窗口） |
+| 路线                  | 做法                                                                                                                                                                                                                                                                                              | 成本/风险                                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| A（推荐先试）         | `tauri-plugin-single-instance = "2"`（Windows 实现 = CreateMutexW + 消息唤回）                                                                                                                                                                                                                    | 新增 2 个 crate（插件本体 + `tauri-plugin` 宏支撑），均 windows-sys 静态实现、无 DLL；**内网 cargo 缓存需补源** |
+| B（缓存受限时的自研） | `windows-sys`（feature 全具备）：启动早期 `CreateMutexW("Local\\com.taowd.hello-tauri")`，`ERROR_ALREADY_EXISTS` → 第二实例 `EnumWindows`+`GetWindowThreadProcessId` 定位首实例主窗 → `PostMessageW(WM_APP+1)` 后 `exit(0)`；首实例用 `Builder::on_message`（Windows 消息钩子）收到即 `show_main` | 零新增依赖；代价是 ~80 行自研 Win32 代码 + 窗口枚举脆弱性（需按 exe 路径过滤同名窗口）                          |
 
 ### 4.7 权限与能力面
 
@@ -197,22 +197,22 @@ Alt+F4、任务栏右键「关闭窗口」同样触发 CloseRequested，行为�
 
 ## 5. 设计决策表（T-A ~ T-N）
 
-| # | 决策 | 理由/代价 |
-|-----|------|-----------|
-| T-A | 点 X = 直接隐藏入托盘，不弹询问框；**首次**入托盘发一次性气球提示（复用 `shell::notify_blocking`） | 需求原文即「自动隐藏」；气球文案见 §8.1 |
-| T-B | 关闭行为可配置：`AppSettings.closeBehavior: 'tray'\|'quit'`（缺省 `tray`），前端启动时经 `tray_set_close_policy` 下发给 Rust（Rust 内存 AtomicU8，不读配置文件） | Rust 保持零业务规则；老配置缺字段按 Partial 合并惯例天然兜底（§2-15） |
-| T-C | 托盘「退出」= `app.exit(0)` 直接终止；数据一致性由 WAL + bootstrap 恢复兜底，不实现宽限期 | §4.5；退出语义与现状（关窗即杀进程）等价，无回退 |
-| T-D | 单实例：路线 A 插件优先，内网缓存不可得则路线 B 自研；二次双击 = 唤回并聚焦主窗 | §4.6 |
-| T-E | 托盘图标用内嵌资源：`default_window_icon()` 优先，`include_image!("icons/32x32.png")` 兜底；不建独立托盘图标文件 | 零外部文件；V-1 首验 |
-| T-F | 右键菜单三项：`打开主界面 / 暂停服务·恢复服务（动态文案）/ 退出`；左键单击与双击均恢复窗口 | 「暂停/恢复」让服务管理不必开窗口；文案由前端经 `tray_set_status` 回写（单一真值在 store.status） |
-| T-G | 隐藏态防节流：首选 `additionalBrowserArgs` 禁 `CalculateNativeWinOcclusion`；B 计划宿主 tick 泵（走 `TimerApi` 注入缝）；×3 降频语义保留 | §4.3，本方案最大技术点 |
-| T-H | Rust→前端事件为**固定白名单** 3 个：`host://window-hidden` / `host://window-shown` / `host://tray-toggle`；Bridge 扩 `onHostEvent(name, handler)` | 不建通用事件总线，杜绝事件名漂移；web.ts 侧恒 no-op（浏览器开发模式零影响） |
-| T-I | 开机自启：注册表 HKCU Run 薄桥接（`autostart_get/set` 命令，windows-sys feature 已具备）+ 配置页开关，**默认关**；自启带 `--minimized` 静默入托盘 | 真值在注册表、不入 config.json（避免双真值漂移）；`visible:true` 配置下静默启动有一帧闪现，记为已知小代价 |
-| T-J | 服务生命周期解耦：`store.init + enabled→start` 上移至 `App.vue`（照抄 CodeHub `void codehubStore.init()` 先例）；WeLinkView 不再负责启停，只做只读刷新与页面效应绑定 | 「常驻」的前提是进过页面才有的进程级启动；panicRecovered 回写语义随迁（§9.3） |
-| T-K | 状态回显单一真值：host-link 内 `watch(store.status)` → `tray_set_status`；覆盖 UI 启停/急停/熔断全部路径 | 避免 Rust 猜测服务状态 |
-| T-L | UI 层不直触 `@/infra/**`/`@/repositories/**`：托盘/自启操作全部经 Bridge（`src/api`），配置动作收进 `stores/app.ts` | AGENTS ESLint 闸门既有约束 |
-| T-M | 浏览器开发模式（`npm run dev`）完整不受影响：无托盘、事件 no-op、自启不可用诚实返回 `ok:false` | web.ts 双侧契约一致 |
-| T-N | 分期：P0 驻留核心（可单独发版）→ P1 服务正确性 → P2 体验增强；每期过 `npm run check` + （涉 Rust）`npm run pack` PE 校验 | §10 |
+| #   | 决策                                                                                                                                                                 | 理由/代价                                                                                                 |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| T-A | 点 X = 直接隐藏入托盘，不弹询问框；**首次**入托盘发一次性气球提示（复用 `shell::notify_blocking`）                                                                   | 需求原文即「自动隐藏」；气球文案见 §8.1                                                                   |
+| T-B | 关闭行为可配置：`AppSettings.closeBehavior: 'tray'\|'quit'`（缺省 `tray`），前端启动时经 `tray_set_close_policy` 下发给 Rust（Rust 内存 AtomicU8，不读配置文件）     | Rust 保持零业务规则；老配置缺字段按 Partial 合并惯例天然兜底（§2-15）                                     |
+| T-C | 托盘「退出」= `app.exit(0)` 直接终止；数据一致性由 WAL + bootstrap 恢复兜底，不实现宽限期                                                                            | §4.5；退出语义与现状（关窗即杀进程）等价，无回退                                                          |
+| T-D | 单实例：路线 A 插件优先，内网缓存不可得则路线 B 自研；二次双击 = 唤回并聚焦主窗                                                                                      | §4.6                                                                                                      |
+| T-E | 托盘图标用内嵌资源：`default_window_icon()` 优先，`include_image!("icons/32x32.png")` 兜底；不建独立托盘图标文件                                                     | 零外部文件；V-1 首验                                                                                      |
+| T-F | 右键菜单三项：`打开主界面 / 暂停服务·恢复服务（动态文案）/ 退出`；左键单击与双击均恢复窗口                                                                           | 「暂停/恢复」让服务管理不必开窗口；文案由前端经 `tray_set_status` 回写（单一真值在 store.status）         |
+| T-G | 隐藏态防节流：首选 `additionalBrowserArgs` 禁 `CalculateNativeWinOcclusion`；B 计划宿主 tick 泵（走 `TimerApi` 注入缝）；×3 降频语义保留                             | §4.3，本方案最大技术点                                                                                    |
+| T-H | Rust→前端事件为**固定白名单** 3 个：`host://window-hidden` / `host://window-shown` / `host://tray-toggle`；Bridge 扩 `onHostEvent(name, handler)`                    | 不建通用事件总线，杜绝事件名漂移；web.ts 侧恒 no-op（浏览器开发模式零影响）                               |
+| T-I | 开机自启：注册表 HKCU Run 薄桥接（`autostart_get/set` 命令，windows-sys feature 已具备）+ 配置页开关，**默认关**；自启带 `--minimized` 静默入托盘                    | 真值在注册表、不入 config.json（避免双真值漂移）；`visible:true` 配置下静默启动有一帧闪现，记为已知小代价 |
+| T-J | 服务生命周期解耦：`store.init + enabled→start` 上移至 `App.vue`（照抄 CodeHub `void codehubStore.init()` 先例）；WeLinkView 不再负责启停，只做只读刷新与页面效应绑定 | 「常驻」的前提是进过页面才有的进程级启动；panicRecovered 回写语义随迁（§9.3）                             |
+| T-K | 状态回显单一真值：host-link 内 `watch(store.status)` → `tray_set_status`；覆盖 UI 启停/急停/熔断全部路径                                                             | 避免 Rust 猜测服务状态                                                                                    |
+| T-L | UI 层不直触 `@/infra/**`/`@/repositories/**`：托盘/自启操作全部经 Bridge（`src/api`），配置动作收进 `stores/app.ts`                                                  | AGENTS ESLint 闸门既有约束                                                                                |
+| T-M | 浏览器开发模式（`npm run dev`）完整不受影响：无托盘、事件 no-op、自启不可用诚实返回 `ok:false`                                                                       | web.ts 双侧契约一致                                                                                       |
+| T-N | 分期：P0 驻留核心（可单独发版）→ P1 服务正确性 → P2 体验增强；每期过 `npm run check` + （涉 Rust）`npm run pack` PE 校验                                             | §10                                                                                                       |
 
 ## 6. 性能分析（审视点一）
 
@@ -252,20 +252,20 @@ B 计划把精度锚定在宿主线程定时器上（±毫秒级唤醒，经 IPC
 
 ### 7.1 逐项对照表
 
-| 现有能力 | 驻留后状态 | 依据 |
-|----------|-----------|------|
-| 轮询拉取 welink-cli | ✅ 不丢，且频率不再被 ×3 隐性劣化（T-G 对策 1） | §4.3 |
-| Agent 生成 + 安全闸（开关/配额/静默/熔断） | ✅ 全在 JS setTimeout 链，驻留期照常；闸状态落库跨重启 | `orchestrator/safety-gate.ts` |
-| 回复外发铁律（ready 才外发） | ✅ 管线未动一行 | AGENTS 铁律 |
-| 知识沉淀/公告采集 | ✅ harvester 同款计时链（`knowledge-harvester.ts:490`） | §4.3 |
-| CodeHub 同步 + 详情补拉 | ✅ 本就是应用级启动（`App.vue:43-46`），驻留无损 | §2-14 |
-| retention 清理 / 日志 30 天 | ✅ 每日定时器同链 | `runtime.ts:258-277` |
-| 急停 `panicked` 跨重启降级 manual | ✅ 语义不动；菜单「恢复服务」经 start()→bootstrap，仍尊重 settings | `control.ts:120-128` |
-| 窗口内 UI 全部交互（10 页/建群/检视） | ✅ `show()` 原样恢复，keep-alive 状态完整（隐藏≠销毁） | §4.4 |
-| 配置 autoSave 落盘 | ✅ 前端存续即照常 watch | `stores/app.ts:74-83` |
-| 多开并行（今天事实存在） | ⚠️ **有意去除**（单实例 T-D）：消除双实例并行外发风险，属修复不属丢失 | §4.6 |
-| 点 X = 退出 | ⚠️ **有意变更**（T-A/T-B）：`closeBehavior:'quit'` 可回旧行为 | §5 |
-| 浏览器 dev 模式（web.ts） | ✅ no-op 适配，`npm run dev` 全量页面照常 | T-M |
+| 现有能力                                   | 驻留后状态                                                            | 依据                          |
+| ------------------------------------------ | --------------------------------------------------------------------- | ----------------------------- |
+| 轮询拉取 welink-cli                        | ✅ 不丢，且频率不再被 ×3 隐性劣化（T-G 对策 1）                       | §4.3                          |
+| Agent 生成 + 安全闸（开关/配额/静默/熔断） | ✅ 全在 JS setTimeout 链，驻留期照常；闸状态落库跨重启                | `orchestrator/safety-gate.ts` |
+| 回复外发铁律（ready 才外发）               | ✅ 管线未动一行                                                       | AGENTS 铁律                   |
+| 知识沉淀/公告采集                          | ✅ harvester 同款计时链（`knowledge-harvester.ts:490`）               | §4.3                          |
+| CodeHub 同步 + 详情补拉                    | ✅ 本就是应用级启动（`App.vue:43-46`），驻留无损                      | §2-14                         |
+| retention 清理 / 日志 30 天                | ✅ 每日定时器同链                                                     | `runtime.ts:258-277`          |
+| 急停 `panicked` 跨重启降级 manual          | ✅ 语义不动；菜单「恢复服务」经 start()→bootstrap，仍尊重 settings    | `control.ts:120-128`          |
+| 窗口内 UI 全部交互（10 页/建群/检视）      | ✅ `show()` 原样恢复，keep-alive 状态完整（隐藏≠销毁）                | §4.4                          |
+| 配置 autoSave 落盘                         | ✅ 前端存续即照常 watch                                               | `stores/app.ts:74-83`         |
+| 多开并行（今天事实存在）                   | ⚠️ **有意去除**（单实例 T-D）：消除双实例并行外发风险，属修复不属丢失 | §4.6                          |
+| 点 X = 退出                                | ⚠️ **有意变更**（T-A/T-B）：`closeBehavior:'quit'` 可回旧行为         | §5                            |
+| 浏览器 dev 模式（web.ts）                  | ✅ no-op 适配，`npm run dev` 全量页面照常                             | T-M                           |
 
 ### 7.2 隐藏态的「不可见功能」审查
 
@@ -463,11 +463,11 @@ pub fn tray_set_status(app: AppHandle, running: bool, status_text: String) -> Re
  mod shell;
  mod storage;
 +mod tray;
- 
+
  #[cfg_attr(mobile, tauri::mobile_entry_point)]
  pub fn run() {
      configure_webview_profile();
- 
+
 +    // T-I：开机自启走 --minimized 静默入托盘（Run 项由 autostart_set 写入）
 +    let start_minimized = std::env::args().any(|arg| arg == "--minimized");
 +
@@ -655,7 +655,7 @@ pub fn autostart_set(enabled: bool) -> Result<bool, String> {
 
 ```diff
  export type Platform = 'tauri' | 'web'
- 
+
 +/**
 + * 宿主 → 前端事件白名单（T-H）。Rust 侧常量见 `src-tauri/src/tray.rs`，
 + * 两侧名单必须逐字一致；新增事件名 = 同时改两份常量表 + web 侧 no-op。
@@ -910,11 +910,11 @@ async function setAutostart(enabled: boolean) {
 
 ### 10.1 分期
 
-| 期 | 内容 | 门禁 |
-|----|------|------|
-| **P0 驻留核心** | Cargo feature + conf 防节流参数；`tray.rs`（图标/三菜单/左键唤回/关窗拦截/首次气球/`tray_set_status`/`tray_set_close_policy`）；`shell.rs` 提 `pub(crate)`；`lib.rs` 集成 | `npm run check` 全绿 + `npm run pack` PE 校验通过 + 手工单测清单 A-1~A-5 |
-| **P1 服务正确性** | T-J 应用级装配（App.vue/WeLinkView/control.ts 幂等化）+ `host-link.ts` 联动层 + Bridge 三件套（types/tauri/web）+ 暂停/恢复菜单 + `closeBehavior` 配置 | A-6~A-8（隐藏 30min 间隔实测为核心门禁）；`test:coverage` 补 host-link spec |
-| **P2 体验与增强** | 单实例（路线 A/B 择一）+ 开机自启 `autostart.rs` + 设置页开关 + 退出宽限可选项 | A-9~A-12；自启涉及注册表，加 `verify` 手工段 |
+| 期                | 内容                                                                                                                                                                      | 门禁                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| **P0 驻留核心**   | Cargo feature + conf 防节流参数；`tray.rs`（图标/三菜单/左键唤回/关窗拦截/首次气球/`tray_set_status`/`tray_set_close_policy`）；`shell.rs` 提 `pub(crate)`；`lib.rs` 集成 | `npm run check` 全绿 + `npm run pack` PE 校验通过 + 手工单测清单 A-1~A-5    |
+| **P1 服务正确性** | T-J 应用级装配（App.vue/WeLinkView/control.ts 幂等化）+ `host-link.ts` 联动层 + Bridge 三件套（types/tauri/web）+ 暂停/恢复菜单 + `closeBehavior` 配置                    | A-6~A-8（隐藏 30min 间隔实测为核心门禁）；`test:coverage` 补 host-link spec |
+| **P2 体验与增强** | 单实例（路线 A/B 择一）+ 开机自启 `autostart.rs` + 设置页开关 + 退出宽限可选项                                                                                            | A-9~A-12；自启涉及注册表，加 `verify` 手工段                                |
 
 ### 10.2 验收清单（黑盒）
 
@@ -950,36 +950,36 @@ async function setAutostart(enabled: boolean) {
 
 ## 11. 首验项清单 `[TRAY-ASSUME]`（实施期逐项核实，口径同 CLI/LLM/RAG 标签规约）
 
-| # | 假设 | 核实方法 | 不成立时处置 |
-|---|------|----------|--------------|
-| V-1 | `bundle.active=false` 时 `app.default_window_icon()` 仍返回 codegen 嵌入的图标 | `tauri:dev` 打印 is_some() | include_image!("icons/32x32.png") 兜底（代码已双路） |
-| V-2 | `additionalBrowserArgs` 配置键存在、语义为整体替换默认值 | 对照实施时 tauri v2 schema；启动后 CDP 查 `--disable-features` 生效值 | 改走 `WebviewWindowBuilder` 侧注入或确认追加语义 |
-| V-3 | `CalculateNativeWinOcclusion` 禁用后隐藏窗口 `visibilityState` 保持 visible、计时链不被集约节流 | A-7 实测 + `document.visibilityState` 采样 | 启动 B 计划宿主 tick 泵（TimerApi 注入缝） |
-| V-4 | muda `menu.items()` + `MenuItemKind::Normal` + `item.id()` 命名/签名如代码稿 | cargo check | 改写法甲 `get_item_by_id`（代码稿已注释） |
-| V-5 | `app.exit(0)` 不遗留 welink-cli 子进程（同步管道子进程随父进程句柄关闭的实机行为） | A-5 任务管理器观察 | 退出前 `KillProcessTree`（windows-sys 已有 Job/Process feature 面可扩） |
-| V-6 | `tauri-plugin-single-instance` 内网 cargo 缓存可取、PE 校验通过 | `cargo build --release` + pack | 切 T-D 路线 B 自研（§9.5 预留位） |
-| V-7 | 常驻托盘与 `notify_send` 临时气球图标（不同 hWnd/uID）长期共存无互踩 | A-2 + 驻留 24h 观察 | 气球改经托盘图标 `set_balloon`（tray-icon 原生能力） |
-| V-8 | `Builder::on_message`（路线 B 时用）在 tauri 2.11.x 存在且能在主循环收到自定义消息 | 编译期 | 路线 B 改用轮询消息窗口或直接放弃唤回仅防双开 |
+| #   | 假设                                                                                            | 核实方法                                                              | 不成立时处置                                                            |
+| --- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| V-1 | `bundle.active=false` 时 `app.default_window_icon()` 仍返回 codegen 嵌入的图标                  | `tauri:dev` 打印 is_some()                                            | include_image!("icons/32x32.png") 兜底（代码已双路）                    |
+| V-2 | `additionalBrowserArgs` 配置键存在、语义为整体替换默认值                                        | 对照实施时 tauri v2 schema；启动后 CDP 查 `--disable-features` 生效值 | 改走 `WebviewWindowBuilder` 侧注入或确认追加语义                        |
+| V-3 | `CalculateNativeWinOcclusion` 禁用后隐藏窗口 `visibilityState` 保持 visible、计时链不被集约节流 | A-7 实测 + `document.visibilityState` 采样                            | 启动 B 计划宿主 tick 泵（TimerApi 注入缝）                              |
+| V-4 | muda `menu.items()` + `MenuItemKind::Normal` + `item.id()` 命名/签名如代码稿                    | cargo check                                                           | 改写法甲 `get_item_by_id`（代码稿已注释）                               |
+| V-5 | `app.exit(0)` 不遗留 welink-cli 子进程（同步管道子进程随父进程句柄关闭的实机行为）              | A-5 任务管理器观察                                                    | 退出前 `KillProcessTree`（windows-sys 已有 Job/Process feature 面可扩） |
+| V-6 | `tauri-plugin-single-instance` 内网 cargo 缓存可取、PE 校验通过                                 | `cargo build --release` + pack                                        | 切 T-D 路线 B 自研（§9.5 预留位）                                       |
+| V-7 | 常驻托盘与 `notify_send` 临时气球图标（不同 hWnd/uID）长期共存无互踩                            | A-2 + 驻留 24h 观察                                                   | 气球改经托盘图标 `set_balloon`（tray-icon 原生能力）                    |
+| V-8 | `Builder::on_message`（路线 B 时用）在 tauri 2.11.x 存在且能在主循环收到自定义消息              | 编译期                                                                | 路线 B 改用轮询消息窗口或直接放弃唤回仅防双开                           |
 
 ## 12. 实现落点索引
 
-| 文件 | 动作 | 期 |
-|------|------|-----|
-| `src-tauri/src/tray.rs` | 新增（§8.1 全文） | P0 |
-| `src-tauri/src/autostart.rs` | 新增（§8.5 全文） | P2 |
-| `src-tauri/src/lib.rs` | 集成 diff（§8.2） | P0/P2 |
-| `src-tauri/src/shell.rs` | `notify_blocking` → `pub(crate)` | P0 |
-| `src-tauri/Cargo.toml` | features +（路线 A 时）插件依赖（§8.3） | P0/P2 |
-| `src-tauri/tauri.conf.json` | `additionalBrowserArgs`（§8.4） | P0 |
-| `src/api/types.ts` / `tauri.ts` / `web.ts` | Bridge 五成员（§9.1/9.2） | P1 |
-| `src/stores/welink/host-link.ts` | 新增（§9.3） | P1 |
-| `src/App.vue` | 服务装配 + 策略下发（§9.4） | P1 |
-| `src/views/WeLinkView.vue` | onMounted 简化（§9.4） | P1 |
-| `src/stores/welink/control.ts` | init 幂等化（§9.5） | P1 |
-| `src/stores/welink/index.ts` | 返回对象补 `runtimeRunning: control.runtimeRunning`（§9.3 前置） | P1 |
-| `src/types/index.ts` | `AppSettings.closeBehavior`（§9.6） | P1 |
-| `src/views/SettingsView.vue` / `src/stores/app.ts` | 界面偏好两开关 + autostart 装配（§9.6） | P1/P2 |
-| `AGENTS.md` | 「改动前先读」追加本文；Rust 命令数口径 25→28/29 | 实施期随提交 |
+| 文件                                               | 动作                                                             | 期           |
+| -------------------------------------------------- | ---------------------------------------------------------------- | ------------ |
+| `src-tauri/src/tray.rs`                            | 新增（§8.1 全文）                                                | P0           |
+| `src-tauri/src/autostart.rs`                       | 新增（§8.5 全文）                                                | P2           |
+| `src-tauri/src/lib.rs`                             | 集成 diff（§8.2）                                                | P0/P2        |
+| `src-tauri/src/shell.rs`                           | `notify_blocking` → `pub(crate)`                                 | P0           |
+| `src-tauri/Cargo.toml`                             | features +（路线 A 时）插件依赖（§8.3）                          | P0/P2        |
+| `src-tauri/tauri.conf.json`                        | `additionalBrowserArgs`（§8.4）                                  | P0           |
+| `src/api/types.ts` / `tauri.ts` / `web.ts`         | Bridge 五成员（§9.1/9.2）                                        | P1           |
+| `src/stores/welink/host-link.ts`                   | 新增（§9.3）                                                     | P1           |
+| `src/App.vue`                                      | 服务装配 + 策略下发（§9.4）                                      | P1           |
+| `src/views/WeLinkView.vue`                         | onMounted 简化（§9.4）                                           | P1           |
+| `src/stores/welink/control.ts`                     | init 幂等化（§9.5）                                              | P1           |
+| `src/stores/welink/index.ts`                       | 返回对象补 `runtimeRunning: control.runtimeRunning`（§9.3 前置） | P1           |
+| `src/types/index.ts`                               | `AppSettings.closeBehavior`（§9.6）                              | P1           |
+| `src/views/SettingsView.vue` / `src/stores/app.ts` | 界面偏好两开关 + autostart 装配（§9.6）                          | P1/P2        |
+| `AGENTS.md`                                        | 「改动前先读」追加本文；Rust 命令数口径 25→28/29                 | 实施期随提交 |
 
 ## 13. 安全边界与已知陷阱复核
 
@@ -1003,3 +1003,54 @@ async function setAutostart(enabled: boolean) {
 2. 驻留期是否需要「每日摘要通知」（今天拉取 N 条、回复 M 条）？有 notify 通道可低成本实现，
    但涉及内网机器上的信息暴露面，待场景确认。
 3. 退出宽限期（§4.5-3）是否在实机观测到 sending 中断概率后再决定启用。
+
+## 15. 实施核对记录（2026-10-10，实施期逐项核实，覆盖 §11 首验清单）
+
+### 15.1 代码稿偏差（以本节为最终事实）
+
+| #   | 原稿                                                                        | 实施终稿                                                                                          | 原因                                                                                                                   |
+| --- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 1   | `tray.menu()` 定位「暂停/恢复」项                                           | `build()` 时把 `MenuItem<Wry>` 句柄存入 `static PAUSE_ITEM: OnceLock`，`tray_set_status` 直接回写 | tauri 2.11.6 的 `TrayIcon` **没有** `menu()` 访问器（V-4 预判成真）；tauri 菜单包装 unsafe impl Send/Sync，静态量安全  |
+| 2   | `include_image!("icons/32x32.png")`                                         | 路径不变                                                                                          | 该宏相对 **CARGO_MANIFEST_DIR** 解析（非调用文件位置），src-tauri/icons/32x32.png 正确                                 |
+| 3   | `STATUS_TEXT` 缺 `idle`                                                     | 补 `idle: '未启动'`                                                                               | 实际 `RuntimeStatus` 含 `idle` 分支                                                                                    |
+| 4   | web.ts `traySetClosePolicy` 记 `pendingCloseBehavior` 内存变量              | 纯 no-op                                                                                          | 变量无读取方（write-only 死状态）；lint 会报 unused                                                                    |
+| 5   | §9.6 设置页 `v-model="form.autostart"`                                      | `v-model="appStore.autostart"` + 失败回滚                                                         | autostart 是宿主注册表态非 config 态（T-I），进 form 会被 autoSave 写进 config.json 造成双真值                         |
+| 6   | `App.vue` 依赖 auto-import 的 `ElMessage`                                   | 显式 `import { ElMessage } from 'element-plus'`                                                   | 本仓库 auto-imports.d.ts 不含 ElMessage（视图均为显式 import）                                                         |
+| 7   | 单实例插件 `tauri-plugin-single-instance = "2"`                             | **`= "=2.4.5"` 精确钉死**                                                                         | 2.5.0 起要求 tauri ^2.12，会把 tauri 从 2.11.6 基线顶走（Cargo.lock 全图漂移、内网缓存面扩大）；2.4.5 兼容 tauri ^2.10 |
+| 8   | §8.5 `autostart_get` 直接对 `HKEY_CURRENT_USER` 查值（第二参传 Run 键路径） | 先 `RegOpenKeyExW(KEY_QUERY_VALUE)` 打开 Run 键再查值，键/值不存在均按关闭态                      | 原稿是 bug：`RegQueryValueExW` 第二参是**值名**不是子键路径，且值名不允许反斜杠——原写法恒查不到（永远 false）          |
+
+### 15.2 首验项结论（V-1 ~ V-8）
+
+| #   | 结论                                                                    | 证据                                                                                            |
+| --- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| V-1 | ✅ `default_window_icon()` 在 bundle.active=false 下可用                | residency-check：托盘构建成功、图标显示（include_image 兜底未触发）                             |
+| V-2 | ✅ `additionalBrowserArgs` 生效且按预期传播                             | residency-check：msedgewebview2 进程命令行含 `--disable-features=…,CalculateNativeWinOcclusion` |
+| V-3 | ⏳ 部分（自动化可证部分通过）；A-7 的 30 分钟隐藏实测属人工项           | residency-check 启动后页面正常；防节流参数已确认注入。B 计划（宿主 tick 泵）暂不需要            |
+| V-4 | ✅ 命名以编译期为准，偏差已修正（§15.1-1）                              | cargo check + 19 个 Rust 单测                                                                   |
+| V-5 | ⏳ 人工观察项（退出瞬间 sending 子进程回收）；uitest killTree /T 回归净 | 无 welink-cli 同步子进程常驻，风险面小                                                          |
+| V-6 | ✅ 插件可获取且 PE 校验通过                                             | npm run pack：单文件校验通过，外部依赖 17 个均为系统 DLL，零新增可分发 DLL                      |
+| V-7 | ⏳ 长期共存观察项（托盘与 notify 气球 24h）                             | 气球通道不同 hWnd/uID，短期无互踩                                                               |
+| V-8 | —（未走路线 B，无此需求）                                               | —                                                                                               |
+
+### 15.3 自动化验证结果（2026-10-10 实测）
+
+- `cargo test --release`：19 个 Rust 单测全绿（含 tray/autostart 新增 5 个）。
+- `npm run check`：lint + typecheck + 1201 用例全绿（新增 tauri.spec 6、host-link.spec 8、
+  control.spec 幂等 1、web.spec 3、app.spec 自启 3）。
+- `npm run pack`：PE 导入表硬校验通过（单文件，5.34 MB，外部依赖全为系统 DLL）。
+- `npm run smoke`：6/6（冷启动存活/目录/建表/配置/日志/无 table.json）。
+- `scripts/residency-check.mjs`（新增，CDP 驱动打包产物）：8 项——启动即装配（未进页面 welink
+  表已建）、服务自启（状态灯「运行中」，未触碰开关）、tray_set_status / tray_set_close_policy
+  通道（含非法策略被拒）、A-10 自启注册表回路、防节流参数传播、控制台零噪声、进程存活。
+- `npm run uitest`：全量页面功能回归（最终运行结果见提交信息）。
+
+### 15.4 已知环境限制（A-10 在本开发机的核对口径）
+
+本开发机运行联想电脑管家，其对**本应用进程**的 HKCU Run 键写入做行为级拦截（`RegOpenKeyExW
+KEY_SET_VALUE` 恒返回 ACCESS_DENIED）。已用对照实验钉死结论：相同 API 序列的独立探针
+（控制台/GUI 子系统、含完整 get→set 序列）均可写；改名副本、换目录、可见窗口、cmd 中转
+父进程均无效 → 拦截与应用代码无关，是安全软件按「进程行为组合」拦截。
+
+应用侧处置符合设计（T-I「永不假设成功」）：命令层返回具体错误（含 os error），Bridge 折叠为
+`ok:false`，设置页回滚开关并落盘日志。residency-check 在该环境下验证「诚实报错 + 注册表无
+残留」后放行该项并显著标注 ⚠，A-10 完整回路需在无此拦截的机器（或安全软件加白/弹窗放行）复核。

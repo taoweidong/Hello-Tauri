@@ -117,6 +117,24 @@ describe('control：生命周期', () => {
     expect(harness.settings.value.panicked).toBe(false)
   })
 
+  it('init 幂等（service-residency T-J）：二次调用只做只读刷新', async () => {
+    const harness = makeHarness()
+    const control = createRuntimeControl(harness.deps)
+    await control.init()
+
+    // 模拟已运行的服务：幂等分支不得动状态灯、不得重复迁移、不得重复降级
+    harness.status.value = 'running'
+    const second = await control.init({ panicked: true, sendMode: 'auto' })
+
+    expect(second.panicRecovered).toBe(false)
+    expect(ensureWelinkStorageMock).toHaveBeenCalledTimes(1)
+    expect(harness.deps.loadConversations).toHaveBeenCalledTimes(2)
+    expect(harness.deps.refreshReviewCount).toHaveBeenCalledTimes(2)
+    expect(harness.status.value).toBe('running')
+    // 幂等分支不应用设置：未保存的热更新不会被持久层旧值顶回
+    expect(harness.settings.value.panicked).toBe(false)
+  })
+
   it('迁移失败：降级为 error 日志而不炸 init（页面仍可打开）', async () => {
     const harness = makeHarness()
     ensureWelinkStorageMock.mockRejectedValueOnce(new Error('no such table'))

@@ -184,15 +184,10 @@ function unbindPageEffects(): void {
 }
 
 onMounted(async () => {
-  const { panicRecovered } = await store.init(appStore.settings.weLink)
-  if (panicRecovered) {
-    // 急停跨重启不复活（评审 P1）：init 已强制人工确认模式并复位内存标记，
-    // 这里把降级写回持久层（autoSave 落盘）并显式告知用户。
-    appStore.settings.weLink = { ...store.settings, sendMode: 'manual', panicked: false }
-    ElMessage.error('上次会话以「一键全停」结束：已降为人工确认模式，未自动恢复外发')
-  }
-  // 上次关程序时是开着的 → 直接恢复运行（会话级 cursor 从库恢复，只拉增量）
-  if (store.settings.enabled) await store.start()
+  // T-J（service-residency）：服务启停决策已上移 App.vue 应用级装配（启动即服务）。
+  // 本视图不再负责 panicRecovered 告知与 enabled→start —— init 幂等化后，
+  // 首次装配已在应用启动完成，这里只做只读刷新（列表/待审/安全快照）。
+  await store.init(appStore.settings.weLink)
   bindPageEffects()
 })
 
