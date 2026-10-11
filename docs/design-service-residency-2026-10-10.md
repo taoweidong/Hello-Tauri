@@ -213,6 +213,8 @@ Alt+F4、任务栏右键「关闭窗口」同样触发 CloseRequested，行为�
 | T-L | UI 层不直触 `@/infra/**`/`@/repositories/**`：托盘/自启操作全部经 Bridge（`src/api`），配置动作收进 `stores/app.ts`                                                  | AGENTS ESLint 闸门既有约束                                                                                |
 | T-M | 浏览器开发模式（`npm run dev`）完整不受影响：无托盘、事件 no-op、自启不可用诚实返回 `ok:false`                                                                       | web.ts 双侧契约一致                                                                                       |
 | T-N | 分期：P0 驻留核心（可单独发版）→ P1 服务正确性 → P2 体验增强；每期过 `npm run check` + （涉 Rust）`npm run pack` PE 校验                                             | §10                                                                                                       |
+| T-O | 托盘注册**验证 + 诚实上报 + 关窗回退**（2026-10-11 第三轮实机勘误）：守护线程以 `TrayIcon::rect()` 对账 explorer 真实注册态；20s 宽限仍不接纳 → Blocked（探测拒绝码落盘）；Blocked 态关窗请求回退旧退出行为（不藏进不存在的托盘）；前端 state=2 一次性告警 + 设置页常驻状态行 | tray-icon crate 静默吞 NIM_ADD 失败（§15.6 根因一）：「build 成功」≠「图标存在」；隐藏入不存在的托盘 = 复现「看似直接退出」困惑 |
+| T-P | 可见区钉住：守护线程写本 exe 在 `HKCU\Control Panel\NotifyIconSettings` 条目的 `IsPromoted=1`（首跑路径：注册 → 写值 → 删除重加）；写被拒降级为溢出区 + 落盘指引 | Win11 默认把新图标收进「^」溢出区，验收「右下角图标出现」必须钉住；explorer 在 NIM_ADD 时读取该值（§15.6 实测） |
 
 ## 6. 性能分析（审视点一）
 
@@ -937,6 +939,10 @@ async function setAutostart(enabled: boolean) {
 - A-11 「退出」瞬间恰有 sending：重启后 bootstrap 报告计数正确（有回执补 sent/无回执挂起），
   无重复外发（对照 out 回执表）；
 - A-12 浏览器模式 `npm run dev`：全部页面照常、控制台无托盘相关报错（web no-op 验证）。
+- A-13 托盘图标出现在右下角**可见通知区**（T-P 钉住生效：注册表 `IsPromoted=1` +
+  截图/`Shell_NotifyIconGetRect` 槽位对照；溢出区不算通过，§15.6 根因二）。
+- A-14 注册被安全软件拒绝的机器（T-O）：启动日志含拒绝码、前端一次性告警含处置动作、
+  设置页常驻状态行；此态点 X 按旧行为直接退出（无「看不见的驻留」僵尸进程）。
 
 ### 10.3 测试资产（TS 全覆盖口径，Rust 零单测例外沿用）
 
@@ -960,6 +966,8 @@ async function setAutostart(enabled: boolean) {
 | V-6 | `tauri-plugin-single-instance` 内网 cargo 缓存可取、PE 校验通过                                 | `cargo build --release` + pack                                        | 切 T-D 路线 B 自研（§9.5 预留位）                                       |
 | V-7 | 常驻托盘与 `notify_send` 临时气球图标（不同 hWnd/uID）长期共存无互踩                            | A-2 + 驻留 24h 观察                                                   | 气球改经托盘图标 `set_balloon`（tray-icon 原生能力）                    |
 | V-8 | `Builder::on_message`（路线 B 时用）在 tauri 2.11.x 存在且能在主循环收到自定义消息              | 编译期                                                                | 路线 B 改用轮询消息窗口或直接放弃唤回仅防双开                           |
+| V-9 | explorer 在 **NIM_ADD 时**读取 `NotifyIconSettings.IsPromoted`（含首跑「注册→写值→删除重加」路径） | 实机截图 + `Shell_NotifyIconGetRect` 槽位坐标对照（§15.6）             | 降级为溢出区 + 落盘指引用户手动固定（不阻断驻留）                       |
+| V-10 | 安全软件可能按「进程映像路径 + 未签名」拦截 NIM_ADD（ACCESS_DENIED）                            | 探针 exe 路径矩阵（§15.6）                                            | 守护重试 + 诚实上报 + 关窗回退（T-O，已实施）                           |
 
 ## 12. 实现落点索引
 
@@ -1018,6 +1026,9 @@ async function setAutostart(enabled: boolean) {
 | 6   | `App.vue` 依赖 auto-import 的 `ElMessage`                                   | 显式 `import { ElMessage } from 'element-plus'`                                                   | 本仓库 auto-imports.d.ts 不含 ElMessage（视图均为显式 import）                                                         |
 | 7   | 单实例插件 `tauri-plugin-single-instance = "2"`                             | **`= "=2.4.5"` 精确钉死**                                                                         | 2.5.0 起要求 tauri ^2.12，会把 tauri 从 2.11.6 基线顶走（Cargo.lock 全图漂移、内网缓存面扩大）；2.4.5 兼容 tauri ^2.10 |
 | 8   | §8.5 `autostart_get` 直接对 `HKEY_CURRENT_USER` 查值（第二参传 Run 键路径） | 先 `RegOpenKeyExW(KEY_QUERY_VALUE)` 打开 Run 键再查值，键/值不存在均按关闭态                      | 原稿是 bug：`RegQueryValueExW` 第二参是**值名**不是子键路径，且值名不允许反斜杠——原写法恒查不到（永远 false）          |
+| 9   | `PAUSE_ITEM: OnceLock<MenuItem<Wry>>`（§15.1-1）                          | `Mutex<Option<MenuItem<Wry>>>`                                                                  | 守护线程重建托盘（注册重试/钉住重加）会换新菜单句柄，OnceLock 不可覆盖写入（§15.6）                                    |
+| 10  | 命令清单 33 个                                                            | **34 个**（tray 2→3：新增 `tray_health`）                                                        | 注册健康度需对前端暴露（T-O 告警/设置页状态行的唯一真值通道，§15.6）                                                    |
+| 11  | §8.1 `build()` 成功即「托盘就绪」                                          | 守护线程以 `TrayIcon::rect()`（= `Shell_NotifyIconGetRect`）对账 explorer 真实注册态              | crate 静默吞 NIM_ADD 失败（§15.6 根因一）；build 返回值不可信                                                          |
 
 ### 15.2 首验项结论（V-1 ~ V-8）
 
@@ -1099,3 +1110,73 @@ KEY_SET_VALUE` 恒返回 ACCESS_DENIED）。已用对照实验钉死结论：相
 
 **测试注意事项（踩坑记录）**：E2E 前必须杀净所有历史实例——旧版 exe 的残留进程持有
 互斥量但无事件通道，会让新版第二实例的唤回静默失效，表现为「修复无效」的假阴性。
+
+### 15.6 第三轮实机回归（2026-10-11 夜）：「无法驻留右下角」的双根因与彻底修复
+
+现场反馈「最新 exe 无法驻留 Windows 右下角」。本轮用**独立探针 exe**（同 windows-sys
+调用序列，路径/身份可控）把问题拆成两层根因，均以实机证据钉死：
+
+**根因一（本机致命，且是用户测试场景的直接原因）：NIM_ADD 被安全软件按映像路径拒绝，
+而 tray-icon crate 静默吞掉失败。**
+
+1. 运行中实例的对账证据：`Shell_NotifyIconGetRect` 对 `tray_icon_app` 窗口的 uID 1~8
+   **全部 E_FAIL**，`HKCU\Control Panel\NotifyIconSettings` **零条目** —— explorer 从未
+   接纳过图标（不是「在溢出区」，是「根本不存在」）；
+2. crate 源码（tray-icon 0.24.2 `platform_impl/windows/mod.rs:153-156`）：NIM_ADD 失败
+   仅「保持窗口存活等 TaskbarCreated」，**不报错不上报** —— `TrayIconBuilder::build()`
+   的成功返回值因此不可信，§15.5 用「枚举到 tray_icon_app 窗口类」判定「托盘已注册」
+   的口径**作废**（那只是 crate 的隐藏消息窗口，与 explorer 是否接纳无关）；
+3. 探针路径矩阵（同一 trayprobe.exe，仅放置路径不同）：`E:\`、`C:\Users\Taowd`、
+   `C:\Users\Taowd\Desktop`、`C:\Users\Taowd\Downloads`、`C:\ProgramData`、`%TEMP%`
+   全部 `NIM_ADD ok=1`；**`E:\GitHub\Hello-Tauri\**` 恒 `ok=0 lastErr=5`
+   （ERROR_ACCESS_DENIED）** —— 联想电脑管家族（LenovoPcManager/wsctrl11/usysdiag 在跑）
+   按「进程映像路径 + 未签名身份」拦截，与 §15.4 Run 键 os error 5、§15.5 WM_COPYDATA/
+   跨进程 ShowWindow 被拦同源；沙箱内外结果一致（排除测试通道因素）；AUMID、窗口样式、
+   图标来源（IDI_APPLICATION/CreateIcon）三个变量均与拒绝无关（矩阵对照）。
+
+**根因二（所有 Win11 机器）：注册成功也默认进「^」溢出区，右下角不可见。**
+探针注册成功后截图对照：可见通知区图标集合与基线**完全相同**（新图标在溢出区）。
+钉住手段实测：写本 exe 条目的 `IsPromoted=1`（DWORD）后**重加图标**，图标即落入可见
+槽位（截图 + GetRect 坐标 (1551,1368)-(1599,1440) 互证）；explorer 在 **NIM_ADD 时**
+读取该值 —— 首跑路径「注册 → 写 IsPromoted → NIM_DELETE → NIM_ADD」实测生效（V-9）。
+
+**修复（本提交，决策 T-O/T-P）**：
+
+| 落点                                            | 内容                                                                                                     |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `src-tauri/src/tray.rs`                         | `spawn_tray_guardian`：2s×10 启动验证（`TrayIcon::rect()` 对账）→ 钉住可见区 → 30s 稳态巡检（丢失/被拒→主线程重建重试，用户加白名单后自愈）；`ensure_icon_promoted`（NotifyIconSettings 扫描/写值，best-effort）；`probe_notify_deny_code`（最小 NIM_ADD 探针取拒绝码）；`tray_health` 命令（第 34 命令）；Blocked 态 `on_window_event` 回退旧退出行为；`reveal_if_hidden_on_blocked`（判 Blocked 时窗口若隐藏则自动恢复，见下）；`PAUSE_ITEM` 改 `Mutex<Option<_>>`（重建换句柄） |
+| `src/api/types.ts` / `tauri.ts` / `web.ts`      | Bridge 扩 `trayHealth()`（ProbeResult 语义；web 侧诚实 ok:false）                                        |
+| `src/stores/app.ts`                             | `trayHealth` ref + `refreshTrayHealth()`（同 autostart 回显口径）                                         |
+| `src/stores/welink/host-link.ts`                | 巡检接线：装配即取 + 窗口唤回再取 + 60s 周期                                                              |
+| `src/App.vue`                                   | state=2 一次性 `ElMessage.warning`（含错误码与处置动作：加白名单/迁移 exe）                              |
+| `src/views/SettingsView.vue`                    | 「界面偏好」卡常驻「托盘驻留」状态行（验证中/已驻留可见区/溢出区/被拒+错误码）                             |
+
+**隐藏态自救（reveal_if_hidden_on_blocked）**：实机观测到拦截路径上安全软件会在启动后
+约 3s 向主窗发送外部 WM_CLOSE（零交互复现：2300 版 B4 轮 23:12:30「界面已收进系统托盘」，
+全程无任何脚本窗口操作）。该时刻 STATE 尚为 VERIFYING，关窗闸口按隐藏语义放行 —— 于是
+「无托盘 + 窗口隐藏」的看不见进程现场仍会出现。处置：守护线程判 Blocked 时若主窗处于
+隐藏态则自动 `show_main` 恢复（前端告警随 window-shown 刷新可见），用户再点 X 按回退语义
+直接退出。健康机器永不进入 Blocked，行为零变化（场景 A 实测隐藏态跨巡检周期不被误恢复）。
+
+**E2E 复验（2300/2335 版打包产物，Win11 26300 + 联想电脑管家开启拦截）**：
+
+- 场景 A（允许路径 `C:\Users\Taowd\ht-e2e\`）：① 注册表条目 `IsPromoted=1` + GetRect 可见
+  槽位 + 截图图标在可见通知区；② 点 X → 窗口隐藏、进程存活、图标仍在；③ 左键图标 →
+  窗口恢复；④ 右键菜单 →「退出」→ 进程消失（自动化键序：右键 + Down×3 + Enter，分隔符
+  在菜单导航中被跳过）；⑤ 日志锚点齐全：「托盘图标注册确认：explorer 已接纳」→「已钉住
+  任务栏可见通知区（IsPromoted=1），重加图标生效」→ 收进/恢复托盘。
+- 场景 B（拦截路径 `release\`）：① GetRect 全失败 + 注册表零条目（与根因一吻合）；
+  ② 守护线程 20s 宽限期满判 Blocked 并落盘拒绝码；③ 点 X → **进程直接退出**（回退旧
+  行为，不产生「看不见的驻留」僵尸）；④ 前端一次性告警 + 设置页状态行呈现错误码与处置
+  （23:46:17 WARN「托盘图标注册被系统拒绝（os error 5）…」落盘为证）；⑤ 宽限期内被外部
+  WM_CLOSE 隐藏后，判 Blocked 时窗口自动恢复可见（2335 版 t+26s 采样 visible=True +
+  「自动恢复窗口以呈现告警」日志），消灭「看不见的进程」现场。
+
+**环境结论与现场指引**：本开发机的拦截是安全软件对**仓库目录树**的策略（同 exe 换路径
+即正常），非代码缺陷；应用侧已做到「可验证、可重试、可上报、可回退」。内网现场若出现
+注册被拒：按告警把 exe 加入安全软件白名单或移出被拦截目录，重启即恢复完整驻留；守护
+线程也会在拦截解除后的下一个巡检周期自愈（无需重启）。
+
+**测试注意事项（新增踩坑）**：① 托盘菜单键盘自动化序为 Right-click + `{DOWN}{DOWN}
+{DOWN}{ENTER}`（Down×2 会落在「暂停服务」上，误触暂停而非退出）；② 验证「图标在可见区」
+必须截图或 GetRect 槽位对照，`tray_icon_app` 窗口存在**不能**作为注册证据（本轮勘误）。

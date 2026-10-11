@@ -96,6 +96,28 @@ watch(
     tableStore.pageSize = size
   },
 )
+
+// —— 托盘注册被拒告警（service-residency §15.6 T-O，每会话一次）——
+// state=2 是 Rust 守护线程对账 explorer 的确定结论（含 os error 码）：安全软件
+// 拦截 NIM_ADD 时「build 成功但图标不存在」，点 X 会回退旧退出行为。用户必须
+// 知情且知道处置动作（加白名单/迁移 exe），否则现场只会看到「驻留失效」的困惑。
+// 验证中（0）与浏览器模式（null）不告警；设置页「界面偏好」常驻展示当前态。
+let trayBlockedWarned = false
+watch(
+  () => appStore.trayHealth?.state,
+  (state) => {
+    if (state !== 2 || trayBlockedWarned) return
+    trayBlockedWarned = true
+    const code = appStore.trayHealth?.denyCode ?? 0
+    logger.warn(`托盘图标注册被系统拒绝（os error ${code}）：关闭窗口将按旧行为直接退出`)
+    ElMessage.warning({
+      message:
+        `托盘图标注册被系统拦截（错误码 ${code}）：关闭窗口后程序将直接退出、无法驻留托盘。` +
+        '请将本程序加入安全软件白名单，或将 exe 移出被拦截目录后重启。',
+      duration: 10_000,
+    })
+  },
+)
 </script>
 
 <template>

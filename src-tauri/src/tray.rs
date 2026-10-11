@@ -11,10 +11,20 @@
 //!  * V-4 菜单文案更新不走 `tray.menu()`（tauri 2.11.6 的 TrayIcon 无该访问器），
 //!    改为 build() 时把「暂停/恢复」项句柄存入 `PAUSE_ITEM`（tauri 菜单包装
 //!    unsafe impl Send/Sync，可入静态量；set_text 内部自行路由主线程）。
+//!
+//! 【2026-10-11 第三轮实机勘误】tray-icon crate 对 `Shell_NotifyIconW(NIM_ADD)` 的
+//! 失败**静默吞掉**（crate 源码：失败仅「保持窗口存活等 TaskbarCreated」），而部分
+//! 安全软件会对未签名 exe 的 NIM_ADD 返回 ACCESS_DENIED —— 表现为「build 成功、
+//! 应用照常启动，但 explorer 里根本没有图标」（设计 §15.6 根因）。因此本模块自带
+//! **注册验证 + 守护重试**（`spawn_tray_guardian`，以 `TrayIcon::rect()` 为对账手段）、
+//! **可见区钉住**（`ensure_icon_promoted`，写 NotifyIconSettings 的 IsPromoted）与
+//! **诚实上报**（`tray_health` 命令 + Blocked 态关窗回退旧行为，绝不「藏进不存在的托盘」）。
 
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
+use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent, Wry};
@@ -45,7 +55,29 @@ static FIRST_HIDE_DONE: AtomicBool = AtomicBool::new(false);
 
 /// 「暂停/恢复」菜单项句柄：build() 时写入，tray_set_status 回写文案用。
 /// tauri 菜单包装为 Send/Sync（内部访问统一路由主线程），可安全入静态量。
-static PAUSE_ITEM: OnceLock<MenuItem<Wry>> = OnceLock::new();
+/// 用 Mutex 而非 OnceLock：守护线程重建托盘（注册失败重试/钉住可见区重加）时
+/// 菜单项句柄会换新，必须可覆盖写入。
+static PAUSE_ITEM: Mutex<Option<MenuItem<Wry>>> = Mutex::new(None);
+
+/// 托盘注册状态（守护线程对账 `TrayIcon::rect()` 后写入；`tray_health` 与关窗闸口只读）：
+/// 0 = 验证中（启动宽限期内尚无结论），1 = explorer 已接纳图标，2 = 确认被拒。
+const STATE_VERIFYING: u8 = 0;
+const STATE_REGISTERED: u8 = 1;
+const STATE_BLOCKED: u8 = 2;
+static TRAY_STATE: AtomicU8 = AtomicU8::new(STATE_VERIFYING);
+
+/// 图标是否已钉在任务栏**可见**通知区（NotifyIconSettings 的 IsPromoted=1）。
+/// Win11 默认把新图标收进「^」溢出区，不钉住则右下角看不见（设计 §15.6 根因二）。
+static TRAY_PROMOTED: AtomicBool = AtomicBool::new(false);
+
+/// 注册被拒时探测到的 OS 错误码（5 = ACCESS_DENIED，安全软件拦截的典型签名）。
+static LAST_DENY_CODE: AtomicU32 = AtomicU32::new(0);
+
+/// 启动验证宽限：2s × 10 次 ≈ 20s。覆盖 explorer 未就绪等瞬态；仍失败才判 Blocked。
+const VERIFY_TICKS: u32 = 10;
+const VERIFY_INTERVAL: Duration = Duration::from_secs(2);
+/// 守护线程稳态巡检间隔：注册丢失/被拒后的重试节奏，兼顾响应与零噪声。
+const GUARD_INTERVAL: Duration = Duration::from_secs(30);
 
 /// 单实例互斥量名（Local\ 会话级命名空间）。与 single-instance 插件的互斥量相互
 /// 独立：插件靠 WM_COPYDATA 跨进程唤回，实机会被安全软件静默拦截（见
@@ -73,7 +105,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let sep_a = PredefinedMenuItem::separator(app)?;
     let sep_b = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&open, &sep_a, &pause, &sep_b, &quit])?;
-    let _ = PAUSE_ITEM.set(pause);
+    if let Ok(mut slot) = PAUSE_ITEM.lock() {
+        *slot = Some(pause);
+    }
 
     // T-E：图标零外部文件。优先默认窗图标（codegen 自 bundle.icon 嵌入）；
     // 取不到则 include_image 编译期嵌入兜底（相对 CARGO_MANIFEST_DIR 解析）。
@@ -296,6 +330,417 @@ pub fn spawn_wake_watcher(app: AppHandle) {
     let _ = app;
 }
 
+/// 驻留期日志留痕（与 spawn_wake_watcher 同口径：无 UI 时日志是唯一观察窗，§13.7）。
+/// best-effort：存储解析/写入失败不影响托盘本身。
+fn tray_log_with(app: &AppHandle, message: &str) {
+    let layout = crate::storage::resolve_storage(app);
+    let _ = crate::logging::append_line(std::path::Path::new(&layout.logs_dir), "INFO", message);
+}
+
+/// explorer 是否真的接纳了托盘图标。
+///
+/// **唯一对账手段**：`TrayIcon::rect()` 底层是 `Shell_NotifyIconGetRect` —— 图标
+/// 未被 explorer 登记时返回 None。不能信 `TrayIconBuilder::build()` 的成功返回值：
+/// tray-icon crate 对 NIM_ADD 失败静默吞掉（2026-10-11 实机根因，设计 §15.6）。
+///
+/// 调用约束：内部经 `run_item_main_thread!` 派发，**只能在非主线程调用**（守护线程
+/// 满足）；主线程调用会自等死锁。派发失败（事件循环收尾中）按「已注册」乐观处理，
+/// 避免退出瞬间误判 Blocked 触发无谓重建。
+fn tray_registered_bg(app: &AppHandle) -> bool {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return false;
+    };
+    match tray.rect() {
+        Ok(rect) => rect.is_some(),
+        Err(_) => true,
+    }
+}
+
+/// exe 路径同一性比对（注册表 ExecutablePath vs 当前映像）：大小写不敏感。
+/// 抽出纯函数供单测锁定（NTFS 大小写不敏感，逐字比对会漏判）。
+fn same_exe_path(stored: &str, current: &str) -> bool {
+    stored.eq_ignore_ascii_case(current)
+}
+
+/// `HKCU\Control Panel\NotifyIconSettings` 钉住结果。
+enum PromoteOutcome {
+    /// 已是 IsPromoted=1，无需动作
+    Already,
+    /// 本次写入 1 成功：explorer 在 NIM_ADD 时读取该值，需删除重加图标才生效
+    Changed,
+    /// 本 exe 的条目尚不存在（首跑、explorer 尚未落条目）：稍后重试
+    Missing,
+    /// 写注册表被拒（os error 码）：安全软件拦截等，图标留在溢出区，诚实上报
+    Denied(u32),
+}
+
+/// 把本 exe 的托盘图标钉到任务栏**可见**通知区（Win11 默认收进「^」溢出区）。
+///
+/// 机制（2026-10-11 实机核实，设计 §15.6）：explorer 为每个托盘图标在
+/// `HKCU\Control Panel\NotifyIconSettings\<hash>` 落一条设置（含 ExecutablePath），
+/// `IsPromoted=1` = 常驻可见区；该值在 **NIM_ADD 时**被读取 —— 首跑路径为
+/// 「先注册 → 写 IsPromoted → 删除重加」（已实测生效，截图为证）。
+/// 全程 best-effort：任何失败只降级为「图标在溢出区」，不影响驻留本身。
+fn ensure_icon_promoted() -> PromoteOutcome {
+    #[cfg(not(windows))]
+    {
+        PromoteOutcome::Missing
+    }
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+        use windows_sys::Win32::System::Registry::{
+            RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY,
+            HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE, REG_DWORD,
+        };
+
+        fn wide(text: &str) -> Vec<u16> {
+            text.encode_utf16().chain(std::iter::once(0)).collect()
+        }
+        fn read_sz(hkey: HKEY, name: &str) -> Option<String> {
+            let value = wide(name);
+            let mut kind = 0u32;
+            let mut buf = vec![0u16; 1024];
+            let mut size = (buf.len() * 2) as u32;
+            let status = unsafe {
+                RegQueryValueExW(
+                    hkey,
+                    value.as_ptr(),
+                    std::ptr::null(),
+                    &mut kind,
+                    buf.as_mut_ptr() as *mut u8,
+                    &mut size,
+                )
+            };
+            if status != ERROR_SUCCESS {
+                return None;
+            }
+            Some(String::from_utf16_lossy(
+                &buf[..(size as usize / 2).saturating_sub(1)],
+            ))
+        }
+
+        let Ok(me) = std::env::current_exe() else {
+            return PromoteOutcome::Missing;
+        };
+        let me = me.to_string_lossy().to_string();
+        let root = wide("Control Panel\\NotifyIconSettings");
+        let mut hkey: HKEY = std::ptr::null_mut();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, root.as_ptr(), 0, KEY_READ, &mut hkey) != ERROR_SUCCESS
+        {
+            return PromoteOutcome::Missing; // 键都读不到：无从钉起，按缺条目处理
+        }
+        let mut outcome = PromoteOutcome::Missing;
+        let mut index = 0u32;
+        loop {
+            let mut name = [0u16; 256];
+            let mut name_len = name.len() as u32;
+            let status = RegEnumKeyExW(
+                hkey,
+                index,
+                name.as_mut_ptr(),
+                &mut name_len,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+            if status != ERROR_SUCCESS {
+                break;
+            }
+            index += 1;
+            let sub = wide(&String::from_utf16_lossy(&name[..name_len as usize]));
+            let mut subkey: HKEY = std::ptr::null_mut();
+            if RegOpenKeyExW(hkey, sub.as_ptr(), 0, KEY_READ | KEY_SET_VALUE, &mut subkey)
+                != ERROR_SUCCESS
+            {
+                continue;
+            }
+            let matched = read_sz(subkey, "ExecutablePath")
+                .map(|stored| same_exe_path(&stored, &me))
+                .unwrap_or(false);
+            if matched {
+                let value = wide("IsPromoted");
+                let mut kind = 0u32;
+                let mut data = 0u32;
+                let mut size = 4u32;
+                let read = RegQueryValueExW(
+                    subkey,
+                    value.as_ptr(),
+                    std::ptr::null(),
+                    &mut kind,
+                    &mut data as *mut u32 as *mut u8,
+                    &mut size,
+                );
+                if read == ERROR_SUCCESS && data == 1 {
+                    outcome = PromoteOutcome::Already;
+                } else {
+                    let one = 1u32;
+                    let code = RegSetValueExW(
+                        subkey,
+                        value.as_ptr(),
+                        0,
+                        REG_DWORD,
+                        &one as *const u32 as *const u8,
+                        4,
+                    );
+                    outcome = if code == ERROR_SUCCESS {
+                        PromoteOutcome::Changed
+                    } else {
+                        PromoteOutcome::Denied(code)
+                    };
+                }
+                RegCloseKey(subkey);
+                break;
+            }
+            RegCloseKey(subkey);
+        }
+        RegCloseKey(hkey);
+        outcome
+    }
+}
+
+/// 探测「本进程此刻发 Shell_NotifyIconW 是否被拒」及 OS 错误码。
+///
+/// 用途：区分「explorer 未就绪（瞬态）」与「被安全软件拦截（os error 5，确定态）」，
+/// 给日志与前端告警一个可行动的错误码。做法是注册一个**最小通知图标**（仅
+/// NIF_MESSAGE、无图标无菜单）并立即删除 —— 与 tray-icon crate 同一条系统通道，
+/// 成功即删除不留痕；失败时 GetLastError 即拒绝签名。
+fn probe_notify_deny_code() -> u32 {
+    #[cfg(not(windows))]
+    {
+        0
+    }
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::Foundation::{GetLastError, HWND, LPARAM, LRESULT, WPARAM};
+        use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+        use windows_sys::Win32::UI::Shell::{
+            NIF_MESSAGE, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW, Shell_NotifyIconW,
+        };
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, HWND_MESSAGE,
+            WNDCLASSW,
+        };
+
+        unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+
+        let class = crate::sysinfo::to_wide("HelloTauriTrayProbeClass");
+        let hinstance = GetModuleHandleW(std::ptr::null());
+        let mut wc: WNDCLASSW = std::mem::zeroed();
+        wc.lpfnWndProc = Some(wnd_proc);
+        wc.hInstance = hinstance;
+        wc.lpszClassName = class.as_ptr();
+        RegisterClassW(&wc); // 重复注册报错可忽略，以建窗结果为准
+        let hwnd = CreateWindowExW(
+            0,
+            class.as_ptr(),
+            std::ptr::null(),
+            0,
+            0,
+            0,
+            0,
+            0,
+            HWND_MESSAGE,
+            std::ptr::null_mut(),
+            hinstance,
+            std::ptr::null(),
+        );
+        if hwnd.is_null() {
+            return GetLastError();
+        }
+        let mut nid: NOTIFYICONDATAW = std::mem::zeroed();
+        nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+        nid.hWnd = hwnd;
+        nid.uID = 0x4854_5001; // "HTP1"：与 crate 计数器/气球 uID 均不冲突
+        nid.uFlags = NIF_MESSAGE;
+        nid.uCallbackMessage = WM_USER_TRAY_PROBE;
+        let ok = Shell_NotifyIconW(NIM_ADD, &nid);
+        let code = if ok == 0 { GetLastError() } else { 0 };
+        if ok != 0 {
+            let mut del: NOTIFYICONDATAW = std::mem::zeroed();
+            del.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+            del.hWnd = hwnd;
+            del.uID = nid.uID;
+            Shell_NotifyIconW(NIM_DELETE, &del);
+        }
+        DestroyWindow(hwnd);
+        code
+    }
+}
+
+/// 探针图标的回调消息号（仅占位，探针窗口不处理任何消息）
+#[cfg(windows)]
+const WM_USER_TRAY_PROBE: u32 = 6100;
+
+/// 删除并重建托盘图标（主线程执行）。两条用途：注册被拒后的重试；
+/// 钉住可见区写值后迫使 explorer 重读 IsPromoted（NIM_ADD 时读取）。
+fn rebuild_tray(app: &AppHandle) -> bool {
+    let _ = app.remove_tray_by_id(TRAY_ID);
+    match build(app) {
+        Ok(()) => true,
+        Err(error) => {
+            tray_log_with(app, &format!("托盘重建失败：{error}"));
+            false
+        }
+    }
+}
+
+/// 判 Blocked 时的隐藏态自救：外部关窗请求（安全软件窗管等）可能落在启动宽限期内
+/// （STATE 尚为 VERIFYING，关窗闸口按隐藏语义放行）——于是「无托盘 + 窗口隐藏」的
+/// 看不见进程现场复现。判 Blocked 时若主窗处于隐藏态则自动恢复：前端告警随之可见，
+/// 用户再点 X 按回退语义直接退出（T-O）。健康机器永不进入 Blocked，行为零变化。
+fn reveal_if_hidden_on_blocked(app: &AppHandle) {
+    let target = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let Some(window) = target.get_webview_window(MAIN_WINDOW) else {
+            return;
+        };
+        // is_visible 失败按「可见」处理：不确定的时候不动窗口，避免误弹
+        if window.is_visible().unwrap_or(true) {
+            return;
+        }
+        tray_log_with(&target, "托盘注册被拒且窗口隐藏中：自动恢复窗口以呈现告警（再点 X 将直接退出）");
+        show_main(&target);
+    });
+}
+
+/// 托盘守护线程（setup 内启动）：注册验证 → 钉住可见区 → 稳态巡检重试。
+///
+/// 存在理由（2026-10-11 实机根因，设计 §15.6）：tray-icon crate 静默吞掉 NIM_ADD
+/// 失败，安全软件拦截时应用会「以为有托盘其实没有」——点 X 藏进不存在的托盘，
+/// 用户视角与「直接退出」无异。本线程把注册状态变成**可观测、可重试、可上报**：
+///  * 启动宽限期内每 2s 对账一次 `rect()`，确认接纳后立即钉住可见区；
+///  * 宽限期满仍未接纳 → 探测拒绝码、置 Blocked（关窗闸口据此回退旧退出行为）；
+///  * 稳态每 30s 巡检：注册丢失/被拒 → 主线程重建重试（用户加白名单后自愈）；
+///    已注册但未钉住 → 补写 IsPromoted 并重加。
+pub fn spawn_tray_guardian(app: AppHandle) {
+    #[cfg(windows)]
+    {
+        std::thread::spawn(move || {
+            let mut registered = false;
+            for _ in 0..VERIFY_TICKS {
+                std::thread::sleep(VERIFY_INTERVAL);
+                if tray_registered_bg(&app) {
+                    registered = true;
+                    break;
+                }
+            }
+            if registered {
+                TRAY_STATE.store(STATE_REGISTERED, Ordering::Relaxed);
+                tray_log_with(&app, "托盘图标注册确认：explorer 已接纳");
+                promote_with_retry(&app);
+            } else {
+                let code = probe_notify_deny_code();
+                LAST_DENY_CODE.store(code, Ordering::Relaxed);
+                TRAY_STATE.store(STATE_BLOCKED, Ordering::Relaxed);
+                tray_log_with(
+                    &app,
+                    &format!(
+                        "托盘图标注册未获 explorer 接纳（os error {code}）：可能被安全软件拦截。 \
+                         后台每 30s 重试；期间关闭窗口按旧行为直接退出（不藏进不存在的托盘）。 \
+                         处置：将本程序加入安全软件白名单，或将 exe 移出被拦截目录后重启。"
+                    ),
+                );
+                reveal_if_hidden_on_blocked(&app);
+            }
+
+            loop {
+                std::thread::sleep(GUARD_INTERVAL);
+                let now = tray_registered_bg(&app);
+                let prev = TRAY_STATE.swap(
+                    if now { STATE_REGISTERED } else { STATE_BLOCKED },
+                    Ordering::Relaxed,
+                );
+                if now {
+                    if prev != STATE_REGISTERED {
+                        let code = probe_notify_deny_code();
+                        LAST_DENY_CODE.store(code, Ordering::Relaxed);
+                        tray_log_with(&app, "托盘图标注册恢复（重试成功或拦截解除）");
+                    }
+                    if !TRAY_PROMOTED.load(Ordering::Relaxed) {
+                        promote_with_retry(&app);
+                    }
+                } else {
+                    if prev != STATE_BLOCKED {
+                        let code = probe_notify_deny_code();
+                        LAST_DENY_CODE.store(code, Ordering::Relaxed);
+                        tray_log_with(&app, &format!("托盘图标注册丢失（os error {code}），开始后台重试"));
+                        reveal_if_hidden_on_blocked(&app);
+                    }
+                    let target = app.clone();
+                    // 重建必须主线程（菜单/窗口操作统一主线程语义）
+                    let _ = app.run_on_main_thread(move || {
+                        rebuild_tray(&target);
+                    });
+                }
+            }
+        });
+    }
+    #[cfg(not(windows))]
+    let _ = app;
+}
+
+/// 钉住可见区（含首跑条目未落的短重试）；写值成功则重加图标使 explorer 重读。
+fn promote_with_retry(app: &AppHandle) {
+    for attempt in 0..6 {
+        match ensure_icon_promoted() {
+            PromoteOutcome::Already => {
+                TRAY_PROMOTED.store(true, Ordering::Relaxed);
+                return;
+            }
+            PromoteOutcome::Changed => {
+                TRAY_PROMOTED.store(true, Ordering::Relaxed);
+                tray_log_with(app, "托盘图标已钉住任务栏可见通知区（IsPromoted=1），重加图标生效");
+                let target = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    rebuild_tray(&target);
+                });
+                return;
+            }
+            PromoteOutcome::Denied(code) => {
+                tray_log_with(
+                    app,
+                    &format!("钉住可见区写注册表被拒（os error {code}）：图标将留在「^」溢出区，可在任务栏设置中手动固定"),
+                );
+                return;
+            }
+            PromoteOutcome::Missing => {
+                if attempt + 1 < 6 {
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+            }
+        }
+    }
+    tray_log_with(app, "钉住可见区：explorer 尚未落注册表条目，交由稳态巡检补钉");
+}
+
+/// `tray_health`：托盘健康度上报（前端告警/设置页展示的唯一真值）。
+/// 只读原子量，不做主线程派发（命令线程调用安全）。
+#[tauri::command]
+pub fn tray_health() -> TrayHealthReport {
+    let state = TRAY_STATE.load(Ordering::Relaxed);
+    TrayHealthReport {
+        state,
+        registered: state == STATE_REGISTERED,
+        promoted: TRAY_PROMOTED.load(Ordering::Relaxed),
+        deny_code: LAST_DENY_CODE.load(Ordering::Relaxed),
+    }
+}
+
+/// 托盘健康度报告（serde camelCase 与 TS `TrayHealth` 逐字段对应）
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TrayHealthReport {
+    /// 0=验证中 1=已注册 2=确认被拒
+    pub state: u8,
+    pub registered: bool,
+    pub promoted: bool,
+    pub deny_code: u32,
+}
+
 /// 主窗口事件闸口（挂 `Builder::on_window_event`）：
 /// X / Alt+F4 / 任务栏关闭 → 按策略拦截隐藏（默认）或放行退出。
 pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
@@ -304,6 +749,13 @@ pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
     };
     if CLOSE_POLICY.load(Ordering::Relaxed) == POLICY_QUIT {
         return; // 不拦截：走 Tauri 默认「最后窗口关闭即退出」，等价旧行为（T-B）
+    }
+    // Blocked = 确认没有托盘可藏：隐藏会复现「看似直接退出」的困惑现场（窗口消失、
+    // 无图标、进程 invisibly 存活）。回退旧行为（放行关闭=退出），原因已由前端
+    // 启动告警与落盘日志事先说明（设计 §15.6 T-O）。验证中/已注册维持隐藏语义。
+    if TRAY_STATE.load(Ordering::Relaxed) == STATE_BLOCKED {
+        tray_log_with(window.app_handle(), "托盘不可用（注册被拒）：关闭请求按旧行为直接退出");
+        return;
     }
     api.prevent_close();
     if window.hide().is_err() {
@@ -341,8 +793,10 @@ pub fn tray_set_status(app: AppHandle, running: bool, status_text: String) -> Re
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return Err("托盘未就绪".into());
     };
-    if let Some(item) = PAUSE_ITEM.get() {
-        let _ = item.set_text(if running { "暂停服务" } else { "恢复服务" });
+    if let Ok(slot) = PAUSE_ITEM.lock() {
+        if let Some(item) = slot.as_ref() {
+            let _ = item.set_text(if running { "暂停服务" } else { "恢复服务" });
+        }
     }
     let _ = tray.set_tooltip(Some(format!("Hello-Tauri · {status_text}")));
     Ok(())
@@ -377,6 +831,33 @@ mod tests {
     fn close_policy_bytes_stay_distinct() {
         assert_ne!(POLICY_HIDE, POLICY_QUIT);
         assert_eq!(POLICY_HIDE, 0, "默认策略必须是「隐藏入托盘」");
+    }
+
+    #[test]
+    fn tray_state_bytes_are_distinct_and_default_verifying() {
+        // 关窗闸口与前端告警都按这三个字节分支，漂移即语义错乱
+        assert_ne!(STATE_VERIFYING, STATE_REGISTERED);
+        assert_ne!(STATE_REGISTERED, STATE_BLOCKED);
+        assert_ne!(STATE_VERIFYING, STATE_BLOCKED);
+        assert_eq!(
+            TRAY_STATE.load(Ordering::Relaxed),
+            STATE_VERIFYING,
+            "启动默认必须是「验证中」：宽限期内关窗仍走隐藏语义"
+        );
+    }
+
+    #[test]
+    fn exe_path_match_is_case_insensitive() {
+        // 注册表 ExecutablePath 与 current_exe 的大小写可能不一致（NTFS 不敏感），
+        // 逐字比对会让「钉住可见区」永远找不到自己的条目
+        assert!(same_exe_path(
+            r"E:\GitHub\Hello-Tauri\release\Hello-Tauri.exe",
+            r"e:\github\hello-tauri\RELEASE\hello-tauri.EXE"
+        ));
+        assert!(!same_exe_path(
+            r"E:\GitHub\Hello-Tauri\release\Hello-Tauri.exe",
+            r"E:\GitHub\Hello-Tauri\release\other.exe"
+        ));
     }
 
     #[test]

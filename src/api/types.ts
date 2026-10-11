@@ -18,6 +18,7 @@ import type {
   SysAdapter,
   SysDisk,
   SysOverview,
+  TrayHealth,
   VerifyOutcome,
 } from '@/types'
 
@@ -174,4 +175,9 @@ export interface Bridge {
   /** 开机自启：真值在注册表 HKCU Run 项、不入 config.json（T-I，避免双真值漂移） */
   autostartGet(): Promise<ProbeResult<boolean>>
   autostartSet(enabled: boolean): Promise<ProbeResult<boolean>>
+  /**
+   * 托盘健康度（§15.6 T-O）：Rust 守护线程对账 explorer 真实注册态的结论。
+   * 浏览器侧无托盘，诚实返回 ok:false（前端据此不告警、不展示）。
+   */
+  trayHealth(): Promise<ProbeResult<TrayHealth>>
 }

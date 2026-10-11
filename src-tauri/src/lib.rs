@@ -117,6 +117,9 @@ pub fn run() {
             // 唤回监视线程：等待二次实例的命名事件（安全软件拦截 WM_COPYDATA/
             // 跨进程 ShowWindow 时的主唤回通道，详见 tray.rs spawn_wake_watcher）。
             tray::spawn_wake_watcher(handle.clone());
+            // 托盘守护线程：注册验证/钉住可见区/被拒重试（tray-icon crate 静默吞
+            // NIM_ADD 失败的对账缝，详见 tray.rs spawn_tray_guardian）。
+            tray::spawn_tray_guardian(handle.clone());
             if start_minimized {
                 if let Some(window) = app.get_webview_window(tray::MAIN_WINDOW) {
                     let _ = window.hide(); // 已知小代价：一帧闪现（config visible:true）
@@ -163,6 +166,7 @@ pub fn run() {
             // —— 服务常驻通道（service-residency：显示回写 + 策略下发 + 自启开关）——
             tray::tray_set_status,
             tray::tray_set_close_policy,
+            tray::tray_health,
             autostart::autostart_get,
             autostart::autostart_set
         ])

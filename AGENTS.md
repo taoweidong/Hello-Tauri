@@ -42,9 +42,10 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
   CLI 子进程（welink-cli / codehub-cli 共用一条通道）+ HTTP 通道（POST=大模型对接 /
   GET=更新清单等小文本，WebView fetch 受 CORS 拦截由宿主代发）+ Windows 基础设施只读通道 +
   自动更新（update.rs：流式下载/minisign 验签/自替换重启，清单协议、版本判定与状态机
-  全在 TS 侧）+ 托盘驻留（tray.rs：关窗拦截/托盘菜单/状态显示，动作语义全在前端）+
-  开机自启注册表薄桥接」共 33 个
-  命令（commands 9 / db 4 / fs 2 / cli 1 / http 2 / update 3 / sysinfo 4 / shell 4 / tray 2 / autostart 2）。新增功能全部写在 `src/` 的
+  全在 TS 侧）+ 托盘驻留（tray.rs：关窗拦截/托盘菜单/状态显示/注册验证与守护重试，
+  动作语义全在前端）+
+  开机自启注册表薄桥接」共 34 个
+  命令（commands 9 / db 4 / fs 2 / cli 1 / http 2 / update 3 / sysinfo 4 / shell 4 / tray 3 / autostart 2）。新增功能全部写在 `src/` 的
   TypeScript 中，不要动 Rust；新增宿主能力 = 薄桥接命令 + Bridge 双侧实现 + infra
   端口-适配器（同 windows-infra 模式）。
 - **SQLite 表结构归 TS 管**：迁移写在 `src/infra/db/migrations/`，经通用命令
@@ -129,6 +130,10 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
   不保证静态 CRT，仅作调试。
 - **`bundle.active = false`**：只出裸 exe，无安装包，打包过程不得联网（内网离线是硬需求）。
 - **托盘驻留语义**（service-residency）：点 X 默认隐藏入托盘（`closeBehavior:'quit'` 可回旧行为）；
+  托盘注册由守护线程以 `TrayIcon::rect()` 对账 explorer —— tray-icon crate **静默吞
+  NIM_ADD 失败**（安全软件可按映像路径拒绝，build 返回值不可信）；确认被拒（Blocked）时
+  点 X 回退旧退出行为（不藏进不存在的托盘），前端一次性告警 + 设置页常驻状态行；
+  `IsPromoted=1` 把图标钉在可见通知区（Win11 默认收进 ^ 溢出区）——设计文档 §15.6（T-O/T-P）；
   Rust→前端事件是固定白名单 3 个（`host://window-hidden|window-shown|tray-toggle`，两侧常量
   必须逐字一致）；托盘「暂停/恢复」的判据只有 `store.runtimeRunning()`，恢复走完整 bootstrap；
   托盘「退出」= `app.exit(0)` 直杀（WAL+bootstrap 恢复兜底，无宽限期）；单实例插件

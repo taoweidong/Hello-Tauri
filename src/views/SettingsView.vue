@@ -38,6 +38,19 @@ const savedText = computed(() =>
 
 const storage = computed(() => appStore.storage)
 
+/**
+ * 托盘驻留状态展示（service-residency §15.6 T-O）：单一真值是 Rust 守护线程
+ * 对账 explorer 的结论（appStore.trayHealth，host-link 周期刷新）。被拒态必须
+ * 把错误码与后果说全 —— 现场排障唯一线索。
+ */
+const trayHealthText = computed(() => {
+  const health = appStore.trayHealth
+  if (platform !== 'tauri') return '浏览器模式无托盘'
+  if (!health || !health.registered) return '验证中…'
+  if (health.state === 2) return `注册被拦截（错误码 ${health.denyCode}）：关闭窗口将直接退出`
+  return health.promoted ? '已驻留（图标钉在可见通知区）' : '已驻留（图标在 ^ 溢出区，可在任务栏设置固定）'
+})
+
 /** WeLink 卡片校验：选真实 CLI 但路径为空时禁用保存，避免存下一个必然失败的配置 */
 const welinkValid = ref(true)
 /** CodeHub 卡片校验：同款规则（选真实 CLI 但路径为空 → 拦截保存） */
@@ -232,6 +245,10 @@ async function migrateDir() {
             <span class="form__hint">{{
               platform === 'tauri' ? '开机静默驻留托盘（登记注册表，即开即生效）' : '仅桌面模式可用'
             }}</span>
+          </el-form-item>
+
+          <el-form-item label="托盘驻留">
+            <span class="form__hint">{{ trayHealthText }}</span>
           </el-form-item>
 
           <div class="hairline" />

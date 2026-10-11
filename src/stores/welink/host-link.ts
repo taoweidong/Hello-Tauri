@@ -11,9 +11,13 @@
 import { watch } from 'vue'
 
 import { bridge } from '@/api'
+import { useAppStore } from '@/stores/app'
 import { logger } from '@/utils/logger'
 import type { RuntimeStatus } from './aggregate'
 import type { useWelinkStore } from './index'
+
+/** 托盘健康度巡检间隔：Rust 守护线程结论的变化节奏是秒~十秒级，分钟级足够 */
+const TRAY_HEALTH_INTERVAL_MS = 60_000
 
 type WelinkStore = ReturnType<typeof useWelinkStore>
 
@@ -72,8 +76,19 @@ export function bindHostLink(store: WelinkStore): () => void {
     .onHostEvent('host://window-shown', () => {
       logger.info('界面已从系统托盘恢复')
       store.setPageVisible(true)
+      // 唤回是用户「看见界面」的时刻：托盘健康度若有变化（驻留期被拦截/恢复），
+      // 此刻刷新才能让告警/设置页状态与 Rust 守护线程结论对齐（T-O）
+      void useAppStore().refreshTrayHealth()
     })
     .then((unlisten) => (disposed ? unlisten() : unsubs.push(unlisten)))
+
+  // ④ 托盘健康度巡检（T-O）：tray-icon crate 静默吞 NIM_ADD 失败，「build 成功」
+  //    不等于「图标存在」——Rust 守护线程对账 explorer 的结论经 tray_health 上报，
+  //    本层只负责按节奏取回 appStore；state=2 的可见告警在 App.vue（一次性）。
+  const appStore = useAppStore()
+  void appStore.refreshTrayHealth()
+  const healthTimer = setInterval(() => void appStore.refreshTrayHealth(), TRAY_HEALTH_INTERVAL_MS)
+  unsubs.push(() => clearInterval(healthTimer))
 
   return () => {
     disposed = true

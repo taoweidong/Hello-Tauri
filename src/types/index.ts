@@ -213,3 +213,19 @@ export interface BasicOutcome {
   reason?: string
   detail?: string
 }
+
+/**
+ * 托盘健康度（service-residency §15.6：Rust 守护线程对账 explorer 的真实注册态）。
+ *
+ * 背景：tray-icon crate 静默吞掉 `Shell_NotifyIconW(NIM_ADD)` 失败，安全软件拦截时
+ * 「build 成功」不等于「图标存在」。本结构是前端告警/设置页展示的唯一真值。
+ */
+export interface TrayHealth {
+  /** 0=验证中（启动宽限期）1=explorer 已接纳图标 2=确认注册被拒 */
+  state: 0 | 1 | 2
+  registered: boolean
+  /** 是否已钉在任务栏可见通知区（Win11 默认收进「^」溢出区） */
+  promoted: boolean
+  /** 注册被拒时的 OS 错误码（5=ACCESS_DENIED，安全软件拦截的典型签名）；0=无/未探测 */
+  denyCode: number
+}

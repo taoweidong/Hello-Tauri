@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-import type { AppSettings, ProbeResult } from '@/types'
+import type { AppSettings, ProbeResult, TrayHealth } from '@/types'
 
 /**
  * app store 测试：配置初始化与落盘语义。
@@ -24,6 +24,11 @@ const { bridgeMock, storage } = vi.hoisted(() => ({
     autostartSet: vi.fn<(enabled: boolean) => Promise<ProbeResult<boolean>>>(async () => ({
       ok: false,
       reason: '测试桩不提供自启态',
+    })),
+    // 托盘健康度（service-residency T-O）：默认不可用（测试桩不模拟宿主对账）
+    trayHealth: vi.fn<() => Promise<ProbeResult<TrayHealth>>>(async () => ({
+      ok: false,
+      reason: '测试桩不提供托盘态',
     })),
     appInfo: vi.fn(async () => ({
       name: 'Hello-Tauri',
@@ -201,5 +206,30 @@ describe('app store · 开机自启开关（service-residency T-I）', () => {
     await expect(store.setAutostart(true)).resolves.toBe(true)
     expect(store.autostart).toBe(true)
     expect(bridgeMock.autostartSet).toHaveBeenCalledWith(true)
+  })
+})
+
+describe('app store：托盘健康度回显（service-residency T-O）', () => {
+  beforeEach(() => {
+    // 新 Pinia：pinia 按 store id 缓存实例，不重建会把上一个用例的 trayHealth 串进来
+    setActivePinia(createPinia())
+    bridgeMock.trayHealth.mockReset()
+    bridgeMock.trayHealth.mockResolvedValue({ ok: false, reason: '测试桩不提供托盘态' })
+  })
+
+  it('refreshTrayHealth：宿主 ok:true → 结论入 store（告警/设置页的唯一真值）', async () => {
+    bridgeMock.trayHealth.mockResolvedValue({
+      ok: true,
+      data: { state: 2, registered: false, promoted: false, denyCode: 5 },
+    })
+    const store = await freshStore()
+    await expect(store.refreshTrayHealth()).resolves.toMatchObject({ state: 2, denyCode: 5 })
+    expect(store.trayHealth?.registered).toBe(false)
+  })
+
+  it('refreshTrayHealth：宿主 ok:false（浏览器模式）→ 保持 null，不残留假状态', async () => {
+    const store = await freshStore()
+    await expect(store.refreshTrayHealth()).resolves.toBeNull()
+    expect(store.trayHealth).toBeNull()
   })
 })

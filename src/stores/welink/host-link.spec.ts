@@ -16,6 +16,8 @@ const { bridgeMock, loggerMock } = vi.hoisted(() => ({
   bridgeMock: {
     onHostEvent: vi.fn(),
     traySetStatus: vi.fn(),
+    // 托盘健康度（T-O）：默认不可用桩；host-link 装配即巡检一次
+    trayHealth: vi.fn(async () => ({ ok: false, reason: '测试桩不提供托盘态' })),
   },
   loggerMock: {
     info: vi.fn(),
@@ -26,6 +28,9 @@ const { bridgeMock, loggerMock } = vi.hoisted(() => ({
 
 vi.mock('@/api', () => ({ bridge: bridgeMock }))
 vi.mock('@/utils/logger', () => ({ logger: loggerMock }))
+
+// host-link 装配时经 useAppStore 巡检托盘健康度（T-O）：测试需激活 Pinia
+import { createPinia, setActivePinia } from 'pinia'
 
 import { bindHostLink } from './host-link'
 import type { RuntimeStatus } from './aggregate'
@@ -44,6 +49,7 @@ interface Harness {
 }
 
 function makeHarness(initialStatus: RuntimeStatus = 'stopped', running = false): Harness {
+  setActivePinia(createPinia())
   const status = ref<RuntimeStatus>(initialStatus)
   const stop = vi.fn()
   const start = vi.fn(async () => null)
@@ -149,6 +155,18 @@ describe('host-link：托盘动作', () => {
     harness.handlers.get('host://window-shown')?.()
 
     expect(harness.setPageVisible).toHaveBeenCalledWith(true)
+    dispose()
+  })
+
+  it('托盘健康度巡检（T-O）：装配即取一次，窗口唤回再取一次', async () => {
+    const harness = makeHarness()
+    const dispose = bindHostLink(harness.store)
+    await flushMicrotasks()
+    expect(bridgeMock.trayHealth).toHaveBeenCalledTimes(1)
+
+    harness.handlers.get('host://window-shown')?.()
+    await flushMicrotasks()
+    expect(bridgeMock.trayHealth).toHaveBeenCalledTimes(2)
     dispose()
   })
 })

@@ -22,6 +22,7 @@ import type {
   SysAdapter,
   SysDisk,
   SysOverview,
+  TrayHealth,
   VerifyOutcome,
 } from '@/types'
 import type { Bridge } from './types'
@@ -121,4 +122,6 @@ export const tauriBridge: Bridge = {
   traySetClosePolicy: (policy) => act(() => invoke<void>('tray_set_close_policy', { policy })),
   autostartGet: () => probe(() => invoke<boolean>('autostart_get')),
   autostartSet: (enabled) => probe(() => invoke<boolean>('autostart_set', { enabled })),
+  // 托盘健康度：Rust 侧只读原子量（守护线程对账结论），命令线程调用安全
+  trayHealth: () => probe(() => invoke<TrayHealth>('tray_health')),
 }

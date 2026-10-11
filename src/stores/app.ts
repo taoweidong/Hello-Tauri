@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 
 import { bridge } from '@/api'
-import type { AppInfo, AppSettings, StorageLayout } from '@/types'
+import type { AppInfo, AppSettings, StorageLayout, TrayHealth } from '@/types'
 import { logger } from '@/utils/logger'
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -28,6 +28,13 @@ export const useAppStore = defineStore('app', () => {
    * 不进 settings（避免与注册表双真值漂移），真值以 `bridge.autostartGet` 回显为准。
    */
   const autostart = ref(false)
+
+  /**
+   * 托盘健康度（service-residency §15.6 T-O）：Rust 守护线程对账 explorer 真实
+   * 注册态的结论。null = 尚未取到（浏览器模式恒 null）。state=2（确认被拒）时
+   * 界面必须显式告警：关窗将回退旧退出行为，且托盘菜单/唤回均不可用。
+   */
+  const trayHealth = ref<TrayHealth | null>(null)
 
   /** 存储位置降级提示：非空时界面需要显式告知用户 */
   const storageWarning = computed(() => (storage.value?.fallback ? storage.value.note : ''))
@@ -65,6 +72,16 @@ export const useAppStore = defineStore('app', () => {
   async function loadAutostart(): Promise<void> {
     const result = await bridge.autostartGet()
     if (result.ok) autostart.value = result.data === true
+  }
+
+  /**
+   * 刷新托盘健康度（host-link 周期调用 + 窗口唤回时调用）。
+   * 浏览器模式 bridge 诚实返回 ok:false → 保持 null，界面不展示不告警。
+   */
+  async function refreshTrayHealth(): Promise<TrayHealth | null> {
+    const result = await bridge.trayHealth()
+    if (result.ok) trayHealth.value = result.data
+    return trayHealth.value
   }
 
   /**
@@ -121,9 +138,12 @@ export const useAppStore = defineStore('app', () => {
     lastSavedAt,
     /** 开机自启开关（宿主注册表态，不随 config.json 持久化，T-I） */
     autostart,
+    /** 托盘健康度（Rust 守护线程对账结论；浏览器模式恒 null，T-O） */
+    trayHealth,
     load,
     save,
     reset,
     setAutostart,
+    refreshTrayHealth,
   }
 })

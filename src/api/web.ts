@@ -17,6 +17,7 @@ import type {
   SysAdapter,
   SysDisk,
   SysOverview,
+  TrayHealth,
   VerifyOutcome,
 } from '@/types'
 import type { Bridge, CloseBehavior, HostEventName } from './types'
@@ -262,5 +263,9 @@ export const webBridge: Bridge = {
   },
   async autostartSet(_enabled: boolean): Promise<ProbeResult<boolean>> {
     return { ok: false, reason: '浏览器模式不支持开机自启' }
+  },
+  async trayHealth(): Promise<ProbeResult<TrayHealth>> {
+    // 浏览器无托盘：诚实拒绝。前端据此不告警、设置页不展示（区别于桌面态的 state=0）
+    return { ok: false, reason: '浏览器模式无系统托盘' }
   },
 }

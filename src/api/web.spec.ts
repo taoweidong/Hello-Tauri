@@ -83,6 +83,10 @@ describe('webBridge 契约', () => {
     await expect(webBridge.autostartSet(true)).resolves.toMatchObject({ ok: false, reason: expect.any(String) })
   })
 
+  it('trayHealth 在浏览器模式诚实拒绝（前端据此不告警、不展示，T-O）', async () => {
+    await expect(webBridge.trayHealth()).resolves.toMatchObject({ ok: false, reason: expect.any(String) })
+  })
+
   // —— 更新通道（design-auto-update U-L：浏览器业务路径由 infra/update mock 承担，
   //    Bridge 侧诚实报错/折叠，两侧契约对称）——
 
