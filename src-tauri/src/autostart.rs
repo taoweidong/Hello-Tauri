@@ -45,7 +45,7 @@ pub fn autostart_get() -> Result<bool, String> {
             return Ok(false); // 键不存在 = 自启未登记（明确的关闭态，不是失败）
         }
         if opened != ERROR_SUCCESS {
-            return Err(format!("打开 Run 注册表项失败（os error {opened}）"));
+            return Err(format!("打开 Run 注册表项失败（os error {opened}；可能被安全软件「启动项防护」拦截，请放行本程序后重试）"));
         }
         let mut kind = 0u32;
         let mut buffer = vec![0u16; 1024];
@@ -89,7 +89,7 @@ pub fn autostart_set(enabled: bool) -> Result<bool, String> {
             let mut hkey: HKEY = std::ptr::null_mut();
             let opened = RegOpenKeyExW(HKEY_CURRENT_USER, key.as_ptr(), 0, KEY_SET_VALUE, &mut hkey);
             if opened != ERROR_SUCCESS {
-                return Err(format!("打开 Run 注册表项失败（os error {opened}）"));
+                return Err(format!("打开 Run 注册表项失败（os error {opened}；可能被安全软件「启动项防护」拦截，请放行本程序后重试）"));
             }
             let code = RegSetValueExW(
                 hkey,

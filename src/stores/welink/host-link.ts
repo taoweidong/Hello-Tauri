@@ -60,15 +60,20 @@ export function bindHostLink(store: WelinkStore): () => void {
     })
     .then((unlisten) => (disposed ? unlisten() : unsubs.push(unlisten)))
 
-  // ③ 窗口唤回兜底：视口可见性上报链路只在 WeLink 页激活时绑定（bindPageEffects），
-  //    驻留期从别的页面唤回时 document.visibilityState 可能仍是缓存的 hidden —— 以宿主
-  //    事件为准强制复位，避免恢复后仍按 ×3 降频跑（poller.setVisible 幂等，重复设置无害）。
+  // ③ 窗口显隐联动：
+  //    - hidden：落盘日志 —— 驻留期无 UI，「何时收进托盘」是事后诊断的锚点（§13.7）。
+  //    - shown：视口可见性上报链路只在 WeLink 页激活时绑定（bindPageEffects），
+  //      驻留期从别的页面唤回时 document.visibilityState 可能仍是缓存的 hidden ——
+  //      以宿主事件为准强制复位，避免恢复后仍按 ×3 降频跑（poller.setVisible 幂等）。
   void bridge
-    .onHostEvent('host://window-shown', () => store.setPageVisible(true))
+    .onHostEvent('host://window-hidden', () => logger.info('界面已收进系统托盘，服务继续后台运行'))
     .then((unlisten) => (disposed ? unlisten() : unsubs.push(unlisten)))
-
-  // host://window-hidden 无需处理：页面可见性降载由 bindPageEffects 的
-  // visibilitychange 负责（occlusion 禁用下隐藏不再触发 hidden 分支，T-G 对策 1）。
+  void bridge
+    .onHostEvent('host://window-shown', () => {
+      logger.info('界面已从系统托盘恢复')
+      store.setPageVisible(true)
+    })
+    .then((unlisten) => (disposed ? unlisten() : unsubs.push(unlisten)))
 
   return () => {
     disposed = true

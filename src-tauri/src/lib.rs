@@ -84,6 +84,18 @@ pub fn run() {
     // 等待旧进程真正退出，先于单实例插件抢互斥量（详见 update.rs prune_leftovers）。
     update::prune_leftovers();
 
+    // 二次实例唤回兜底（实机修复 2026-10-11）：single-instance 插件的 WM_COPYDATA
+    // 通道会被部分安全软件静默拦截，导致「驻留后再次双击 exe 无反应」。这里在
+    // Builder 装配前用命名互斥量自检：已有首实例 → 直接 ShowWindow 唤回其主窗后
+    // 退出自身（详见 tray.rs restore_existing_instance）。插件通道保留为第二道防线。
+    if tray::restore_existing_instance() {
+        std::process::exit(0);
+    }
+
+    // Win10/11 通知归属：注册进程级 AUMID。不注册时 Shell_NotifyIcon 气球会被系统
+    // 静默丢弃（「首次收进托盘」提示不可见，2026-10-11 实机勘误，详见 shell.rs）。
+    shell::ensure_notification_identity();
+
     // T-I：开机自启走 --minimized 静默入托盘（Run 项由 autostart_set 写入，
     // 详见 autostart.rs）。
     let start_minimized = std::env::args().any(|arg| arg == "--minimized");
@@ -102,6 +114,9 @@ pub fn run() {
             // 托盘必须在 setup 建好：早于任何一次用户关窗，拦截语义才完整。
             // 建不出来即启动失败（宁可早暴露，不做静默降级）。
             tray::build(&handle)?;
+            // 唤回监视线程：等待二次实例的命名事件（安全软件拦截 WM_COPYDATA/
+            // 跨进程 ShowWindow 时的主唤回通道，详见 tray.rs spawn_wake_watcher）。
+            tray::spawn_wake_watcher(handle.clone());
             if start_minimized {
                 if let Some(window) = app.get_webview_window(tray::MAIN_WINDOW) {
                     let _ = window.hide(); // 已知小代价：一帧闪现（config visible:true）

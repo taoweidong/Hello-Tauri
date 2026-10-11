@@ -1054,3 +1054,48 @@ KEY_SET_VALUE` 恒返回 ACCESS_DENIED）。已用对照实验钉死结论：相
 应用侧处置符合设计（T-I「永不假设成功」）：命令层返回具体错误（含 os error），Bridge 折叠为
 `ok:false`，设置页回滚开关并落盘日志。residency-check 在该环境下验证「诚实报错 + 注册表无
 残留」后放行该项并显著标注 ⚠，A-10 完整回路需在无此拦截的机器（或安全软件加白/弹窗放行）复核。
+
+### 15.5 第二轮实机回归（2026-10-11）：「点 X 看似直接退出」的定位与修复
+
+现场反馈「右上角关闭后直接退出，没有在右下角驻留」。逐项排查（进程枚举 + EnumWindows +
+运行日志）确认**关窗拦截与托盘注册本身工作正常**：用户测试的进程仍存活（PID 与 debug.log
+吻合），`class="Tauri Window" visible=False`（主窗隐藏未销毁）、`class="tray_icon_app"`
+（托盘图标已注册）均在。真实缺口是三个「可发现性/唤回」问题：
+
+1. **托盘图标默认进 Win11 溢出区**：新注册的第三方图标默认收在任务栏 `^` 溢出区，右下角
+   不直接可见（系统行为，无公开 API 强制钉住）。→ 首次入托盘气泡文案补「图标可能收在 ^
+   溢出区」指引；用户可在「设置 → 个性化 → 任务栏 → 其他系统托盘图标」将其钉住。
+2. **气球提示被静默丢弃（真缺陷，修正 shell.rs 头注释假设）**：Win10/11 上
+   `Shell_NotifyIconW` 的 NIF_INFO 气球对**未注册 AUMID** 的进程不显示（Win11 26300 实测，
+   原「不要求 AUMID」注释不成立）。→ 启动期注册进程级 AUMID
+   （`shell::ensure_notification_identity()` → `SetCurrentProcessExplicitAppUserModelID`，
+   值 = tauri.conf.json identifier），气球恢复为 toast。
+3. **二次双击 exe 无反应（真缺陷，T-D 最终落为「互斥量 + 命名事件」通道）**：
+   single-instance 插件靠 WM_COPYDATA 跨进程唤回，实机被安全软件静默拦截（与 §15.4 的
+   Run 键拦截、数据根 `D:\TangYuan 拒绝访问` 同源）。第一版修复曾假设「跨进程
+   EnumWindows + ShowWindow 不经消息注入、HIPS 不拦」——**E2E 实测该假设同样不成立**
+   （第二实例退出但首实例窗口未被显示，OpenProcess/ShowWindow 路径被拦）。最终方案
+   `tray::restore_existing_instance()` + `tray::spawn_wake_watcher()`：
+   - 首实例启动早期（Builder 装配前）创建命名互斥量 `Local\com.taowd.hello-tauri-instance`
+     与**自动复位命名事件** `Local\com.taowd.hello-tauri-wake`，setup 内起常驻线程
+     `WaitForSingleObject` 等待（内核等待零 CPU），收到信号经 `run_on_main_thread`
+     调 `show_main` 显示主窗；
+   - 二次实例检出互斥量已存在 → `OpenEventW + SetEvent`（普通内核对象操作，实测不被拦）
+     → `exit(0)`；EnumWindows+ShowWindow 保留为备用通道（对已显示窗口幂等无害），
+     插件 WM_COPYDATA 保留为最后防线；
+   - windows-sys 仅扩 `Win32_System_Threading` feature，零新增 crate。
+4. **可观测性补强**：`host-link.ts` 对 `host://window-hidden` / `host://window-shown`
+   落盘日志（驻留期无 UI，日志是事后诊断唯一锚点，§13.7 口径）；唤回监视线程命中时
+   经 `logging::append_line` 落「收到二次实例唤回请求」；autostart 的 os error 5
+   错误文案补「可能被安全软件启动项防护拦截」提示。
+
+**E2E 复验结果（2026-10-11 21:36，Win11 26300 + 联想电脑管家开启拦截，打包产物
+2129 版，PowerShell 驱动 WM_CLOSE 模拟点 X）**：① 点 X → 进程存活、窗口隐藏；
+② 二次双击 → 第二实例退出、首实例窗口唤回（instanceCount=1、visible=True）；
+③ 再次点 X → 仍驻留。日志锚点齐全：「界面已收进系统托盘」→「收到二次实例唤回
+请求，主窗口已恢复」→「界面已从系统托盘恢复」。Rust 28 单测、`npm run check`
+1292 用例、`npm run pack` PE 单文件校验全绿。A-2 的「toast 可见」为人工目测项，
+待现场复核（AUMID 注册后按 Win10/11 语义应恢复显示）。
+
+**测试注意事项（踩坑记录）**：E2E 前必须杀净所有历史实例——旧版 exe 的残留进程持有
+互斥量但无事件通道，会让新版第二实例的唤回静默失效，表现为「修复无效」的假阴性。

@@ -68,6 +68,10 @@ windows-sys = { version = "0.61", features = [
     "Win32_Networking_WinSock",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
+    # 二次实例唤回兜底（tray.rs restore_existing_instance，实机修复 2026-10-11）：
+    # CreateMutexW / OpenProcess / QueryFullProcessImageNameW / GetCurrentProcessId。
+    # 同 crate 只扩 feature，不引入新依赖（内网缓存约束，同上方注释纪律）。
+    "Win32_System_Threading",
     "Win32_Graphics_Gdi",
     "Win32_System_DataExchange",
     "Win32_System_Ole",

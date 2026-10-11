@@ -2,8 +2,12 @@
 //! 默认程序打开 / 剪贴板文本读写 / 系统通知。
 //!
 //! 通知实现为「托盘气球提示」（Shell_NotifyIconW + NIF_INFO）：Win10+ 自动把
-//! 气球提示转为 toast 通知，且不要求 AUMID/开始菜单快捷方式，对免安装单文件
-//! exe 比通知中心 WinRT API 更可靠。剪贴板/通知同理不引第三方 crate
+//! 气球提示转为 toast 通知，对免安装单文件 exe 比通知中心 WinRT API 更可靠。
+//! 【2026-10-11 实机勘误】早先「不要求 AUMID/开始菜单快捷方式」的假设**不成立**：
+//! Win11 26300 实测，未注册 AUMID 的进程发出的 NIF_INFO 气球被系统**静默丢弃**
+//! （服务常驻「首次收进托盘」提示不可见，用户误以为程序退出）。现由启动期的
+//! `ensure_notification_identity()` 注册进程级 AUMID 后气球照常转 toast。
+//! 剪贴板/通知同理不引第三方 crate
 //! （arboard/notify-rust 不在内网 crate 缓存清单，会破坏打包不联网约束）。
 //!
 //! [WIN-ASSUME] 剪贴板属主为空（OpenClipboard(null)）：写入的数据在应用退出后
@@ -330,6 +334,27 @@ pub(crate) fn notify_blocking(title: &str, body: &str) -> Result<(), String> {
 pub(crate) fn notify_blocking(_title: &str, _body: &str) -> Result<(), String> {
     Err("当前平台不支持系统通知".into())
 }
+
+/// 注册进程级 AppUserModelID（service-residency 实机修复 2026-10-11）。
+///
+/// Win10/11 上 Shell_NotifyIconW 的 NIF_INFO 气球对**未注册 AUMID** 的进程会被
+/// 静默丢弃（Win11 26300 实测：首次收进托盘的提示不可见）。注册后气球正常转
+/// toast，通知归属显示为本 identifier。幂等、失败无副作用（只影响通知展示）。
+#[cfg(windows)]
+pub fn ensure_notification_identity() {
+    use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+
+    // 与 tauri.conf.json 的 identifier 逐字一致（toast 归属的天然锚点）。
+    // windows-sys 的 PCWSTR 是 *const u16 别名（非 windows crate 的包装结构体），
+    // 直接传 UTF-16 裸指针。
+    let app_id = to_wide("com.taowd.hello-tauri");
+    unsafe {
+        let _ = SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr());
+    }
+}
+
+#[cfg(not(windows))]
+pub fn ensure_notification_identity() {}
 
 #[cfg(test)]
 mod tests {
