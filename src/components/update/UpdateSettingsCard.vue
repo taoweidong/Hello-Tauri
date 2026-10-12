@@ -9,7 +9,7 @@
  * 失败呈现口径（§4.3）：失败不弹窗打断，状态行与告警条呈现原因；probe 失败
  * （exe 目录不可写）时提示 staging 保留路径，用户可从数据目录手动拷贝。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { IconRefresh, IconDownload, IconFolder } from '@/components/icons'
 
 import { platform } from '@/api'
@@ -54,6 +54,12 @@ function flushPush() {
   lastPushedJson = JSON.stringify(normalized)
   emit('update:modelValue', normalized)
 }
+
+// 与其余设置卡同款：卸载时清掉未决的防抖定时器，否则组件已卸载仍会 push 一次
+// update:modelValue（把已废弃的草稿写回 app store 并落盘）
+onBeforeUnmount(() => {
+  if (pushTimer) clearTimeout(pushTimer)
+})
 
 /** 端点草稿的即时校验（不拦保存——更新是低风险只读拉取，但给出可见提示） */
 const endpointProblem = computed(() =>

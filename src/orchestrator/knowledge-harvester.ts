@@ -325,9 +325,21 @@ export function createKnowledgeHarvester(options: HarvesterOptions): KnowledgeHa
 
   // —— 问答归档（K-I：追加语义，逐条推进水位，中断零丢失） ——
 
+  /**
+   * 推进问答归档水位到「刚归档完的那一条」。
+   *
+   * 两列一起写：`finished_at` 只有秒级精度，只推它会在同秒并列时丢条目
+   * （详见 `SEDIMENT_KEYS.qaFinishedId`）。
+   */
+  async function advanceQaWatermark(record: { finishedAt: string; pk: number }): Promise<void> {
+    await sediment.setState(SEDIMENT_KEYS.qaFinishedAt, record.finishedAt)
+    await sediment.setState(SEDIMENT_KEYS.qaFinishedId, String(record.pk))
+  }
+
   async function archiveQaRound(): Promise<number> {
     const watermark = (await sediment.getState(SEDIMENT_KEYS.qaFinishedAt)) ?? ''
-    const records = await sediment.listSentQaSince(watermark, QA_PER_ROUND)
+    const watermarkId = Number((await sediment.getState(SEDIMENT_KEYS.qaFinishedId)) ?? '0') || 0
+    const records = await sediment.listSentQaSince(watermark, watermarkId, QA_PER_ROUND)
     if (!records.length) return 0
     const known = new Set((await knowledge.listDocs()).map((doc) => doc.file))
     let archived = 0
@@ -344,7 +356,7 @@ export function createKnowledgeHarvester(options: HarvesterOptions): KnowledgeHa
         const current = await knowledge.readDoc(file)
         if (current !== null && current.length > MAX_DOC_CHARS) {
           // 文档超限（K-J）：跳过该条并推进水位，避免无限膨胀；下月自动分片
-          await sediment.setState(SEDIMENT_KEYS.qaFinishedAt, record.finishedAt)
+          await advanceQaWatermark(record)
           continue
         }
         await knowledge.appendDoc({ file, content: section })
@@ -352,7 +364,7 @@ export function createKnowledgeHarvester(options: HarvesterOptions): KnowledgeHa
         await knowledge.saveDoc({ file, title, content: `# ${title}\n\n${section}`, source: 'qa' })
         known.add(file)
       }
-      await sediment.setState(SEDIMENT_KEYS.qaFinishedAt, record.finishedAt)
+      await advanceQaWatermark(record)
       archived += 1
     }
     return archived

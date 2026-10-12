@@ -155,4 +155,19 @@ const router = createRouter({
   routes,
 })
 
+/** 文档标题前缀（窗口标题带应用名，便于任务栏/Alt-Tab 区分） */
+export const APP_TITLE_SUFFIX = 'Hello-Tauri'
+
+/**
+ * 把 `meta.title` 同步到文档标题。
+ *
+ * 此前 `meta.title` 只喂侧栏与面包屑，窗口标题永远是 `index.html` 里的静态值 ——
+ * 切到「配置」页后任务栏仍写着老标题，多窗口/最小化场景下分不清是哪个页。
+ * 现在标题也由路由表派生，仍然是单一真值。
+ */
+router.afterEach((to) => {
+  const title = typeof to.meta?.title === 'string' ? to.meta.title : ''
+  document.title = title ? `${title} · ${APP_TITLE_SUFFIX}` : APP_TITLE_SUFFIX
+})
+
 export default router

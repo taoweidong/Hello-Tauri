@@ -252,14 +252,6 @@ const previewResult = computed(() => {
   max-width: 560px;
 }
 
-.wc__patterns {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-  max-width: 560px;
-}
-
 .wc__preview {
   margin-top: 6px;
   padding: 10px 12px;

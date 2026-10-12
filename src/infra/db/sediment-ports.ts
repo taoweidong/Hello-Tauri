@@ -94,8 +94,17 @@ export const SEDIMENT_KEYS = {
   messagePk: 'message_pk',
   /** 已提取消费的最大公告 pk */
   announcementPk: 'announcement_pk',
-  /** 已归档消费的最大问答 finished_at（ISO 字符串比较） */
+  /** 已归档消费的最大问答 finished_at（复合水位的时间部分，见 `qaFinishedId`） */
   qaFinishedAt: 'qa_finished_at',
+  /**
+   * 已归档消费的最大问答 id（复合水位的主键部分）。
+   *
+   * 为什么水位必须是 `(finished_at, id)` 两列：`finished_at` 只有**秒级**精度，
+   * 同一秒内完成的多条任务在「时间严格大于」游标下无法区分 —— 批次在第 N 条
+   * 截断时，与它同秒的第 N+1 条会在下一轮被 `> 水位` 永久排除（丢数据）。
+   * 补上 id 后「同秒但更大的 id」仍会被扫到，水位才真正表达「消费到哪一条」。
+   */
+  qaFinishedId: 'qa_finished_id',
   /** 提取连续失败计数（成功归零；≥3 跳过本轮并告警） */
   failStreak: 'extract_fail_streak',
 } as const
@@ -136,6 +145,14 @@ export interface SedimentRepository {
   // —— 原料扫描（对 welink 表**只读**；P7：恒带 limit） ——
   /** 白名单群会话的入方向消息增量（pk 严格大于 afterPk，升序返回；白名单为空返回空） */
   listInMessagesSince(afterPk: number, convIds: string[], limit: number): Promise<WelinkMessage[]>
-  /** 已答复任务的问答对增量（finished_at 严格大于 after；rating=up 优先、时间升序） */
-  listSentQaSince(afterFinishedAt: string, limit: number): Promise<SentQaRecord[]>
+  /**
+   * 已答复任务的问答对增量，**按 `(finished_at, id)` 复合游标**升序返回（水位推进依据，P7）。
+   *
+   * 返回 `finished_at > afterFinishedAt`、`或 finished_at 相等但 id > afterId` 的记录 ——
+   * 即「游标之后的一切」，同秒并列的记录不会被游标吃掉（见 `SEDIMENT_KEYS.qaFinishedId`）。
+   *
+   * 排序必须与该游标**同序且单调**，否则「推进到的最后一条」不代表「已消费前缀」，
+   * 水位会漏掉夹在中间的记录或把已消费的重新扫回来。
+   */
+  listSentQaSince(afterFinishedAt: string, afterId: number, limit: number): Promise<SentQaRecord[]>
 }

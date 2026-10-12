@@ -288,16 +288,20 @@ export const sqlSedimentRepository: SedimentRepository = {
     return rows.map(messageFromRow)
   },
 
-  async listSentQaSince(afterFinishedAt, limit) {
+  async listSentQaSince(afterFinishedAt, afterId, limit) {
+    // 复合游标 + 单调排序：两列游标只有在「排序与游标同序」时才等价于「已消费前缀」。
+    // 旧实现按 `(rating='up') DESC` 优先排序，与 finished_at 水位不同序 ——
+    // 既会漏（同秒并列被吃掉）也会重（up 记录的 finished_at 大于最终水位时被重复扫回）。
     const rows = await bridge.dbSelect(
       `SELECT j.id, j.target_id, j.skill_id, j.skill_name, j.skill_source, j.rating, j.finished_at,
               COALESCE(m.content, '') AS question, j.draft AS answer
          FROM welink_reply_jobs j
          LEFT JOIN welink_messages m ON m.id = j.trigger_msg_pk
-        WHERE j.status = 'sent' AND j.finished_at IS NOT NULL AND j.finished_at > ?1
-        ORDER BY (j.rating = 'up') DESC, j.finished_at ASC, j.id ASC
-        LIMIT ?2`,
-      [afterFinishedAt, limit],
+        WHERE j.status = 'sent' AND j.finished_at IS NOT NULL
+          AND (j.finished_at > ?1 OR (j.finished_at = ?1 AND j.id > ?2))
+        ORDER BY j.finished_at ASC, j.id ASC
+        LIMIT ?3`,
+      [afterFinishedAt, afterId, limit],
     )
     return rows.map((row) => ({
       pk: num(row.id),

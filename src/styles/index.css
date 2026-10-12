@@ -46,6 +46,24 @@
   --ht-radius: 10px;
   --ht-radius-sm: 7px;
 
+  /**
+   * 边框色别名（会跟随主题）。
+   *
+   * 此前多处在写 `var(--ht-border, #dcdfe6)` —— 但 `--ht-border` 从未定义，
+   * 于是恒走 fallback `#dcdfe6`（亮色 EP 默认边框），暗色模式下边框不跟随主题、
+   * 与全局 `--ht-line` 割裂。这里补上定义，让这些地方自动回到单一真值。
+   */
+  --ht-border: var(--ht-line);
+
+  /**
+   * 等宽字体栈的唯一真值。
+   *
+   * 此前存在三套互不一致的写法（`--ht-font-mono`、`--ht-mono`、`.mono` 内联
+   * `font-family`），且前两个变量同样**从未定义**，恒走调用处的 fallback。
+   */
+  --ht-font-mono: Consolas, 'Cascadia Mono', 'SFMono-Regular', Menlo, Monaco, 'Courier New', monospace;
+  --ht-mono: var(--ht-font-mono);
+
   /* —— Element Plus 覆写：主色阶梯 —— */
   --el-color-primary: var(--ht-primary);
   --el-color-primary-light-3: #7c87b9;
@@ -355,9 +373,9 @@ body {
   background: var(--ht-cat-4);
 }
 
-/* 代码/路径字体 */
+/* 代码/路径字体（字体栈与 --ht-font-mono 同源，避免第三套写法） */
 .mono {
-  font-family: Consolas, 'Cascadia Mono', Monaco, 'Courier New', monospace;
+  font-family: var(--ht-font-mono);
   font-size: 12px;
   color: var(--ht-text-2);
   word-break: break-all;
@@ -423,6 +441,27 @@ body {
   background: var(--ht-surface-2);
   border-radius: 6px;
   animation: ht-pulse 1.6s ease-in-out infinite;
+}
+
+/* ============ 键盘焦点可见性（全局兜底） ============ */
+
+/**
+ * 全项目有 50+ 个原生 `<button>`（`.act` / `.link` / `.chip` / `.queue__row` /
+ * `.jobcard__*` / `.repo__*` / `.wiz__item` / `.thread` / `.tjob` / `.hit` …），
+ * 但只有 8 条 `:focus-visible` 规则 —— 键盘用户 Tab 过去看不到焦点在哪。
+ * 这里做一次全局兜底：原生可交互元素统一给出焦点环，个别组件需要不同形状时
+ * 在自己作用域内覆盖即可（scoped 规则优先级足够）。
+ */
+button:focus-visible,
+[role='button']:focus-visible,
+a[href]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--ht-primary);
+  outline-offset: 2px;
+  border-radius: var(--ht-radius-sm);
 }
 
 @media (prefers-reduced-motion: reduce) {

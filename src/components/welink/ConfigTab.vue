@@ -427,7 +427,8 @@ onMounted(load)
       </p>
 
       <div class="sync__hint-row">
-        <span class="sync__hint">导入的新会话默认**不监控、不回复**；勾选下面「立即监控」的会直接开启拉取。</span>
+        <!-- 纯文本渲染：不要用 Markdown 星号，否则用户直接看到 ** 字符 -->
+        <span class="sync__hint">导入的新会话默认「不监控、不回复」；勾选下面「立即监控」的会直接开启拉取。</span>
         <span class="spacer" />
         <el-checkbox
           :model-value="syncDialog.watchIds.length === syncDialog.fresh.length && syncDialog.fresh.length > 0"

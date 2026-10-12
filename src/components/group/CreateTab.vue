@@ -134,7 +134,6 @@ function clearForm() {
       :closable="false"
       show-icon
       title="还没有建群模板"
-      description="可不选模板直接填写下方信息；常用群建议先建模板，之后一键带入。"
     >
       <template #default>
         <div class="create__empty-actions">

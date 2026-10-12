@@ -213,11 +213,14 @@ export const memorySedimentRepository: SedimentRepository = {
     return messages
   },
 
-  async listSentQaSince(afterFinishedAt, limit) {
+  async listSentQaSince(afterFinishedAt, afterId, limit) {
     const { jobs, messages } = memoryRawMaterials()
     const rows: SentQaRecord[] = []
     for (const job of jobs) {
-      if (job.status !== 'sent' || !job.finishedAt || job.finishedAt <= afterFinishedAt) continue
+      if (job.status !== 'sent' || !job.finishedAt) continue
+      // 复合游标（与 SQL 实现同口径）：同秒并列的记录靠 id 区分，不能被吃掉
+      if (job.finishedAt < afterFinishedAt) continue
+      if (job.finishedAt === afterFinishedAt && job.pk <= afterId) continue
       const trigger = messages.find((message) => message.pk === job.triggerMsgPk)
       rows.push({
         pk: job.pk,
@@ -231,10 +234,8 @@ export const memorySedimentRepository: SedimentRepository = {
         finishedAt: job.finishedAt,
       })
     }
+    // 必须与复合游标同序且单调（见 sediment-ports 的契约注释）
     rows.sort((a, b) => {
-      const upA = a.rating === 'up' ? 1 : 0
-      const upB = b.rating === 'up' ? 1 : 0
-      if (upA !== upB) return upB - upA
       if (a.finishedAt !== b.finishedAt) return a.finishedAt.localeCompare(b.finishedAt)
       return a.pk - b.pk
     })

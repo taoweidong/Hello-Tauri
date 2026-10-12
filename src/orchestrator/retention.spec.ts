@@ -266,6 +266,53 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
     expect(harness.messageCalls.length).toBeGreaterThanOrEqual(2)
   })
 
+  it('stop 后不再续排：即便清理正在飞，其 finally 也不得把链条接回来（静默复活回归）', async () => {
+    // 反证过的回归闸：修复前只要「stop 发生在某一轮清理的进行中」，
+    // 该轮末尾的 .finally(() => schedule(intervalMs)) 会无条件排下一轮，
+    // 于是「已停止」只是表象——running() 为假、timer 已清，下一轮却照删不误。
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let purgeCalls = 0
+    const slowRepo = {
+      async purgeMessagesBefore() {
+        purgeCalls += 1
+        await gate
+        return 0
+      },
+      async purgeAgentLogsBefore() {
+        return 0
+      },
+    } as unknown as WelinkRepository
+
+    const retention = createRetention({
+      repo: slowRepo,
+      timers: scheduler.timers,
+      now: () => FIXED_NOW,
+      firstDelayMs: 100,
+      intervalMs: 1000,
+    })
+
+    retention.start()
+    await scheduler.advance(150)
+    expect(purgeCalls).toBe(1) // 已进入在飞轮次（此时 timer 为 null，只靠 timer 判不出在跑）
+
+    retention.stop()
+    expect(scheduler.queued).toBe(0)
+
+    release()
+    await scheduler.advance(0) // 让在飞轮次的 finally 跑完
+
+    // 关键断言：在飞轮次收尾后不得复活出新的定时器
+    expect(scheduler.queued).toBe(0)
+    expect(retention.running()).toBe(false)
+
+    // 再推足够长的时间，也不该有任何新的删除
+    await scheduler.advance(10000)
+    expect(purgeCalls).toBe(1)
+  })
+
   it('dispose 是终态：dispose 后 start 不再生效（与 stop 的语义区别）', () => {
     harness.messageBatches = [0]
     harness.logBatches = [0]

@@ -34,9 +34,10 @@ defineProps<{ state: CodeHubMrState }>()
   color: var(--ht-primary-strong);
 }
 
+/* 语义色走 EP 变量而非字面值：字面 rgba 在暗色主题下不跟随，对比度不足 */
 .mr-state--merged {
-  background: rgba(34, 160, 93, 0.12);
-  color: #1d7c48;
+  background: var(--el-color-success-light-9);
+  color: var(--el-color-success);
 }
 
 /* closed 用基类的中性配色，不再单独写一条 —— 三态里只有它无强调 */

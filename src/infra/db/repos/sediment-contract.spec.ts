@@ -404,8 +404,10 @@ describe('sediment 仓储双实现契约（SQL vs memory）', () => {
     out.msgScanEmptyWhitelist = await repo.listInMessagesSince(0, [], 100)
     out.msgScanAfterWatermark = await repo.listInMessagesSince(Math.max(...seed.msgPks), ['g-door'], 100)
 
-    out.qaScan = (await repo.listSentQaSince('', 10)).map(normQa)
-    out.qaScanAfterWatermark = await repo.listSentQaSince('2026-10-06 10:00:00', 10)
+    out.qaScan = (await repo.listSentQaSince('', 0, 10)).map(normQa)
+    // 复合水位（时间 + id）：只推进时间会把「同秒并列」的那条永久排除（旧实现的丢数据口子）
+    out.qaScanAtWatermarkZeroId = (await repo.listSentQaSince('2026-10-06 10:00:00', 0, 10)).map(normQa)
+    out.qaScanAfterWatermark = await repo.listSentQaSince('2026-10-06 10:00:00', seed.jobUpPk, 10)
     return out
   }
 
@@ -415,7 +417,7 @@ describe('sediment 仓储双实现契约（SQL vs memory）', () => {
     expect(memOut).toEqual(sqlOut)
   })
 
-  it('关键语义抽查：公告幂等、评审单向、up 评优先、水位推进', async () => {
+  it('关键语义抽查：公告幂等、评审单向、复合水位推进（同秒不丢）', async () => {
     const out = await runScenario(sqlSedimentRepository, sqlWelinkRepository)
     // 正例护栏：原料扫描确实扫到了东西（防止双实现同错导致对照假绿）
     expect(out.msgScan).toHaveLength(2)
@@ -432,9 +434,12 @@ describe('sediment 仓储双实现契约（SQL vs memory）', () => {
     expect(out.approveFirst).toBe(true)
     expect(out.approveAgain).toBe(false)
     expect(out.rejectAgain).toBe(false)
-    // up 评优先于时间序（10:00 up 排在 09:30 无评之前）
-    expect((out.qaScan as SentQaRecord[]).map((row) => row.rating)).toEqual(['up', null])
-    // 水位推进后增量扫描为空
+    // 排序必须与 (finished_at, id) 复合游标同序：09:30 无评在前，10:00 up 在后。
+    // （旧实现按 rating=up 优先排序，与水位不同序 —— 既漏又重，已修）
+    expect((out.qaScan as SentQaRecord[]).map((row) => row.rating)).toEqual([null, 'up'])
+    // 同秒并列：水位只推到 ('2026-10-06 10:00:00', 0) 时，该秒那条仍要被扫到
+    expect(out.qaScanAtWatermarkZeroId).toHaveLength(1)
+    // 水位推进到「已消费的那一条」后增量扫描为空
     expect(out.msgScanAfterWatermark).toHaveLength(0)
     expect(out.qaScanAfterWatermark).toHaveLength(0)
   })

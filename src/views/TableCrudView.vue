@@ -236,9 +236,12 @@ function onPageSizeChange(size: number) {
       </header>
 
       <!-- 表格 -->
+      <!-- v-loading：store 早已暴露 busy，此前未绑定 —— 恢复示例/批量删除/翻页期间界面零反馈 -->
       <el-table
+        v-loading="tableStore.busy"
         :data="tableStore.paged"
         row-key="id"
+        size="small"
         :row-class-name="dimInactiveRow"
         @selection-change="onSelectionChange"
       >

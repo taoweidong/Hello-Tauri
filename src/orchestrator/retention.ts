@@ -93,6 +93,17 @@ export function createRetention(options: RetentionOptions): Retention {
 
   let timer: unknown = null
   let disposed = false
+  /**
+   * 自动链是否在跑（`start()` 置真、`stop()`/`dispose()` 置假）。
+   *
+   * 为什么必须有这一位：`stop()` 只清了定时器，但**已在飞的那一轮**的
+   * `.finally(() => schedule(intervalMs))` 仍会无条件续排下一轮 —— 于是
+   * 「关了总开关，清理链却自己复活」。`stop()` 后 timer 被清、`running()` 为假、
+   * 界面上也看不出来，下一轮却照删不误：这是**静默**的语义违约（文件头写的是
+   * 「已在跑的清理让其自然结束且不再续排」）。判定只能靠显式状态位，
+   * 不能靠「timer 是否为 null」推断（在飞轮次期间 timer 本就是 null）。
+   */
+  let chaining = false
   let inFlight: Promise<RetentionReport> | null = null
   let report: RetentionReport | null = null
 
@@ -156,7 +167,7 @@ export function createRetention(options: RetentionOptions): Retention {
   }
 
   function schedule(delayMs: number) {
-    if (disposed) return
+    if (disposed || !chaining) return
     timer = timers.set(() => {
       timer = null
       void runOnce()
@@ -172,8 +183,11 @@ export function createRetention(options: RetentionOptions): Retention {
 
   return {
     start() {
-      if (disposed) return
-      if (timer !== null || inFlight) return
+      if (disposed || chaining) return
+      chaining = true
+      // 在飞的轮次不必再排：它自己的 finally 会续排（此时 chaining 已为真）。
+      // 若这里也排一个，两条链会同时存在并互相覆盖 timer 句柄。
+      if (inFlight) return
       schedule(firstDelayMs)
     },
 
@@ -184,6 +198,10 @@ export function createRetention(options: RetentionOptions): Retention {
       // 导致 `runtime.stop()` 一次之后本进程内再也不会清理，且无任何用户可见信号
       // —— 恰好废掉本模块存在的唯一理由（见文件头「为什么必须有这一层」）。
       // 永久销毁请用 `dispose()`。
+      //
+      // 置 `chaining = false` 是本轮修复的关键：只清定时器挡不住在飞轮次末尾的
+      // `finally → schedule()`，那样「已停止」只是表象（见 `chaining` 声明处注释）。
+      chaining = false
       if (timer !== null) {
         timers.clear(timer)
         timer = null
@@ -199,6 +217,7 @@ export function createRetention(options: RetentionOptions): Retention {
      */
     dispose() {
       disposed = true
+      chaining = false
       if (timer !== null) {
         timers.clear(timer)
         timer = null
@@ -206,7 +225,7 @@ export function createRetention(options: RetentionOptions): Retention {
     },
 
     running() {
-      return !disposed && timer !== null
+      return !disposed && chaining && timer !== null
     },
 
     runOnce,

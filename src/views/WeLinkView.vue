@@ -13,6 +13,7 @@
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { logger } from '@/utils/logger'
 
 import { IconActivity } from '@/components/icons'
 import { useAppStore } from '@/stores/app'
@@ -86,17 +87,33 @@ const needWizard = computed(
 
 // —— 控制条动作 ——
 
+/**
+ * 动作失败的统一出口。
+ *
+ * 本页五个动作此前全是裸 `await`：任一环 reject 都会变成未处理拒绝 —— 界面停在
+ * 「什么都没发生」的状态，用户只能靠日志猜。这里统一兜住并给出可见失败。
+ */
+function failAction(action: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  logger.error(`WeLink：${action}失败 —— ${message}`)
+  ElMessage.error(`${action}失败：${message}`)
+}
+
 async function toggleEnabled(value: boolean) {
   store.applySettings({ ...store.settings, enabled: value })
   // 以热副本为基底写回持久层（评审 F-3 三副本漂移）：用 appStore 旧值做基底，
   // 会把设置卡片已热更新但未「保存配置」的编辑覆盖回旧值，重启后静默丢失
   appStore.settings.weLink = { ...store.settings, enabled: value }
-  if (value) {
-    const report = await store.start()
-    ElMessage.success(report ? '助手已启动' : '助手启动异常，请查看日志')
-  } else {
-    store.stop()
-    ElMessage.info('助手已暂停，数据与未完成任务保留')
+  try {
+    if (value) {
+      const report = await store.start()
+      ElMessage.success(report ? '助手已启动' : '助手启动异常，请查看日志')
+    } else {
+      store.stop()
+      ElMessage.info('助手已暂停，数据与未完成任务保留')
+    }
+  } catch (error) {
+    failAction(value ? '启动助手' : '暂停助手', error)
   }
 }
 
@@ -108,14 +125,24 @@ async function onPanicStop() {
       { type: 'warning', confirmButtonText: '解除', cancelButtonText: '取消' },
     ).catch(() => false)
     if (confirmed === false) return
-    store.liftPanic()
+    try {
+      store.liftPanic()
+    } catch (error) {
+      failAction('解除一键全停', error)
+      return
+    }
     // 解除后的降级必须写回配置，否则下次启动又回到 auto；急停标记一并复位。
     // 以热副本为基底写回，避免把持久层旧值盖回去（评审 F-3 三副本漂移）。
     appStore.settings.weLink = { ...store.settings, sendMode: 'manual', panicked: false }
     ElMessage.warning('已解除急停：发送模式已降为「人工确认」')
     return
   }
-  store.panicStop()
+  try {
+    store.panicStop()
+  } catch (error) {
+    failAction('触发一键全停', error)
+    return
+  }
   // 急停标记落盘（评审 P1）：重启后 init 读到它强制转人工，外发不会静默恢复。
   // 以热副本为基底写回，避免把持久层旧值盖回去（评审 F-3 三副本漂移）。
   appStore.settings.weLink = { ...store.settings, panicked: true }
@@ -127,24 +154,38 @@ async function doPullNow() {
     ElMessage.warning('助手未启动：请先打开总开关')
     return
   }
-  const summary = await store.pullNow()
-  ElMessage.success(
-    `新增 ${summary.inserted} 条、命中 ${summary.jobs} 条待回复（已拉取 ${summary.polled}/${summary.conversations} 个会话` +
-      (summary.failed ? `，失败 ${summary.failed} 个` : '') +
-      '）',
-  )
+  try {
+    const summary = await store.pullNow()
+    ElMessage.success(
+      `新增 ${summary.inserted} 条、命中 ${summary.jobs} 条待回复（已拉取 ${summary.polled}/${summary.conversations} 个会话` +
+        (summary.failed ? `，失败 ${summary.failed} 个` : '') +
+        '）',
+    )
+  } catch (error) {
+    failAction('立即拉取', error)
+  }
 }
 
 async function refreshAll() {
-  await store.loadConversations()
-  await store.refreshReviewCount()
-  await store.refreshSafety()
-  ElMessage.success('已刷新')
+  try {
+    await store.loadConversations()
+    await store.refreshReviewCount()
+    await store.refreshSafety()
+    ElMessage.success('已刷新')
+  } catch (error) {
+    failAction('刷新', error)
+  }
 }
 
 async function playDemo() {
-  const ok = await store.playDemoScript()
-  ElMessage[ok ? 'success' : 'warning'](ok ? '演示剧本已回放，请查看消息中心与回复历史' : '当前数据源不支持演示剧本')
+  try {
+    const ok = await store.playDemoScript()
+    ElMessage[ok ? 'success' : 'warning'](
+      ok ? '演示剧本已回放，请查看消息中心与回复历史' : '当前数据源不支持演示剧本',
+    )
+  } catch (error) {
+    failAction('回放演示剧本', error)
+  }
 }
 
 // —— 生命周期 ——

@@ -470,9 +470,10 @@ onMounted(load)
   color: var(--ht-primary-strong);
 }
 
+/* 走 EP 变量：字面 rgba 在暗色主题下不跟随主题，对比度会掉 */
 .tag--degraded {
-  background: rgba(230, 162, 60, 0.16);
-  color: #96601f;
+  background: var(--el-color-warning-light-9);
+  color: var(--el-color-warning);
 }
 
 /* —— 状态条 —— */
@@ -643,7 +644,7 @@ onMounted(load)
 .repo__remove:hover,
 .repo__remove.is-armed {
   color: var(--ht-danger);
-  background: rgba(220, 68, 68, 0.08);
+  background: var(--el-color-danger-light-9);
 }
 
 .repo__remove-icon {
