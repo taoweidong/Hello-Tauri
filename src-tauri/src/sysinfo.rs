@@ -158,10 +158,30 @@ pub async fn sys_overview(app: AppHandle) -> Result<SysOverview, String> {
         .map_err(|error| format!("系统概要线程异常退出：{error}"))?
 }
 
+/// 允许通过 `sys_env_var` 读取的环境变量白名单（S-8）。
+///
+/// 旧实现接受任意变量名，可读到进程全部环境变量（含 `AWS_SECRET_ACCESS_KEY`、
+/// `DATABASE_URL`、`HTTP_PROXY` 等可能带凭据的变量）。这里收紧为仅暴露非敏感、
+/// 只读的系统标识；密钥类变量一律不在此列，从根本上杜绝「读进程全部环境变量」。
+/// 变量名按 ASCII 大小写不敏感比较（Windows 环境变量名不区分大小写）。
+const ALLOWED_ENV_VARS: &[&str] = &[
+    "COMPUTERNAME",
+    "USERNAME",
+    "USERDOMAIN",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
+    "PROCESSOR_IDENTIFIER",
+    "OS",
+];
+
 /// 按名读取当前进程环境变量（进程内直读，无子进程开销）。
-/// 非严格 UTF-8 的值以有损文本返回而非报错。
+/// 非严格 UTF-8 的值以有损文本返回而非报错。仅允许 `ALLOWED_ENV_VARS` 中的变量名，
+/// 其余一律返回 `None`（S-8）。
 #[tauri::command]
 pub fn sys_env_var(name: String) -> Option<String> {
+    if !ALLOWED_ENV_VARS.iter().any(|allowed| allowed.eq_ignore_ascii_case(&name)) {
+        return None
+    }
     std::env::var_os(&name).map(|value| value.to_string_lossy().to_string())
 }
 
@@ -287,4 +307,33 @@ pub async fn sys_adapters() -> Result<Vec<SysAdapter>, String> {
     })
     .await
     .map_err(|error| format!("网卡探测线程异常退出：{error}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sys_env_var_whitelist_blocks_unlisted() {
+        // 非白名单变量（即便进程环境里存在）一律读不到——杜绝「读进程全部环境变量」
+        std::env::set_var("__HELLO_TAURI_TEST_SECRET", "topsecret-value");
+        assert_eq!(sys_env_var("__HELLO_TAURI_TEST_SECRET".into()), None);
+        assert_eq!(sys_env_var("AWS_SECRET_ACCESS_KEY".into()), None);
+        assert_eq!(sys_env_var("DATABASE_URL".into()), None);
+        assert_eq!(sys_env_var("PATH".into()), None);
+        std::env::remove_var("__HELLO_TAURI_TEST_SECRET");
+    }
+
+    #[test]
+    fn sys_env_var_whitelist_allows_listed_and_case_insensitive() {
+        for name in ALLOWED_ENV_VARS {
+            // 白名单内变量可正常读取（不 panic、返回 Option）
+            let _ = sys_env_var(name.to_string());
+        }
+        // 大小写不敏感：computername 与 COMPUTERNAME 应读到同一结果
+        assert_eq!(
+            sys_env_var("computername".to_string()),
+            sys_env_var("COMPUTERNAME".to_string())
+        );
+    }
 }

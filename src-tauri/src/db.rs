@@ -315,6 +315,101 @@ fn strip_sql_noise(sql: &str) -> String {
     out
 }
 
+/// 把一段 SQL 拆成单条语句（尊重 `'...'`/`"..."`/`` `...` ``/`[...]` 字面量与 `--`/`/* */` 注释）。
+/// 与 `execute_batch` 不同，这里逐条交给 `guard_statement` + `execute`，使每条语句都过闸，
+/// 且 `execute` 对尾部多语句报错（对齐 db_execute 的单语句硬约束，S-11）。
+fn split_sql_statements(sql: &str) -> Vec<String> {
+    let chars: Vec<char> = sql.chars().collect();
+    let mut statements = Vec::new();
+    let mut current = String::new();
+    let mut index = 0;
+    while index < chars.len() {
+        let c = chars[index];
+        if c == '-' && chars.get(index + 1) == Some(&'-') {
+            while index < chars.len() && chars[index] != '\n' {
+                index += 1;
+            }
+            current.push(' ');
+        } else if c == '/' && chars.get(index + 1) == Some(&'*') {
+            index += 2;
+            while index < chars.len() && !(chars[index] == '*' && chars.get(index + 1) == Some(&'/')) {
+                index += 1;
+            }
+            index += 2;
+            current.push(' ');
+        } else if c == '\'' {
+            current.push(c);
+            index += 1;
+            while index < chars.len() {
+                current.push(chars[index]);
+                if chars[index] == '\'' {
+                    if chars.get(index + 1) == Some(&'\'') {
+                        current.push('\'');
+                        index += 2;
+                        continue;
+                    }
+                    index += 1;
+                    break;
+                }
+                index += 1;
+            }
+        } else if c == '"' || c == '`' {
+            let q = c;
+            current.push(c);
+            index += 1;
+            while index < chars.len() {
+                current.push(chars[index]);
+                if chars[index] == q {
+                    index += 1;
+                    break;
+                }
+                index += 1;
+            }
+        } else if c == '[' {
+            current.push(c);
+            index += 1;
+            while index < chars.len() && chars[index] != ']' {
+                current.push(chars[index]);
+                index += 1;
+            }
+            if index < chars.len() {
+                current.push(']');
+                index += 1;
+            }
+        } else if c == ';' {
+            statements.push(std::mem::take(&mut current));
+            index += 1;
+        } else {
+            current.push(c);
+            index += 1;
+        }
+    }
+    if !current.trim().is_empty() {
+        statements.push(current);
+    }
+    statements
+}
+
+/// 应用单条迁移：逐条切分、逐条过闸、逐条执行（S-11）。
+///
+/// 旧实现用 `execute_batch`——它支持多语句且只做过 blob 级黑名单检查，与 db_execute
+/// 的单语句硬约束不一致（审计记为 S-11：ATTACH 等可被多语句绕过）。这里保留合法多语句
+/// 迁移（建表 + 建索引同一条 sql），但让每条语句都过 `guard_statement`，且 `execute`
+/// 本身拒绝尾部多语句，从根上对齐单语句约束。
+fn apply_migration_sql(tx: &rusqlite::Transaction<'_>, migration: &Migration) -> Result<(), String> {
+    guard_statement(&migration.sql)?;
+    for statement in split_sql_statements(&migration.sql) {
+        let trimmed = statement.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        guard_statement(trimmed)?;
+        tx.execute(trimmed, [])
+            .map_err(|error| format!("迁移语句执行失败: {error}"))?;
+    }
+    Ok(())
+}
+
 fn exec_result(
     conn: &mut Connection,
     sql: &str,
@@ -433,14 +528,15 @@ pub async fn db_migrate(app: AppHandle, migrations: Vec<Migration>) -> Result<Ve
 
             let mut newly = Vec::new();
             for migration in pending {
-                // S-2 补口（评审 R-1）：迁移是唯一没过闸的 SQL 入口，且
-                // execute_batch 支持多语句比 execute 更宽。迁移 SQL 来自仓库内
-                // TS 定义（可信），但「防误用」定位意味着手滑写进 ATTACH 也该拦。
-                guard_statement(&migration.sql)?;
+                // S-11：迁移唯一没过闸的 SQL 入口。旧实现用 `execute_batch`——它支持多语句
+                // 且只做过 blob 级黑名单检查，与 db_execute 的单语句硬约束不一致。现改为
+                // 逐条切分 + 逐条过闸 + 逐条 `execute`（见 `apply_migration_sql`），既保留
+                // 合法多语句迁移（建表 + 建索引同一条 sql），又让每条语句都过闸、且 `execute`
+                // 天然拒绝尾部多语句（与 db_execute 对齐）。
                 let tx = conn
                     .transaction()
                     .map_err(|e| format!("开启事务失败: {e}"))?;
-                tx.execute_batch(&migration.sql).map_err(|e| {
+                apply_migration_sql(&tx, &migration).map_err(|e| {
                     format!(
                         "迁移 v{}「{}」失败（已回滚）: {e}",
                         migration.version, migration.description
@@ -464,4 +560,86 @@ pub async fn db_migrate(app: AppHandle, migrations: Vec<Migration>) -> Result<Ve
         })
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn in_memory() -> Connection {
+        Connection::open_in_memory().expect("内存库")
+    }
+
+    #[test]
+    fn split_sql_respects_string_literals_and_comments() {
+        let sql = "CREATE TABLE t(a TEXT); INSERT INTO t VALUES ('a;b'); -- 注释里的;不算\nCREATE INDEX ix ON t(a)";
+        let stmts = split_sql_statements(sql);
+        // 三个语句：CREATE / INSERT（含引号内分号）/ CREATE INDEX
+        assert_eq!(stmts.len(), 3);
+        assert!(stmts[1].contains("'a;b'"), "引号内的分号不应被当作分隔：{stmts:?}");
+    }
+
+    #[test]
+    fn apply_migration_runs_multi_statement_ddl() {
+        let conn = in_memory();
+        let tx = conn.transaction().expect("tx");
+        let migration = Migration {
+            version: 1,
+            description: "demo".into(),
+            sql: "CREATE TABLE t1(a INTEGER); CREATE INDEX ix_t1 ON t1(a)".into(),
+        };
+        apply_migration_sql(&tx, &migration).expect("应用迁移");
+        tx.commit().expect("commit");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM t1", [], |r| r.get(0))
+            .expect("查询 t1");
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn apply_migration_rejects_forbidden_attach() {
+        let conn = in_memory();
+        let tx = conn.transaction().expect("tx");
+        let migration = Migration {
+            version: 2,
+            description: "evil".into(),
+            sql: "CREATE TABLE ok(a INTEGER); ATTACH DATABASE ':memory:' AS evil".into(),
+        };
+        let err = apply_migration_sql(&tx, &migration);
+        assert!(err.is_err(), "含 ATTACH 的迁移必须被拦下");
+        assert!(err.unwrap_err().contains("ATTACH"), "错误信息应点明 ATTACH");
+    }
+
+    #[test]
+    fn apply_migration_rejects_single_statement_pragma() {
+        let conn = in_memory();
+        let tx = conn.transaction().expect("tx");
+        let migration = Migration {
+            version: 3,
+            description: "pragma".into(),
+            sql: "PRAGMA foreign_keys = ON".into(),
+        };
+        assert!(apply_migration_sql(&tx, &migration).is_err());
+    }
+
+    #[test]
+    fn apply_migration_handles_real_shaped_multi_table_ddl() {
+        // 复刻真实迁移结构（多表 + 多索引同一条 sql），防止切分器把它切坏
+        let conn = in_memory();
+        let tx = conn.transaction().expect("tx");
+        let migration = Migration {
+            version: 4,
+            description: "shaped".into(),
+            sql: "CREATE TABLE a(id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT '');\
+                  CREATE INDEX ix_a ON a(name);\
+                  CREATE TABLE b(id INTEGER PRIMARY KEY, a_id INTEGER REFERENCES a(id));\
+                  CREATE INDEX ix_b ON b(a_id)"
+                .into(),
+        };
+        apply_migration_sql(&tx, &migration).expect("复刻迁移应成功应用");
+        tx.commit().expect("commit");
+        conn.execute("INSERT INTO a(name) VALUES ('x')", []).expect("插入 a");
+        conn.execute("INSERT INTO b(a_id) VALUES (1)", []).expect("插入 b");
+    }
 }

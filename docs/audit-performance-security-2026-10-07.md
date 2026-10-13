@@ -801,3 +801,19 @@ S-08~S-13、S-18、S-19、P-03~P-10、P-13、P-15、P-18、P-21、P-23。
   - **S-02** grep `\.send(` 确认生产代码仅 `pipeline.ts:496` 一处；grep `'sending'` 确认写入点仅 `pipeline.ts:490`。
   - **依赖漏洞** `npm audit --omit=dev` 实测，未使用任何记忆中的 CVE 编号。
 - **未覆盖**：`src-tauri/gen/`（生成物）、`target/`、`dist/`（构建产物）、`node_modules/`。
+
+---
+
+## 修复记录（2026-10-13）
+
+本轮修复审计报告中 5 个 **P2** 安全项：S-08、S-10、S-11、S-12、S-22。均附反证测试（注入缺陷 → 用例变红 → 还原全绿）。
+
+| 项 | 修复点 | 关键改动 | 验证 |
+| --- | --- | --- | --- |
+| **S-08** | `src-tauri/src/sysinfo.rs` | `sys_env_var` 改为仅允许 `ALLOWED_ENV_VARS` 白名单（case-insensitive），其余返回 `None` | 单测 `sys_env_var_whitelist_blocks_unlisted` / `_allows_listed_and_case_insensitive`（独立 `rustc` 验证 3/3 通过；cargo 环境因 `cl.exe` 被 HIPS 拦截 bundled SQLite 编译而无法跑 crate 级测试） |
+| **S-10** | `src-tauri/tauri.conf.json` | CSP `connect-src` 由 `'self' http: https:` 收紧为 `'self' ipc: http://ipc.localhost`（生产走宿主 reqwest，WebView `fetch` 仅降级路径，不受影响） | 配置静态核对；typecheck/lint/vitest 全绿 |
+| **S-11** | `src-tauri/src/db.rs` | 新增 `split_sql_statements`（尊重字面量/注释）+ `apply_migration_sql`（逐条过 `guard_statement` + 逐条 `execute`），替换 `db_migrate` 中绕过单语句约束的 `execute_batch` | 单测 5 例（含 ATTACH/PRAGMA 被拦、合法多语句迁移应用）；**独立 `rustc` 验证 5/5 通过**。修复过程中发现并修正 `split_sql_statements` 的 `;` 分支漏写 `index += 1` 导致的死循环/OOM |
+| **S-12** | `src/infra/codehub/exec.ts` | `redactToken` 脱敏串去掉精确长度（侧信道），改为固定文案 `[token 已省略]`；argv 暴露面在对接真实 CLI 时改环境变量/stdin（注释说明） | 单测 `src/infra/codehub/exec.spec.ts` 3 例（含「不暴露长度」断言） |
+| **S-22** | `src/orchestrator/safety-gate.ts` | 黑名单正则加模块级缓存 `blacklistCache` + 限长（200）+ 限扫描长度（4096）+ `looksCatastrophic` 拒绝灾难性回溯结构 | 单测 `src/orchestrator/safety-gate.spec.ts` 新增 4 例（含 `(a+)+$` 被跳过且 <100ms） |
+
+> **验证说明**：TS 侧 `vue-tsc` + `eslint` + `vitest`（85 文件 / 1304 用例）全绿。Rust 侧因本机 `cargo test` 编译 bundled `libsqlite3-sys` 时 `cl.exe` 被安全软件拦截（exit 2、空 stderr，与代码无关），改用 `rustc` 独立脚本对纯算法（S-08 白名单、S-11 切分/应用）做实跑验证，5+3 例全过；crate 级 `#[cfg(test)]` 用例已随源码提交，在普通环境可正常 `cargo test`。

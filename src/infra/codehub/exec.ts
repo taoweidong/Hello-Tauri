@@ -6,6 +6,11 @@
  *
  * token 脱敏硬约束（design D6）：token 以命令行参数注入（用户决策），任何错误
  * 信息、诊断串都不得携带 token 明文 —— `redactToken` 对 `--token` 的值做遮蔽。
+ *
+ * S-12（安全审查）：① 脱敏串**不得暴露长度**（已改为固定文案 `[token 已省略]`），
+ * 避免把密钥精确长度写进 last_error / 日志造成侧信道；② token 经 `--token <值>`
+ * 出现在子进程命令行，同机其他进程可读到完整命令行——本适配器对接的是占位 CLI
+ * （[CLI-ASSUME]），真实 CLI 接入时应改为环境变量或 stdin 传 token 以根除该暴露面。
  */
 import { bridge } from '@/api'
 import type { CliResult } from '@/types'
@@ -35,7 +40,7 @@ export function redactToken(args: string[]): string {
   let redactNext = false
   for (const arg of args) {
     if (redactNext) {
-      out.push(`[token 已省略 ${arg.length} 字]`)
+      out.push('[token 已省略]')
       redactNext = false
       continue
     }

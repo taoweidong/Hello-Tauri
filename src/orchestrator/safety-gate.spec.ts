@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest'
  *  * `empty/oversize/blacklist` **不计入熔断**（内容质量问题 ≠ 滥发风险）。
  */
 
-import { createSafetyGate, isNoUserId, type GateCheckInput } from '@/orchestrator/safety-gate'
+import { createSafetyGate, isNoUserId, looksCatastrophic, type GateCheckInput } from '@/orchestrator/safety-gate'
 import {
   DEFAULT_WELINK_SETTINGS,
   type WelinkConversation,
@@ -615,6 +615,42 @@ describe('SafetyGate —— S7 内容黑名单', () => {
     const { gate } = setup({ safety: { blacklistPatterns: ['转账'], perConvMinIntervalSec: 600 } })
     gate.onSent('G-1001', '')
     expect(check(gate, { job: job({ draft: '给你转账' }) })).toMatchObject({ action: 'hold', reason: 'blacklist' })
+  })
+})
+
+// ---------------------------------------------------------------- S22 黑名单正则 ReDoS
+
+describe('SafetyGate —— S22 黑名单正则安全化（ReDoS/缓存）', () => {
+  it('灾难性回溯正则被跳过（不卡死、不误拦）', () => {
+    const { gate } = setup({ safety: { blacklistPatterns: ['(a+)+$'], perConvMinIntervalSec: 0 } })
+    const draft = 'a'.repeat(25) + '!'
+    const start = performance.now()
+    const decision = check(gate, { job: job({ draft }) })
+    const elapsed = performance.now() - start
+    // 模式被跳过 → 不命中黑名单；且求值受控（不回溯卡死主线程）
+    expect(decision.action).toBe('send')
+    expect(elapsed).toBeLessThan(100)
+  })
+
+  it('超长模式被跳过而非编译', () => {
+    const { gate } = setup({
+      safety: { blacklistPatterns: ['a'.repeat(300) + '$'], perConvMinIntervalSec: 0 },
+    })
+    expect(check(gate, { job: job({ draft: 'aaaa' }) }).action).toBe('send')
+  })
+
+  it('正常短正则仍按原语义命中', () => {
+    const { gate } = setup({ safety: { blacklistPatterns: ['退款'], perConvMinIntervalSec: 0 } })
+    expect(check(gate, { job: job({ draft: '请办理退款' }) })).toMatchObject({ action: 'hold' })
+  })
+
+  it('编译结果被缓存（灾难性结构由 looksCatastrophic 拦下，反证：删守卫即失守）', () => {
+    expect(looksCatastrophic('(a+)+$')).toBe(true)
+    expect(looksCatastrophic('(a+)+')).toBe(true)
+    expect(looksCatastrophic('(a*)*')).toBe(true)
+    expect(looksCatastrophic('退款')).toBe(false)
+    expect(looksCatastrophic('a+b')).toBe(false)
+    expect(looksCatastrophic('(ab)+')).toBe(false)
   })
 })
 

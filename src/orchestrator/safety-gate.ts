@@ -30,6 +30,55 @@ import type { HoldReason, SkipReason, WelinkConversation, WelinkJob, WelinkSetti
 import { nowStamp, parseStamp } from '@/utils/time'
 import type { SafetySnapshot } from './events'
 
+// —— S-22：黑名单正则安全化 ——
+// 用户可配的黑名单正则若含灾难性回溯结构（如 `(a+)+$`），旧实现每次 check 都重新
+// 编译并对整段草稿求值，会卡死外发主线程（外发段严格串行，一次回溯即整个助手停摆）。
+// 修复：编译结果缓存 + 限制模式长度 + 限制被扫描草稿长度 + 拒绝灾难性回溯结构。
+const MAX_BLACKLIST_PATTERN_LEN = 200
+const MAX_BLACKLIST_SCAN_LEN = 4096
+const blacklistCache = new Map<string, RegExp | null>()
+
+/**
+ * 拒绝「组被量词修饰、且组内含量词」的经典 ReDoS 形态：`(a+)+` `(a*)*` `(a+)*` 等。
+ * 命中即跳过该模式（fail-safe：宁可漏拦，不可让主线程卡死）。仅做结构近似，
+ * 不追求覆盖全部 ReDoS 变体——代价是少数复杂但安全的模式会被一并跳过。
+ */
+export function looksCatastrophic(pattern: string): boolean {
+  const stack: boolean[] = []
+  let depth = 0
+  for (let i = 0; i < pattern.length; i += 1) {
+    const c = pattern[i]
+    if (c === '(') {
+      depth += 1
+      stack.push(false)
+    } else if (c === ')') {
+      const hadInnerQuant = stack.pop() ?? false
+      depth -= 1
+      const next = pattern[i + 1]
+      if (hadInnerQuant && (next === '*' || next === '+' || next === '{')) return true
+    } else if ((c === '*' || c === '+' || c === '{') && depth > 0) {
+      if (stack.length > 0) stack[stack.length - 1] = true
+    }
+  }
+  return false
+}
+
+function compileBlacklist(pattern: string): RegExp | null {
+  if (pattern.length > MAX_BLACKLIST_PATTERN_LEN) return null
+  if (looksCatastrophic(pattern)) return null
+  if (blacklistCache.size > 1024) blacklistCache.clear()
+  const cached = blacklistCache.get(pattern)
+  if (cached !== undefined) return cached
+  let re: RegExp | null
+  try {
+    re = new RegExp(pattern, 'i')
+  } catch {
+    re = null
+  }
+  blacklistCache.set(pattern, re)
+  return re
+}
+
 /** Gate 判定结果（四选一，语义见设计 §5A.3 的三个右侧出口 + 主链） */
 export type GateDecision =
   /** 放行：调用方随后必须调用 `onSent()` 扣配额 */
@@ -270,15 +319,16 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
     return null
   }
 
-  /** 黑名单正则命中（S7）：配置里写坏的正则**不能**让整条链路挂掉，逐条 try */
+  /** 黑名单正则命中（S7）：配置里写坏的正则**不能**让整条链路挂掉——
+   *  编译结果缓存、超长模式跳过、灾难性回溯结构跳过，且只扫描草稿前缀（S-22）。 */
   function blacklistHit(draft: string): string | null {
+    const scan =
+      draft.length > MAX_BLACKLIST_SCAN_LEN ? draft.slice(0, MAX_BLACKLIST_SCAN_LEN) : draft
     for (const pattern of settings.safety.blacklistPatterns) {
       if (!pattern.trim()) continue
-      try {
-        if (new RegExp(pattern, 'i').test(draft)) return pattern
-      } catch {
-        // 用户手写的正则可能有语法错，跳过该项而不是抛错
-      }
+      const re = compileBlacklist(pattern)
+      if (!re) continue
+      if (re.test(scan)) return pattern
     }
     return null
   }
