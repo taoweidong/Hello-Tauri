@@ -33,10 +33,19 @@ export interface PollSummary {
   jobs: number
   /** 拉取失败的会话数 */
   failed: number
+  /**
+   * 未触发原因统计（原因文案 → 条数）。
+   *
+   * 第二轮修复前，`buildTriggerMap` 每轮都算出 `skipped` 但调用方只解构
+   * `triggers`，结果**当场丢弃**；而 `PollSummary` 也没有字段能装它 ——
+   * 类型层面把这个静默变得不可见。用户最高频的困惑「助手在跑、群里 @我了，
+   * 为什么没回复」因此完全无从自查。现在汇总进本轮摘要，供日志与 UI 展示。
+   */
+  skipped: Record<string, number>
 }
 
 export function emptySummary(): PollSummary {
-  return { conversations: 0, polled: 0, inserted: 0, jobs: 0, failed: 0 }
+  return { conversations: 0, polled: 0, inserted: 0, jobs: 0, failed: 0, skipped: {} }
 }
 
 /** 安全闸口快照（控制条「配额徽标」「熔断横幅」的数据源） */

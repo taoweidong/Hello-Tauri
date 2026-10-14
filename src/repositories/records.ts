@@ -5,6 +5,20 @@ import { logger } from '@/utils/logger'
 
 export const CATEGORIES = ['基础设施', '数据服务', '业务应用', '安全合规']
 
+/**
+ * `loadAll()` 的防呆上限（第二轮 N8）。
+ *
+ * 这张表当前只有「内置种子 12 条 + 用户手工录入」，量级永远到不了危险区；加 LIMIT
+ * 是为了堵住**将来被复用成大表**的口子 —— 届时一次 `SELECT` 全表读进内存 + 全量渲染
+ * 会同时打爆 WebView 与 UI 线程。
+ *
+ * 注意：**这是防呆，不是分页下推**。真正的分页下推要改 `RecordsBackend` 接口、
+ * 两个实现、store 与视图四处，与当前数据规模带来的收益不成比例，故本轮不做。
+ * 触顶时会 warn（见 loadAll），把「表已经长到该重构了」这件事显式说出来，
+ * 而不是让界面悄悄少显示几行。
+ */
+export const LOAD_ALL_LIMIT = 5000
+
 export const SEED_ROWS: TableRow[] = [
   {
     id: 1,
@@ -197,8 +211,12 @@ export const sqlRecordsBackend: RecordsBackend = {
 
   async loadAll() {
     const rows = await bridge.dbSelect(
-      'SELECT id, name, category, status, amount, owner, created_at FROM records ORDER BY id DESC',
+      `SELECT id, name, category, status, amount, owner, created_at FROM records ORDER BY id DESC LIMIT ${LOAD_ALL_LIMIT}`,
     )
+    if (rows.length >= LOAD_ALL_LIMIT) {
+      // 触顶说明这张表已经不是「示例数据」了：此时应当改成分页下推，而不是继续加 LIMIT
+      logger.warn(`records：单次读取触顶 ${LOAD_ALL_LIMIT} 行（应改 SQL 分页下推，而非继续放大上限）`)
+    }
     return rows.map(rowFromDb)
   },
 

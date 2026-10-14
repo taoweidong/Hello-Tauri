@@ -536,6 +536,28 @@ describe('M3 全链路：mock 端口 → 内存库 → mock Agent → SafetyGate
     expect(h.runtime.poller.running()).toBe(false)
   })
 
+  it('reload 把总开关改成关时 running() 立即转 false（第二轮：消除过期快照位）', async () => {
+    // 修之前 running() = started && poller.running()，而 started 只在
+    // start()/stop() 写 —— reload() 改了 settings.enabled 却从不同步它。
+    // 托盘拿这个值同时做「状态回显」和「暂停/恢复翻转判据」，过期即错配。
+    const h = await harness()
+    await h.runtime.start()
+    expect(h.runtime.running()).toBe(true)
+
+    h.runtime.reload({ ...h.settings, enabled: false })
+    // 调度器还没被 stop（真实场景由 UI 随后调 stop），但真值已经变了
+    expect(h.runtime.running()).toBe(false)
+  })
+
+  it('reload 不改总开关时 running() 保持 true（防修过头：收紧不能误伤热更新）', async () => {
+    const h = await harness()
+    await h.runtime.start()
+    expect(h.runtime.running()).toBe(true)
+
+    h.runtime.reload({ ...h.settings, pollIntervalSec: 120 })
+    expect(h.runtime.running()).toBe(true)
+  })
+
   it('助手启动后保留期清理随之启动，停止后随之停止（D-1：清理不能只定义不调度）', async () => {
     const h = await harness()
 

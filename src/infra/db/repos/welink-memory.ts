@@ -531,8 +531,15 @@ export const memoryWelinkRepository: WelinkRepository = {
     if (!job) return false
     const conv = byConvId(job.targetId)
     if (!conv) return false
+    // 与 SQLite 实现同口径：只认「本次发送尝试之后」（job.updatedAt，由 markStatus
+    // 置 'sending' 时刷新）的 out 消息。历史同内容消息不算本次回执，否则连着问
+    // 两个相同问题会漏回复第二条。
     return state.messages.some(
-      (message) => message.convPk === conv.pk && message.direction === 'out' && message.content === job.draft,
+      (message) =>
+        message.convPk === conv.pk &&
+        message.direction === 'out' &&
+        message.content === job.draft &&
+        message.sentAt >= job.updatedAt,
     )
   },
 

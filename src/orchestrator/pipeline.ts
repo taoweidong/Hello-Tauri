@@ -580,6 +580,11 @@ export function createPipeline(options: PipelineOptions): Pipeline {
      */
     const deferredThisPass = new Set<number>()
 
+    // 防御性上界（第二轮 N9 复核结论：**不是忙循环，勿改为事件驱动**）。
+    // 正常路径第一次迭代就会 `break`（队列空且无在飞任务），`deferredThisPass`
+    // 又挡住了「同轮反复取出同一条挂起 job」的空转。这里的 500 只是给「万一有
+    // 一条路径忘了出队」兜底 —— 把它改成事件驱动等于重写调度语义，收益为零、
+    // 回归风险显著（这是 orchestrator 里覆盖率最高也最脆的一段）。
     for (let guard = 0; guard < 500; guard += 1) {
       // —— 生成段：并发 N（无副作用，可并行） ——
       while (inflightGenerate.size < GENERATE_CONCURRENCY && generateQueue.length) {
@@ -721,6 +726,8 @@ export function createPipeline(options: PipelineOptions): Pipeline {
     async drain() {
       // 把队列跑到空：反复冲刷直到没有队列积压、生成段也回落
       let handled = 0
+      // 同 `flush()` 的 guard：防死循环上界，不是忙循环。`flush()` 返回 0（队列已空）
+      // 时下一次迭代即收敛，正常路径一到两轮结束。
       for (let round = 0; round < 100; round += 1) {
         handled += await flush()
         if (inflightGenerate.size) {

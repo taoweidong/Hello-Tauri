@@ -258,6 +258,9 @@ export function createPoller(options: PollerOptions): Poller {
           const result = await pollConversation(conv, port, settings)
           summary.inserted += result.inserted
           summary.jobs += result.jobs
+          for (const reason of Object.values(result.skipped)) {
+            summary.skipped[reason] = (summary.skipped[reason] ?? 0) + 1
+          }
           state.state = 'ok'
           state.failCount = 0
           state.backoffSec = 0
@@ -277,6 +280,19 @@ export function createPoller(options: PollerOptions): Poller {
             `轮询失败（${conv.title || conv.convId}，第 ${state.failCount} 次，退避 ${state.backoffSec}s）：${state.reason}`,
           )
         }
+      }
+
+      // 「有消息进来却一条任务都没建」是用户最困惑的场景（助手在跑、@我了、
+      // 却没回复）。此前没有任何输出可查，只能靠猜。这里给出可自查的归因。
+      if (summary.inserted > 0 && summary.jobs === 0) {
+        const reasons = Object.entries(summary.skipped)
+          .sort((a, b) => b[1] - a[1])
+          .map(([reason, count]) => `${reason} ×${count}`)
+          .join('；')
+        logger.info(
+          `轮询第 ${roundNo} 轮：入库 ${summary.inserted} 条消息但**未建任何回复任务**` +
+            (reasons ? `，未触发原因：${reasons}` : '（无跳过记录，请检查监控开关与触发规则）'),
+        )
       }
 
       options.emit({ type: 'roundFinished', round: roundNo, summary })
@@ -306,7 +322,7 @@ export function createPoller(options: PollerOptions): Poller {
     conv: WelinkConversation,
     port: WelinkPort,
     settings: WelinkSettings,
-  ): Promise<{ inserted: number; jobs: number }> {
+  ): Promise<{ inserted: number; jobs: number; skipped: Record<string, string> }> {
     let cursor = conv.lastCursor
     /** 本会话本轮累计待入库的消息（跨续批累积，最后一次性提交） */
     const pending: NormalizedMessage[] = []
@@ -317,7 +333,7 @@ export function createPoller(options: PollerOptions): Poller {
       cursor = pulled.cursor
       if (!pulled.hasMore) break
     }
-    if (!pending.length) return { inserted: 0, jobs: 0 }
+    if (!pending.length) return { inserted: 0, jobs: 0, skipped: {} }
 
     // 跨续批去重：CLI 的分页边界可能重复上一批的最后一条（cursor 不透明，
     // 真实接口未定型）。msg_uid 是幂等键，这里先在本轮内收敛，避免把重复行
@@ -327,7 +343,9 @@ export function createPoller(options: PollerOptions): Poller {
     const messages = [...unique.values()]
 
     const fresh = filterSelf(messages, settings.myUserId)
-    const { triggers } = buildTriggerMap(fresh, {
+    // `skipped` 一并返回（第二轮修复）：它此前算了就被丢，用户无从知道
+    // 「消息进来了为什么没建任务」。
+    const { triggers, skipped } = buildTriggerMap(fresh, {
       watching: conv.watching,
       myUserId: settings.myUserId,
       groupAtMe: settings.trigger.groupAtMe,
@@ -346,7 +364,7 @@ export function createPoller(options: PollerOptions): Poller {
     }
     for (const job of applied.createdJobs) options.emit({ type: 'jobCreated', job })
 
-    return { inserted: applied.inserted.length, jobs: applied.createdJobs.length }
+    return { inserted: applied.inserted.length, jobs: applied.createdJobs.length, skipped }
   }
 
   return {

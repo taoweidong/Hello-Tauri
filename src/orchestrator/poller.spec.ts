@@ -25,6 +25,12 @@ import {
   type WelinkSettings,
 } from '@/types/welink'
 import { parseStamp, nowStamp } from '@/utils/time'
+import { logger } from '@/utils/logger'
+
+// 归因日志是本轮「未建任务」自查能力的对外出口，必须断言它的真值而不只是调用次数
+vi.mock('@/utils/logger', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}))
 
 // ---------------------------------------------------------------- 手动驱动的假时钟
 
@@ -775,6 +781,61 @@ describe('orchestrator/poller —— 单会话拉取与入库', () => {
     })
     await h.poller.pullNow()
     expect(h.repo.applyPollResult.mock.calls[0][3].triggers).toEqual({})
+  })
+
+  it('未触发原因汇总进本轮摘要（第二轮：skipped 不再算了就丢）', async () => {
+    // 修之前：buildTriggerMap 每轮都算出 skipped，调用方只解构 triggers，
+    // 结果当场丢弃 —— 「助手在跑、@我了、却没回复」完全无从自查。
+    const h = harness({
+      pull: async () => ({
+        messages: [
+          message({ msgUid: 'all', content: '@所有人 例会照常', atMe: true }),
+          message({ msgUid: 'miss', atMe: false, content: '收到' }),
+          message({ msgUid: 'miss2', atMe: false, content: '好的' }),
+        ],
+        cursor: 'c',
+        hasMore: false,
+      }),
+    })
+    await h.poller.pullNow()
+    const summary = summaries(h.events).at(-1)!
+    expect(summary.jobs).toBe(0)
+    expect(summary.skipped['@所有人 不算 @我']).toBe(1)
+    expect(summary.skipped['群消息未 @我']).toBe(2)
+  })
+
+  it('有消息入库却零建任务时落一条归因日志（用户最困惑的场景可自查）', async () => {
+    const h = harness({
+      pull: async () => ({
+        messages: [message({ msgUid: 'miss', atMe: false, content: '收到' })],
+        cursor: 'c',
+        hasMore: false,
+      }),
+    })
+    await h.poller.pullNow()
+    const info = logger.info as unknown as ReturnType<typeof vi.fn>
+    const lines = info.mock.calls.map((call) => String(call[0]))
+    expect(lines.some((line) => line.includes('未建任何回复任务'))).toBe(true)
+    // 归因必须带上具体原因，否则等于没说
+    expect(lines.some((line) => line.includes('群消息未 @我'))).toBe(true)
+  })
+
+  it('未触发原因按会话累加（多会话同一原因合并计数）', async () => {
+    const h = harness({
+      conversations: [
+        conversation({ convId: 'g-1' }),
+        conversation({ convId: 'g-2' }),
+        conversation({ convId: 'g-3' }),
+      ],
+      pull: async () => ({
+        messages: [message({ msgUid: 'miss', atMe: false, content: '收到' })],
+        cursor: 'c',
+        hasMore: false,
+      }),
+    })
+    await h.poller.pullNow()
+    const summary = summaries(h.events).at(-1)!
+    expect(summary.skipped['群消息未 @我']).toBe(3)
   })
 
   it('自发消息经 filterSelf 改向后不建任务（防自回复循环）', async () => {

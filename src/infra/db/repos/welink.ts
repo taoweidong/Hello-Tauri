@@ -766,11 +766,19 @@ export const sqlWelinkRepository: WelinkRepository = {
   async hasOutgoingReceipt(pk) {
     // 回执核对（§6.2/§6.3）：若该 job 触发的会话里已存在同内容的 out 消息，
     // 说明上次「发出去了但没记上」，此时必须补记 sent 而不是重发。
+    //
+    // 时间下界（第二轮修复）：只认「本次发送尝试之后」产生的 out 消息。
+    // 判据 = job.updated_at —— markStatus 置 'sending' 时会把它刷成当时时刻，
+    // 即「本次尝试开始」。去掉这个下界会把**历史上**任何一条同内容消息都当成
+    // 本次的回执：对方连着问两个一模一样的问题时，第二条会被误判为"已发送"
+    // 而漏回复（静默失效，用户只会觉得助手突然哑了）。
+    // 零迁移：updated_at 是既有列，不新增字段。
     const rows = await bridge.dbSelect(
       `SELECT COUNT(*) AS count FROM welink_messages m
         WHERE m.direction = 'out' AND m.conv_pk IN (
           SELECT c.id FROM welink_reply_jobs j JOIN welink_conversations c ON c.conv_id = j.target_id WHERE j.id = ?1)
-          AND m.content = (SELECT draft FROM welink_reply_jobs WHERE id = ?1)`,
+          AND m.content = (SELECT draft FROM welink_reply_jobs WHERE id = ?1)
+          AND m.sent_at >= (SELECT updated_at FROM welink_reply_jobs WHERE id = ?1)`,
       [pk],
     )
     return num(rows[0]?.count) > 0

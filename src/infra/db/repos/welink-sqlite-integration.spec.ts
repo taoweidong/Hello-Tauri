@@ -319,3 +319,73 @@ describe('显式级联删除在真库上仍成立（回归）', () => {
     expect(count('welink_messages')).toBe(1) // 消息不受影响
   })
 })
+
+// ---------------- 回执核对的时间下界（第二轮：防「重复提问漏回复」） ----------------
+
+/**
+ * 场景：对方连着问两个一模一样的问题。
+ *
+ * 第一次：job 置 sending（updated_at = T1）→ 真发出 → markSent 记下 out 消息（sent_at = T1）。
+ * 第二次：新 job 置 sending（updated_at = T2 > T1）。若回执核对**不带时间下界**，
+ * 它会拿「同会话 + 同内容」去全表找，命中第一次那条（sent_at = T1）→ 判定"已发送"
+ * → 补记 sent 而不真发 → **用户永远收不到第二条回复**。
+ */
+describe('hasOutgoingReceipt —— 只认本次发送尝试之后的 out 消息', () => {
+  /** 造一条 out 消息（direction='out'） */
+  function seedOutMessage(convPk: number, id: number, content: string, sentAt: string): void {
+    realDb
+      .prepare(
+        `INSERT INTO welink_messages (id, msg_uid, conv_pk, direction, sender_id, sender_name, content, msg_type, at_me, read_flag, sent_at, created_at)
+         VALUES (?, ?, ?, 'out', '', '', ?, 'text', 0, 1, ?, ?)`,
+      )
+      .run(id, `out-${id}`, convPk, content, sentAt, sentAt)
+  }
+
+  it('历史同内容（sent_at 早于本次尝试）→ 不算回执，必须真发', async () => {
+    const convPk = seedConversation()
+    seedMessage(convPk, 1, '2026-01-01 00:00:00') // 触发消息（in）
+    seedJob(1, 'sending')
+    const jobPk = (realDb.prepare('SELECT id FROM welink_reply_jobs').all() as { id: number }[])[0].id
+    // 本次尝试开始时刻 T2
+    realDb.prepare(`UPDATE welink_reply_jobs SET draft = ?, updated_at = ? WHERE id = ?`).run(
+      '常见问题答案',
+      '2026-06-01 12:00:00',
+      jobPk,
+    )
+    // 上一次问答留下的同内容 out 消息（T1 < T2）
+    seedOutMessage(convPk, 2, '常见问题答案', '2026-06-01 10:00:00')
+
+    await expect(repo.hasOutgoingReceipt(jobPk)).resolves.toBe(false)
+  })
+
+  it('本次尝试之后的同内容 out（sent_at >= updated_at）→ 判定为回执，补记而不重发', async () => {
+    const convPk = seedConversation()
+    seedMessage(convPk, 1, '2026-01-01 00:00:00')
+    seedJob(1, 'sending')
+    const jobPk = (realDb.prepare('SELECT id FROM welink_reply_jobs').all() as { id: number }[])[0].id
+    realDb.prepare(`UPDATE welink_reply_jobs SET draft = ?, updated_at = ? WHERE id = ?`).run(
+      '常见问题答案',
+      '2026-06-01 12:00:00',
+      jobPk,
+    )
+    // 本次真的发出去了（sent_at 晚于尝试开始时刻）
+    seedOutMessage(convPk, 2, '常见问题答案', '2026-06-01 12:00:03')
+
+    await expect(repo.hasOutgoingReceipt(jobPk)).resolves.toBe(true)
+  })
+
+  it('同会话里**内容不同**的 out 不算回执（防误判放宽）', async () => {
+    const convPk = seedConversation()
+    seedMessage(convPk, 1, '2026-01-01 00:00:00')
+    seedJob(1, 'sending')
+    const jobPk = (realDb.prepare('SELECT id FROM welink_reply_jobs').all() as { id: number }[])[0].id
+    realDb.prepare(`UPDATE welink_reply_jobs SET draft = ?, updated_at = ? WHERE id = ?`).run(
+      '常见问题答案',
+      '2026-06-01 12:00:00',
+      jobPk,
+    )
+    seedOutMessage(convPk, 2, '别的回复', '2026-06-01 12:00:03')
+
+    await expect(repo.hasOutgoingReceipt(jobPk)).resolves.toBe(false)
+  })
+})

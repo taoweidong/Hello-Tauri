@@ -18,7 +18,7 @@
  */
 import { SEDIMENT_KEYS, type KnowledgeDraftInput, type SedimentRepository } from '@/infra/db/sediment-ports'
 import type { WelinkRepository } from '@/infra/db/ports'
-import { knowledgePort, toKnowledgeFileName, type KnowledgePort } from '@/infra/knowledge'
+import { knowledgePort, toKnowledgeFileName, type KnowledgeDoc, type KnowledgePort } from '@/infra/knowledge'
 import type { AgentClient } from '@/infra/agent'
 import { sanitizeUntrusted } from '@/infra/agent/prompt'
 import type { WelinkPort } from '@/infra/welink'
@@ -197,6 +197,63 @@ export function createKnowledgeHarvester(options: HarvesterOptions): KnowledgeHa
   /** 单飞行锁：自动轮次与「立即提取」共用，防并发双跑（水位只在锁内串行推进） */
   let inFlight: Promise<SedimentRoundReport> | null = null
 
+  // —— 轮内文档清单缓存（第二轮 N6） ——
+  //
+  // 一轮提取里 `listDocs()` 会被反复调用：`knownDocHashes()` 一次、问答归档一次、
+  // **auto 直通模式下每个 draft 各一次 `approve()` 又一次** —— 于是「文档读取次数」
+  // 随 draft 数线性增长。个人知识库几十篇时绝对值不大，但它是周期任务，且放大器是
+  // 直通模式，文档越多越慢。
+  //
+  // 缓存只在一轮内有效（`roundActive`），轮末清空；**任何写入都同步更新缓存**
+  // （`upsertCachedDoc` / 正文缓存），不做「写完就整体失效」—— 那样等于没缓存。
+  // 交互式的单条评审（store 面板点「通过」）走的是 `roundActive === false` 分支，
+  // 每次都读真值，不会被缓存带偏。
+  let roundActive = false
+  let roundDocs: KnowledgeDoc[] | null = null
+  const roundText = new Map<string, string | null>()
+
+  function beginRoundDocCache(): void {
+    roundActive = true
+  }
+
+  function endRoundDocCache(): void {
+    roundActive = false
+    roundDocs = null
+    roundText.clear()
+  }
+
+  async function listDocsCached(): Promise<KnowledgeDoc[]> {
+    if (roundActive && roundDocs) return roundDocs
+    const docs = await knowledge.listDocs()
+    if (roundActive) roundDocs = docs
+    return docs
+  }
+
+  async function readDocCached(file: string): Promise<string | null> {
+    if (roundActive && roundText.has(file)) return roundText.get(file) ?? null
+    const content = await knowledge.readDoc(file)
+    if (roundActive) roundText.set(file, content)
+    return content
+  }
+
+  /** 写入后同步缓存（不要用「整体失效」，否则直通模式下又退化成 N 次 listDocs） */
+  function upsertCachedDoc(entry: KnowledgeDoc): void {
+    if (!roundActive || !roundDocs) return
+    const next = [...roundDocs]
+    const index = next.findIndex((doc) => doc.file === entry.file)
+    if (index >= 0) next[index] = entry
+    else next.push(entry)
+    roundDocs = next
+  }
+
+  /** 追加写后更新正文缓存（下次同文件判「是否超长」不必再读盘）；未知则删掉让下次真读 */
+  function noteAppendedText(file: string, appended: string): void {
+    if (!roundActive) return
+    const cached = roundText.get(file)
+    if (cached === undefined) roundText.delete(file)
+    else roundText.set(file, cached === null ? null : cached + appended)
+  }
+
   // —— 原料消毒与分批（K-D） ——
 
   function toMaterials(
@@ -227,10 +284,10 @@ export function createKnowledgeHarvester(options: HarvesterOptions): KnowledgeHa
 
   /** 既有知识文档的内容指纹集合（与待审条目双侧去重） */
   async function knownDocHashes(): Promise<Set<string>> {
-    const docs = await knowledge.listDocs()
+    const docs = await listDocsCached()
     const hashes = new Set<string>()
     for (const doc of docs) {
-      const content = await knowledge.readDoc(doc.file)
+      const content = await readDocCached(doc.file)
       if (content !== null) hashes.add(fingerprint(content))
     }
     return hashes
@@ -341,7 +398,7 @@ export function createKnowledgeHarvester(options: HarvesterOptions): KnowledgeHa
     const watermarkId = Number((await sediment.getState(SEDIMENT_KEYS.qaFinishedId)) ?? '0') || 0
     const records = await sediment.listSentQaSince(watermark, watermarkId, QA_PER_ROUND)
     if (!records.length) return 0
-    const known = new Set((await knowledge.listDocs()).map((doc) => doc.file))
+    const known = new Set((await listDocsCached()).map((doc) => doc.file))
     let archived = 0
     for (const record of records) {
       const month = record.finishedAt.slice(0, 7)
@@ -353,15 +410,19 @@ export function createKnowledgeHarvester(options: HarvesterOptions): KnowledgeHa
       const title = `问答归档·${record.skillName || '未分类'}·${month}`
       const section = `### ${record.finishedAt}${record.rating === 'up' ? '（赞）' : ''}\n\n**问**：${sanitizeUntrusted(record.question, 500)}\n\n**答**：${sanitizeUntrusted(record.answer, 1000)}\n`
       if (known.has(file)) {
-        const current = await knowledge.readDoc(file)
+        const current = await readDocCached(file)
         if (current !== null && current.length > MAX_DOC_CHARS) {
           // 文档超限（K-J）：跳过该条并推进水位，避免无限膨胀；下月自动分片
           await advanceQaWatermark(record)
           continue
         }
-        await knowledge.appendDoc({ file, content: section })
+        const entry = await knowledge.appendDoc({ file, content: section })
+        upsertCachedDoc(entry)
+        noteAppendedText(file, section)
       } else {
-        await knowledge.saveDoc({ file, title, content: `# ${title}\n\n${section}`, source: 'qa' })
+        const entry = await knowledge.saveDoc({ file, title, content: `# ${title}\n\n${section}`, source: 'qa' })
+        upsertCachedDoc(entry)
+        if (roundActive) roundText.set(file, `# ${title}\n\n${section}`)
         known.add(file)
       }
       await advanceQaWatermark(record)
@@ -408,18 +469,22 @@ export function createKnowledgeHarvester(options: HarvesterOptions): KnowledgeHa
       throw new Error(`知识正文超长（${patch.content.length} > ${MAX_KNOWLEDGE_CHARS}）`)
     }
     const section = `### ${patch.title}\n\n${patch.content}\n`
-    const existing = (await knowledge.listDocs()).find((doc) => doc.file === file)
+    const existing = (await listDocsCached()).find((doc) => doc.file === file)
     if (existing) {
-      const current = await knowledge.readDoc(file)
+      const current = await readDocCached(file)
       if (current !== null && current.length > MAX_DOC_CHARS) throw new Error('目标文档已超长，请改用新建标题')
-      await knowledge.appendDoc({ file, content: section })
+      const entry = await knowledge.appendDoc({ file, content: section })
+      upsertCachedDoc(entry)
+      noteAppendedText(file, section)
     } else {
-      await knowledge.saveDoc({
+      const entry = await knowledge.saveDoc({
         file,
         title: patch.title,
         content: `# ${patch.title}\n\n${patch.content}\n`,
         source: 'extract',
       })
+      upsertCachedDoc(entry)
+      if (roundActive) roundText.set(file, `# ${patch.title}\n\n${patch.content}\n`)
     }
     return sediment.approveDraft(pk, patch)
   }
@@ -445,47 +510,52 @@ export function createKnowledgeHarvester(options: HarvesterOptions): KnowledgeHa
       }
 
       const errors: string[] = []
-
-      // 1) 问答归档（无 LLM；qaArchive 关闭零写入）
-      if (settings.sediment.qaArchive) {
-        try {
-          report.qaArchived = await archiveQaRound()
-        } catch (error) {
-          errors.push(`问答归档失败：${error instanceof Error ? error.message : String(error)}`)
-        }
-      }
-
-      // 2) 公告采集（失败不影响归档与提取）
+      // 轮内文档缓存生命周期 = 本轮（N6）：轮末无论成败都清空，绝不带到下一轮
+      beginRoundDocCache()
       try {
-        await collectAnnouncements(settings)
-      } catch (error) {
-        errors.push(`公告采集失败：${error instanceof Error ? error.message : String(error)}`)
-      }
+        // 1) 问答归档（无 LLM；qaArchive 关闭零写入）
+        if (settings.sediment.qaArchive) {
+          try {
+            report.qaArchived = await archiveQaRound()
+          } catch (error) {
+            errors.push(`问答归档失败：${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
 
-      // 3) 消息/公告提取（连续失败达阈值跳过本轮，防卡死）
-      const failStreak = await stateNumber(SEDIMENT_KEYS.failStreak)
-      if (failStreak >= MAX_FAIL_STREAK) {
-        report.skipped = 'fail_streak'
-        logger.warn(`知识提取连续失败 ${failStreak} 次，本轮跳过（问题排除后可手动「立即提取」重试）`)
+        // 2) 公告采集（失败不影响归档与提取）
+        try {
+          await collectAnnouncements(settings)
+        } catch (error) {
+          errors.push(`公告采集失败：${error instanceof Error ? error.message : String(error)}`)
+        }
+
+        // 3) 消息/公告提取（连续失败达阈值跳过本轮，防卡死）
+        const failStreak = await stateNumber(SEDIMENT_KEYS.failStreak)
+        if (failStreak >= MAX_FAIL_STREAK) {
+          report.skipped = 'fail_streak'
+          logger.warn(`知识提取连续失败 ${failStreak} 次，本轮跳过（问题排除后可手动「立即提取」重试）`)
+          report.error = errors.join('；')
+          return report
+        }
+        try {
+          const extracted = await extractRound(settings)
+          report.messageCount = extracted.messageCount
+          report.announcementCount = extracted.announcementCount
+          report.draftCount = extracted.draftCount
+          await sediment.setState(SEDIMENT_KEYS.failStreak, '0')
+        } catch (error) {
+          const streak = failStreak + 1
+          await sediment.setState(SEDIMENT_KEYS.failStreak, String(streak)).catch(() => undefined)
+          const message = error instanceof Error ? error.message : String(error)
+          errors.push(`知识提取失败（连续第 ${streak} 次）：${message}`)
+          logger.warn(`知识提取失败（连续第 ${streak} 次）：${message}`)
+        }
+
         report.error = errors.join('；')
         return report
+      } finally {
+        endRoundDocCache()
       }
-      try {
-        const extracted = await extractRound(settings)
-        report.messageCount = extracted.messageCount
-        report.announcementCount = extracted.announcementCount
-        report.draftCount = extracted.draftCount
-        await sediment.setState(SEDIMENT_KEYS.failStreak, '0')
-      } catch (error) {
-        const streak = failStreak + 1
-        await sediment.setState(SEDIMENT_KEYS.failStreak, String(streak)).catch(() => undefined)
-        const message = error instanceof Error ? error.message : String(error)
-        errors.push(`知识提取失败（连续第 ${streak} 次）：${message}`)
-        logger.warn(`知识提取失败（连续第 ${streak} 次）：${message}`)
-      }
-
-      report.error = errors.join('；')
-      return report
     })()
     return inFlight.finally(() => {
       inFlight = null

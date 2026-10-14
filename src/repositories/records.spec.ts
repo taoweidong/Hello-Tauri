@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { logger } from '@/utils/logger'
 
 /**
  * SQL 仓储单测：断言生成的 SQL 与参数绑定序列 —— 这是 Q1 决策下真正的
@@ -37,12 +38,15 @@ vi.mock('@/api', () => ({
     return db.platform
   },
 }))
+vi.mock('@/utils/logger', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}))
 
 vi.mock('@/utils/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
-import { sqlRecordsBackend, SEED_ROWS } from '@/repositories/records'
+import { sqlRecordsBackend, SEED_ROWS, LOAD_ALL_LIMIT } from '@/repositories/records'
 
 function dbRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -128,6 +132,8 @@ describe('sqlRecordsBackend', () => {
     const sql = db.dbSelect.mock.calls[0][0]
     expect(sql).toContain('FROM records')
     expect(sql).toContain('ORDER BY id DESC')
+    // 防呆上限（N8）：示例表当前只有种子 12 条，但被复用成大表时不得整表读进内存
+    expect(sql).toMatch(/LIMIT\s+\d+/i)
     expect(rows[0]).toEqual({
       id: 7,
       name: 'x',
@@ -138,6 +144,13 @@ describe('sqlRecordsBackend', () => {
       createdAt: '2026-09-24',
     })
     expect(rows[1].status).toBe('inactive')
+  })
+
+  it('触到防呆上限时显式告警（不是悄悄少显示几行）', async () => {
+    db.dbSelect.mockResolvedValueOnce(Array.from({ length: LOAD_ALL_LIMIT }, () => dbRow()))
+    const rows = await sqlRecordsBackend.loadAll()
+    expect(rows).toHaveLength(LOAD_ALL_LIMIT)
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('分页下推'))
   })
 
   it('insert 用 lastInsertId 回填新行，参数含今日日期', async () => {

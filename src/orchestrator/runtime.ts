@@ -308,7 +308,18 @@ export function createWelinkRuntime(options: WelinkRuntimeOptions): WelinkRuntim
     },
 
     running() {
-      return started && poller.running()
+      // 第二轮修复：**现算**，不再只依赖 `started` 这个快照位。
+      //
+      // `started` 只在 start()/stop() 写，而 `reload()`（设置页每次改配置都会走）
+      // 更新 `currentSettings` 却从不同步它 —— 于是「总开关已被改成关」时
+      // `running()` 仍返回 true。这个值有**两个互相冲突的用途**：
+      //   ① 托盘状态回显（host-link 的 tray_set_status）；
+      //   ② 托盘「暂停/恢复」菜单项的唯一翻转判据。
+      // 回显说「运行中」而翻转判据也以为在跑 → 用户点「暂停」实际执行的是
+      // stop()、期望却是 start() 的语义错配，表现为「点一次毫无反应」。
+      // 这里把总开关也纳入实时判定，消除过期位（急停另由 status 合成层处理，
+      // 不并入本判据，以免改变托盘菜单的翻转语义）。
+      return started && currentSettings.enabled && poller.running()
     },
   }
 }
