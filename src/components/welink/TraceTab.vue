@@ -560,7 +560,7 @@ onMounted(loadJobs)
   border-radius: 6px;
   background: var(--ht-surface-2);
   color: var(--ht-text-1);
-  font-family: var(--ht-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-family: var(--ht-font-mono);
   font-size: 11.5px;
   line-height: 1.6;
   white-space: pre-wrap;

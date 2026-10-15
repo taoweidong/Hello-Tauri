@@ -7,6 +7,7 @@
  */
 import type { Ref, ShallowRef } from 'vue'
 
+import { registerSecret } from '@/utils/logger'
 import { nowStamp, today } from '@/utils/time'
 import type { WelinkRuntime } from '@/orchestrator/runtime'
 import type { PollSummary } from '@/orchestrator/events'
@@ -175,6 +176,10 @@ export function createWelinkData(deps: WelinkDataDeps): WelinkData {
    * UI 经此方法使用，不直触 infra（quality-hardening-2026-10 V1 治理）。
    */
   async function probeAgent(agent: WelinkSettings['agent']): Promise<string> {
+    // 探测用的是**草稿**（尚未 applySettings），不在既有注册点覆盖范围内。
+    // agent-http 会把响应体前 200 字拼进 AgentError，网关 4xx 回显请求信息时
+    // 密钥会顺着这条链进日志与 UI 运行日志区 —— 故在此就地注册（幂等）。
+    registerSecret(agent.apiKey)
     const probe = createAgentProbe({ ...agent, timeoutMs: Math.min(agent.timeoutMs, 15_000) })
     return probe.complete('连通性测试：请只回复「ok」两个字符。')
   }
@@ -188,6 +193,8 @@ export function createWelinkData(deps: WelinkDataDeps): WelinkData {
    * 按钮在慢服务上挂满配置超时。
    */
   async function probeRag(rag: WelinkSettings['rag']): Promise<{ latencyMs: number; preview: string }> {
+    // 与 probeAgent 同源风险（探测走草稿、检索响应体会进 preview/日志）
+    registerSecret(rag.apiKey)
     const started = Date.now()
     const chunks = await createRagProbe({ ...rag, timeoutMs: Math.min(rag.timeoutMs, 15_000) }).retrieve({
       query: '连通性测试：VPN 连不上怎么处理',

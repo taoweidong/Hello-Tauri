@@ -169,8 +169,8 @@ defineExpose({ startAdd, startEdit, saveEditor, closeEditor, removeSkill, setEna
           <el-tag v-if="skill.reviewMode === 'manual'" size="small" type="warning" effect="plain">需人工审核</el-tag>
           <el-tag size="small" effect="plain" class="sk__meta">{{ skill.keywords.length }} 个关键词</el-tag>
           <span class="spacer" />
-          <el-button link size="small" :disabled="index === 0" @click="move(skill.id, -1)">上移</el-button>
-          <el-button link size="small" :disabled="index === skills.length - 1" @click="move(skill.id, 1)"
+          <el-button text size="small" :disabled="index === 0" @click="move(skill.id, -1)">上移</el-button>
+          <el-button text size="small" :disabled="index === skills.length - 1" @click="move(skill.id, 1)"
             >下移</el-button
           >
           <el-switch
@@ -181,8 +181,8 @@ defineExpose({ startAdd, startEdit, saveEditor, closeEditor, removeSkill, setEna
             inactive-text="停用"
             @update:model-value="(value: string | number | boolean) => setEnabled(skill.id, Boolean(value))"
           />
-          <el-button link type="primary" size="small" @click="startEdit(skill)">编辑</el-button>
-          <el-button link type="danger" size="small" :icon="IconTrash" @click="removeSkill(skill.id)">删除</el-button>
+          <el-button text type="primary" size="small" @click="startEdit(skill)">编辑</el-button>
+          <el-button text type="danger" size="small" :icon="IconTrash" @click="removeSkill(skill.id)">删除</el-button>
         </li>
       </ul>
 
@@ -333,7 +333,7 @@ defineExpose({ startAdd, startEdit, saveEditor, closeEditor, removeSkill, setEna
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid var(--ht-border, #dcdfe6);
+  border: 1px solid var(--ht-border);
   border-radius: 6px;
 }
 
@@ -380,7 +380,7 @@ defineExpose({ startAdd, startEdit, saveEditor, closeEditor, removeSkill, setEna
 }
 
 .wc__textarea :deep(textarea) {
-  font-family: var(--ht-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-family: var(--ht-font-mono);
   font-size: 12px;
   line-height: 1.65;
 }

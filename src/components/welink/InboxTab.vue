@@ -470,7 +470,7 @@ onMounted(load)
   padding: 0 5px;
   border-radius: 8px;
   background: var(--ht-danger);
-  color: #fff;
+  color: var(--ht-on-accent);
   font-size: 10.5px;
   line-height: 16px;
   text-align: center;
@@ -586,7 +586,7 @@ onMounted(load)
 
 .bubble--out .bubble__text {
   background: var(--ht-primary);
-  color: #fff;
+  color: var(--ht-on-accent);
   border-top-right-radius: 3px;
 }
 

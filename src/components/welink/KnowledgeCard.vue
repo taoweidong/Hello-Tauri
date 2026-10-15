@@ -20,6 +20,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { IconPlus, IconRefresh } from '@/components/icons'
 import { useKnowledgeStore } from '@/stores/welink/knowledge'
 import { toKnowledgeFileName, type KnowledgeDocSource } from '@/types/knowledge'
+import { errorText, runUiAction } from '@/utils/ui-action'
 
 const knowledgeStore = useKnowledgeStore()
 const available = knowledgeStore.fsAvailable
@@ -79,6 +80,10 @@ async function openEdit(doc: { file: string; title: string }) {
   editing.value = { file: doc.file, title: doc.title, content, isNew: false }
 }
 
+/** 写文件类动作的繁忙态：知识文档写入 knowledge/ 目录，连点会重复落盘 */
+const savingDoc = ref(false)
+const approving = ref(false)
+
 async function saveEdit() {
   const draft = editing.value
   if (!draft) return
@@ -95,19 +100,18 @@ async function saveEdit() {
     ElMessage.warning(`同名文件已在清单中：${file}`)
     return
   }
-  try {
-    await knowledgeStore.saveDoc({
-      file,
-      title: draft.title.trim() || file,
-      content: draft.content,
-      source: 'manual',
-      overwrite: !draft.isNew,
-    })
-    ElMessage.success('知识文档已保存')
-    editing.value = null
-  } catch (error) {
-    ElMessage.error(`保存失败：${error instanceof Error ? error.message : String(error)}`)
-  }
+  const ok = await runUiAction(
+    () =>
+      knowledgeStore.saveDoc({
+        file,
+        title: draft.title.trim() || file,
+        content: draft.content,
+        source: 'manual',
+        overwrite: !draft.isNew,
+      }),
+    { fail: '保存知识文档失败', ok: '知识文档已保存', busy: savingDoc },
+  )
+  if (ok) editing.value = null
 }
 
 async function offShelf(doc: { file: string; title: string }) {
@@ -120,8 +124,10 @@ async function offShelf(doc: { file: string; title: string }) {
   } catch {
     return
   }
-  await knowledgeStore.offShelf(doc.file)
-  ElMessage.success('已下架（文件已保留在 knowledge/ 目录）')
+  await runUiAction(() => knowledgeStore.offShelf(doc.file), {
+    fail: '下架失败',
+    ok: '已下架（文件已保留在 knowledge/ 目录）',
+  })
 }
 
 function openRegister() {
@@ -136,16 +142,17 @@ async function saveRegister() {
     ElMessage.warning('文件名不能为空（含 .md 后缀）')
     return
   }
+  savingDoc.value = true
   try {
     await knowledgeStore.registerDoc({ file, title: draft.title.trim() || file })
     ElMessage.success('已登记')
     registering.value = null
   } catch (error) {
-    if (error instanceof Error && error.message.includes('未找到')) {
-      ElMessage.warning(error.message)
-      return
-    }
-    ElMessage.error(`登记失败：${error instanceof Error ? error.message : String(error)}`)
+    // 「文件未找到」是预期内的用户操作结果（登记了还没放进目录），用 warning 而非 error
+    if (error instanceof Error && error.message.includes('未找到')) ElMessage.warning(error.message)
+    else ElMessage.error(errorText(error, '登记失败'))
+  } finally {
+    savingDoc.value = false
   }
 }
 
@@ -174,23 +181,26 @@ async function approveDraft() {
     ElMessage.warning('请选择要并入的文档')
     return
   }
-  try {
-    const ok = await knowledgeStore.approveDraft(
-      draft.pk,
-      { title: draft.title.trim(), content: draft.content.trim() },
-      draft.mode === 'append' ? { file: draft.targetFile } : undefined,
-    )
-    if (!ok) {
-      ElMessage.warning('该条目已被评审过')
-      await loadQueue()
-      reviewing.value = null
-      return
-    }
-    ElMessage.success(draft.mode === 'append' ? '已并入既有文档' : '已写入知识库')
+  let accepted = false
+  const ok = await runUiAction(
+    async () => {
+      accepted = await knowledgeStore.approveDraft(
+        draft.pk,
+        { title: draft.title.trim(), content: draft.content.trim() },
+        draft.mode === 'append' ? { file: draft.targetFile } : undefined,
+      )
+    },
+    { fail: '写入知识库失败', busy: approving },
+  )
+  if (!ok) return
+  if (!accepted) {
+    ElMessage.warning('该条目已被评审过')
+    await loadQueue()
     reviewing.value = null
-  } catch (error) {
-    ElMessage.error(`写入知识库失败：${error instanceof Error ? error.message : String(error)}`)
+    return
   }
+  ElMessage.success(draft.mode === 'append' ? '已并入既有文档' : '已写入知识库')
+  reviewing.value = null
 }
 
 async function rejectDraft(draft: { pk: number; title: string }) {
@@ -203,8 +213,15 @@ async function rejectDraft(draft: { pk: number; title: string }) {
   } catch {
     return
   }
-  const ok = await knowledgeStore.rejectDraft(draft.pk, '人工拒绝')
-  if (ok) ElMessage.success('已拒绝')
+  let accepted = false
+  const ok = await runUiAction(
+    async () => {
+      accepted = await knowledgeStore.rejectDraft(draft.pk, '人工拒绝')
+    },
+    { fail: '拒绝失败' },
+  )
+  if (!ok) return
+  if (accepted) ElMessage.success('已拒绝')
   else ElMessage.warning('该条目已被评审过')
   await loadQueue()
 }
@@ -260,8 +277,8 @@ onMounted(() => {
               }}</el-tag>
               <span class="kb__draft-content">{{ draft.content }}</span>
               <span class="spacer" />
-              <el-button link type="primary" size="small" @click="openReview(draft)">评审</el-button>
-              <el-button link type="danger" size="small" @click="rejectDraft(draft)">拒绝</el-button>
+              <el-button text type="primary" size="small" @click="openReview(draft)">评审</el-button>
+              <el-button text type="danger" size="small" @click="rejectDraft(draft)">拒绝</el-button>
             </li>
           </ul>
         </div>
@@ -278,7 +295,7 @@ onMounted(() => {
           知识库为空：新建 Markdown 文档，或把已有 md 文件放入数据根 knowledge/ 目录后「登记」。
         </p>
 
-        <ul class="kb__list">
+        <ul v-loading="loading" class="kb__list">
           <li v-for="doc in docs" :key="doc.file" class="kb__row">
             <span class="kb__title">{{ doc.title }}</span>
             <el-tag size="small" effect="plain" :type="doc.source === 'manual' ? 'info' : 'success'">{{
@@ -287,8 +304,8 @@ onMounted(() => {
             <span class="kb__file mono">{{ doc.file }}</span>
             <span class="spacer" />
             <span class="kb__time">{{ doc.updatedAt }}</span>
-            <el-button link type="primary" size="small" @click="openEdit(doc)">编辑</el-button>
-            <el-button link type="danger" size="small" @click="offShelf(doc)">下架</el-button>
+            <el-button text type="primary" size="small" @click="openEdit(doc)">编辑</el-button>
+            <el-button text type="danger" size="small" @click="offShelf(doc)">下架</el-button>
           </li>
         </ul>
 
@@ -312,7 +329,7 @@ onMounted(() => {
           />
           <div class="kb__edit-bar">
             <el-button size="small" @click="editing = null">取消</el-button>
-            <el-button size="small" type="primary" @click="saveEdit">保存</el-button>
+            <el-button size="small" type="primary" :loading="savingDoc" @click="saveEdit">保存</el-button>
           </div>
         </div>
 
@@ -329,7 +346,7 @@ onMounted(() => {
           </el-form>
           <div class="kb__edit-bar">
             <el-button size="small" @click="registering = null">取消</el-button>
-            <el-button size="small" type="primary" @click="saveRegister">登记</el-button>
+            <el-button size="small" type="primary" :loading="savingDoc" @click="saveRegister">登记</el-button>
           </div>
         </div>
 
@@ -359,7 +376,7 @@ onMounted(() => {
           <el-input v-model="reviewing.content" type="textarea" :rows="8" class="kb__textarea" />
           <div class="kb__edit-bar">
             <el-button size="small" @click="reviewing = null">取消</el-button>
-            <el-button size="small" type="primary" @click="approveDraft">通过并写入</el-button>
+            <el-button size="small" type="primary" :loading="approving" @click="approveDraft">通过并写入</el-button>
           </div>
         </div>
       </template>
@@ -426,7 +443,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid var(--ht-border, #dcdfe6);
+  border: 1px solid var(--ht-border);
   border-radius: 6px;
 }
 
@@ -435,7 +452,7 @@ onMounted(() => {
 }
 
 .kb__queue {
-  border: 1px dashed var(--ht-border, #dcdfe6);
+  border: 1px dashed var(--ht-border);
   border-radius: 6px;
   padding: 8px 10px;
   display: flex;
@@ -468,7 +485,7 @@ onMounted(() => {
 }
 
 .mono {
-  font-family: var(--ht-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-family: var(--ht-font-mono);
 }
 
 .kb__time {
@@ -477,7 +494,7 @@ onMounted(() => {
 }
 
 .kb__edit {
-  border: 1px solid var(--ht-border, #dcdfe6);
+  border: 1px solid var(--ht-border);
   border-radius: 6px;
   padding: 10px 12px;
   display: flex;
@@ -501,7 +518,7 @@ onMounted(() => {
 }
 
 .kb__textarea :deep(textarea) {
-  font-family: var(--ht-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-family: var(--ht-font-mono);
   font-size: 12px;
   line-height: 1.65;
 }

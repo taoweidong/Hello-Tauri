@@ -64,6 +64,14 @@
   --ht-font-mono: Consolas, 'Cascadia Mono', 'SFMono-Regular', Menlo, Monaco, 'Courier New', monospace;
   --ht-mono: var(--ht-font-mono);
 
+  /**
+   * 强调色底上的前景色（徽标/图标底 / 主色按钮文字）。
+   *
+   * 此前 13 处直接写 `color: #fff`：值与主题无关，但**语义**（"压在强调色上的
+   * 文字"）被抹掉了，将来换强调色时无从批量替换。收成一个具名 token。
+   */
+  --ht-on-accent: #fff;
+
   /* —— Element Plus 覆写：主色阶梯 —— */
   --el-color-primary: var(--ht-primary);
   --el-color-primary-light-3: #7c87b9;
@@ -156,6 +164,9 @@ html.dark {
   --el-color-danger: var(--ht-danger);
   --el-color-danger-light-9: #30201f;
   --el-color-info: var(--ht-text-3);
+
+  /* 暗色下强调色底上的前景色同样是白（与亮色同值，故不在 :root 之外重复语义） */
+  --ht-on-accent: #fff;
 
   --el-bg-color: var(--ht-surface);
   --el-bg-color-page: var(--ht-canvas);

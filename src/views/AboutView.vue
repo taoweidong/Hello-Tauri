@@ -170,7 +170,7 @@ const structure = [
   height: 26px;
   border-radius: 8px;
   background: var(--ht-primary);
-  color: #fff;
+  color: var(--ht-on-accent);
   flex-shrink: 0;
 }
 

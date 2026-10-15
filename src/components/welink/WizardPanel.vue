@@ -228,7 +228,7 @@ onMounted(() => {
 .wiz__step.is-active {
   border-color: var(--ht-primary);
   background: var(--ht-primary);
-  color: #fff;
+  color: var(--ht-on-accent);
 }
 
 .wiz__step.is-done {

@@ -245,7 +245,7 @@ function liftFuse() {
 
 .bar__panic.is-on {
   background: var(--ht-danger);
-  color: #fff;
+  color: var(--ht-on-accent);
 }
 
 .bar__panic-icon {

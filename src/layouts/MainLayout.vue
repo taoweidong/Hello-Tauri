@@ -228,7 +228,7 @@ function go(path: string) {
   height: 26px;
   border-radius: 7px;
   background: var(--ht-primary);
-  color: #fff;
+  color: var(--ht-on-accent);
   flex-shrink: 0;
 }
 
@@ -316,7 +316,7 @@ function go(path: string) {
   padding: 0 5px;
   border-radius: 9px;
   background: var(--ht-danger);
-  color: #fff;
+  color: var(--ht-on-accent);
   font-size: 10.5px;
   line-height: 17px;
   text-align: center;

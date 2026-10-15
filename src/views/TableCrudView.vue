@@ -8,6 +8,7 @@ import { CATEGORIES, useTableStore } from '@/stores/table'
 import { useAppStore } from '@/stores/app'
 import type { TableRow, TableRowDraft } from '@/types'
 import { rowOf } from '@/utils/table'
+import { errorText, runUiAction } from '@/utils/ui-action'
 
 const appStore = useAppStore()
 const tableStore = useTableStore()
@@ -17,6 +18,9 @@ const editingId = ref<number | null>(null)
 const submitting = ref(false)
 const selectedRows = ref<TableRow[]>([])
 const formRef = ref<FormInstance>()
+/** 工具条三个动作的繁忙态：导出写文件、恢复示例覆盖全表，连点代价不可逆 */
+const exporting = ref(false)
+const resetting = ref(false)
 
 const draft = reactive<TableRowDraft>({
   name: '',
@@ -88,10 +92,10 @@ async function submit() {
     }
     if (editingId.value === null) {
       await tableStore.create(payload)
-      ElMessage({ message: '已新增记录', type: 'success' })
+      ElMessage.success('已新增记录')
     } else {
       await tableStore.update(editingId.value, payload)
-      ElMessage({ message: '已保存修改', type: 'success' })
+      ElMessage.success('已保存修改')
     }
     dialogVisible.value = false
   } catch (error) {
@@ -111,7 +115,7 @@ async function removeOne(row: TableRow) {
   if (confirmed === false) return
   try {
     await tableStore.remove([row.id])
-    ElMessage({ message: '已删除', type: 'success' })
+    ElMessage.success('已删除')
   } catch (error) {
     ElMessage.error(error instanceof Error ? `删除失败：${error.message}` : '删除失败')
   }
@@ -136,7 +140,7 @@ async function removeSelected() {
   try {
     await tableStore.remove(selectedRows.value.map((row) => row.id))
     selectedRows.value = []
-    ElMessage({ message: '已删除', type: 'success' })
+    ElMessage.success('已删除')
   } catch (error) {
     ElMessage.error(error instanceof Error ? `删除失败：${error.message}` : '删除失败')
   }
@@ -149,13 +153,10 @@ async function resetData() {
     cancelButtonText: '取消',
   }).catch(() => false)
   if (confirmed === false) return
-  try {
-    await tableStore.resetSeed()
-    selectedRows.value = []
-    ElMessage({ message: '已恢复示例数据', type: 'success' })
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? `恢复失败：${error.message}` : '恢复失败')
-  }
+  const ok = await runUiAction(() => tableStore.resetSeed(), { fail: '恢复示例数据失败', busy: resetting })
+  if (!ok) return
+  selectedRows.value = []
+  ElMessage.success('已恢复示例数据')
 }
 
 function onSelectionChange(rows: TableRow[]) {
@@ -179,19 +180,29 @@ function clearFilters() {
   tableStore.category = ''
 }
 
-/** 导出当前筛选结果为 CSV：平台分支收敛在 table store（V3 治理），视图只做提示 */
+/**
+ * 导出当前筛选结果为 CSV：平台分支收敛在 table store（V3 治理），视图只做提示。
+ *
+ * 这里的 `try/catch` 是为了接住 store 抛出的异常——旧实现是裸 await，写文件失败
+ * （路径不可写 / 被占用）时既没提示也没复位按钮，表现为「点了没反应」。
+ * 没走 `runUiAction` 是因为要区分 store 返回的「业务拒绝」与「抛错」两类结果，
+ * 而 `runUiAction` 统一返回值后拿不到业务载荷。
+ */
 async function exportCsv() {
-  const result = await tableStore.exportCsv(tableStore.filtered)
-  if (!result.ok) {
-    if (result.reason === '没有可导出的记录') ElMessage.warning(result.reason)
-    else ElMessage.error(result.reason)
-    return
+  exporting.value = true
+  try {
+    const result = await tableStore.exportCsv(tableStore.filtered)
+    if (!result.ok) {
+      if (result.reason === '没有可导出的记录') ElMessage.warning(result.reason)
+      else ElMessage.error(result.reason)
+      return
+    }
+    ElMessage.success(result.target === '已下载 CSV' ? result.target : `已导出到 ${result.target}`)
+  } catch (error) {
+    ElMessage.error(errorText(error, '导出 CSV 失败'))
+  } finally {
+    exporting.value = false
   }
-  if (result.target === '已下载 CSV') {
-    ElMessage({ message: result.target, type: 'success' })
-    return
-  }
-  ElMessage({ message: `已导出到 ${result.target}`, type: 'success' })
 }
 
 /** 分页器改变每页条数时写回配置源（单一真值），自动保存负责落盘 */
@@ -227,12 +238,12 @@ function onPageSizeChange(size: number) {
           <IconX class="toolbar__clear-icon" /> 清除筛选
         </button>
         <div class="toolbar__spacer" />
-        <el-button :icon="IconDownload" @click="exportCsv">导出 CSV</el-button>
-        <el-button :icon="IconRestore" @click="resetData">恢复示例</el-button>
-        <el-button :disabled="!selectedRows.length" :icon="IconTrash" @click="removeSelected">
+        <el-button size="small" :loading="exporting" :icon="IconDownload" @click="exportCsv">导出 CSV</el-button>
+        <el-button size="small" :loading="resetting" :icon="IconRestore" @click="resetData">恢复示例</el-button>
+        <el-button size="small" :disabled="!selectedRows.length" :icon="IconTrash" @click="removeSelected">
           批量删除<template v-if="selectedRows.length">（{{ selectedRows.length }}）</template>
         </el-button>
-        <el-button type="primary" :icon="IconPlus" @click="openCreate">新增</el-button>
+        <el-button size="small" type="primary" :icon="IconPlus" @click="openCreate">新增</el-button>
       </header>
 
       <!-- 表格 -->
@@ -357,8 +368,8 @@ function onPageSizeChange(size: number) {
       </el-form>
       <template #footer>
         <div class="dialog-foot">
-          <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" :loading="submitting" @click="submit">
+          <el-button size="small" @click="dialogVisible = false">取消</el-button>
+          <el-button size="small" type="primary" :loading="submitting" @click="submit">
             {{ editingId === null ? '创建记录' : '保存修改' }}
           </el-button>
         </div>
@@ -469,13 +480,14 @@ function onPageSizeChange(size: number) {
   color: var(--ht-primary);
 }
 
+/* 语义色统一走 EP 变量：这里原先写死 #f7e9e9 / #30201f，切主题时不会跟着变 */
 .act--danger:hover {
-  background: #f7e9e9;
+  background: var(--el-color-danger-light-9);
   color: var(--ht-danger);
 }
 
 html.dark .act--danger:hover {
-  background: #30201f;
+  background: var(--el-color-danger-light-9);
 }
 
 /* —— 分页脚 —— */

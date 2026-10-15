@@ -15,6 +15,7 @@ import { useGroupStore } from '@/stores/group'
 import { normalizeMemberIds } from '@/types/welink'
 import type { GroupTemplate } from '@/types/welink'
 import { rowOf } from '@/utils/table'
+import { runUiAction } from '@/utils/ui-action'
 import { shortStamp } from '@/utils/welink-display'
 
 const store = useGroupStore()
@@ -23,6 +24,8 @@ const dialogVisible = ref(false)
 const editingPk = ref<number | null>(null)
 const submitting = ref(false)
 const formRef = ref<FormInstance>()
+/** 列表加载态：模板表的增删改都会重拉，没有它「删除中」点第二次会重复提交 */
+const loading = ref(false)
 
 const draft = reactive({ name: '', groupName: '', membersInput: '', description: '' })
 
@@ -87,24 +90,23 @@ async function submit() {
     return
   }
 
-  submitting.value = true
-  try {
-    await store.saveTemplate(
-      {
-        name: draft.name.trim(),
-        groupName: draft.groupName.trim(),
-        members: members.value,
-        description: draft.description.trim(),
-      },
-      editingPk.value ?? undefined,
-    )
-    ElMessage.success(editingPk.value === null ? '已创建模板' : '已保存修改')
-    dialogVisible.value = false
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '保存模板失败')
-  } finally {
-    submitting.value = false
-  }
+  const ok = await runUiAction(
+    () =>
+      store.saveTemplate(
+        {
+          name: draft.name.trim(),
+          groupName: draft.groupName.trim(),
+          members: members.value,
+          description: draft.description.trim(),
+        },
+        editingPk.value ?? undefined,
+      ),
+    { fail: '保存模板失败', busy: submitting },
+  )
+  if (!ok) return
+  ElMessage.success(editingPk.value === null ? '已创建模板' : '已保存修改')
+  dialogVisible.value = false
+  void loadTemplates()
 }
 
 async function remove(row: unknown) {
@@ -115,16 +117,20 @@ async function remove(row: unknown) {
     { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
   ).catch(() => false)
   if (confirmed === false) return
-  try {
-    await store.removeTemplate(template.pk)
-    ElMessage.success('已删除模板')
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '删除模板失败')
-  }
+  const ok = await runUiAction(() => store.removeTemplate(template.pk), { fail: '删除模板失败', ok: '已删除模板' })
+  if (ok) void loadTemplates()
+}
+
+/**
+ * 重拉模板清单：列表没有加载态时，删/存期间界面毫无反馈，用户会以为没点上而连点。
+ * 失败也要走统一出口提示——`onMounted` 里的 `void` 旧写法会把失败变成静默空列表。
+ */
+async function loadTemplates(): Promise<void> {
+  await runUiAction(() => store.loadTemplates(), { fail: '加载模板失败', busy: loading })
 }
 
 onMounted(() => {
-  void store.loadTemplates()
+  void loadTemplates()
 })
 </script>
 
@@ -133,10 +139,15 @@ onMounted(() => {
     <header class="tpl__toolbar">
       <span class="tpl__hint">模板保存「群名称 + 成员工号」，建群时一键带入、可再修改。</span>
       <div class="tpl__spacer" />
-      <el-button type="primary" :icon="IconPlus" @click="openCreate">新建模板</el-button>
+      <el-button size="small" type="primary" :icon="IconPlus" @click="openCreate">新建模板</el-button>
     </header>
 
-    <el-table :data="store.templates" class="tpl__table" empty-text="暂无模板，点右上角「新建模板」创建">
+    <el-table
+      v-loading="loading"
+      :data="store.templates"
+      class="tpl__table"
+      empty-text="暂无模板，点右上角「新建模板」创建"
+    >
       <el-table-column label="模板名" min-width="140">
         <template #default="{ row }">
           <span class="tpl__name">{{ templateOf(row).name }}</span>
@@ -154,13 +165,19 @@ onMounted(() => {
       </el-table-column>
       <el-table-column label="操作" width="130" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-          <el-button link type="danger" size="small" :icon="IconTrash" @click="remove(row)">删除</el-button>
+          <el-button text type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+          <el-button text type="danger" size="small" :icon="IconTrash" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="560px" :close-on-click-modal="false">
+    <el-dialog
+      v-model="dialogVisible"
+      :title="dialogTitle"
+      width="560px"
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
       <el-form ref="formRef" :model="draft" label-position="top" :rules="rules" @submit.prevent>
         <el-form-item label="模板名" prop="name">
           <el-input v-model="draft.name" placeholder="如：项目周会群" maxlength="30" show-word-limit />
@@ -182,8 +199,8 @@ onMounted(() => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submit">保存</el-button>
+        <el-button size="small" @click="dialogVisible = false">取消</el-button>
+        <el-button size="small" type="primary" :loading="submitting" @click="submit">保存</el-button>
       </template>
     </el-dialog>
   </div>

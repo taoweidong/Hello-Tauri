@@ -565,7 +565,7 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
   padding: 0 6px;
   border-radius: 9px;
   background: var(--ht-danger);
-  color: #fff;
+  color: var(--ht-on-accent);
   font-size: 10.5px;
   line-height: 18px;
   text-align: center;

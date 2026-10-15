@@ -161,10 +161,9 @@ function switchTab(tab: 'templates' | 'history') {
   padding-right: 4px;
 }
 
+/* 与 WeLinkView 同口径：滚动交给外层 `.canvas`，内层只保留最小高度与内边距 */
 .tabs__body {
   min-height: 420px;
-  max-height: calc(100vh - 320px);
-  overflow: auto;
   padding: 14px;
 }
 </style>

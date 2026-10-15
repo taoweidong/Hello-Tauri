@@ -231,7 +231,7 @@ const timeLabel = (stamp: string) => shortStamp(stamp)
 
 .bubble--out .bubble__text {
   background: var(--ht-primary);
-  color: #fff;
+  color: var(--ht-on-accent);
   border-top-right-radius: 3px;
 }
 

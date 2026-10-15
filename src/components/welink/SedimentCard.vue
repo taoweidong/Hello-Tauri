@@ -301,6 +301,6 @@ const reportText = computed(() => {
 }
 
 .mono {
-  font-family: var(--ht-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-family: var(--ht-font-mono);
 }
 </style>

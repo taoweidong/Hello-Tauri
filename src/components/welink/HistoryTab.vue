@@ -22,6 +22,7 @@ import { useWelinkStore } from '@/stores/welink'
 import { JOB_STATUS_LABEL, JOB_STATUS_TONE, skillSourceLabelOf } from '@/types/welink'
 import type { JobStatus, WelinkJob } from '@/types/welink'
 import { rowOf } from '@/utils/table'
+import { runUiAction } from '@/utils/ui-action'
 import { shortStamp } from '@/utils/welink-display'
 
 const props = defineProps<{ preset: { onlyHolding?: boolean; onlySkipped?: boolean; targetId?: string } | null }>()
@@ -170,12 +171,27 @@ onMounted(load)
 // ---------------- 行操作 ----------------
 
 async function retry(job: WelinkJob) {
-  const ok = await store.retryJob(job.pk)
-  ElMessage[ok ? 'success' : 'error'](ok ? '已重新入队（重发同样经过安全闸口）' : '重发未生效：草稿为空或状态不允许')
+  // 注意区分两层「失败」：抛错=请求都没成（必须提示）；返回 false=业务拒绝（有明确语义）。
+  // 旧实现只判了后者，前置的抛错会变成 unhandled rejection——界面上按钮点了没反应。
+  let accepted = false
+  const ok = await runUiAction(
+    async () => {
+      accepted = await store.retryJob(job.pk)
+    },
+    { fail: '重发失败' },
+  )
+  if (!ok) return
+  if (!accepted) {
+    ElMessage.error('重发未生效：草稿为空或状态不允许')
+    return
+  }
+  ElMessage.success('已重新入队（重发同样经过安全闸口）')
   void load()
 }
 
 const editDialog = reactive({ open: false, jobPk: 0, text: '', risk: false, hit: false })
+/** 人工发送的繁忙态：这是**真实外发**动作，没有它连点会把消息发两遍 */
+const sending = ref(false)
 
 function openEdit(job: WelinkJob) {
   editDialog.open = true
@@ -208,9 +224,20 @@ async function confirmEdit() {
     ElMessage.warning('内容命中敏感句式，请勾选「我确认无误发风险」')
     return
   }
-  const ok = await store.editAndSend(editDialog.jobPk, editDialog.text)
+  let accepted = false
+  const ok = await runUiAction(
+    async () => {
+      accepted = await store.editAndSend(editDialog.jobPk, editDialog.text)
+    },
+    { fail: '发送失败', busy: sending },
+  )
+  if (!ok) return
   editDialog.open = false
-  ElMessage[ok ? 'success' : 'error'](ok ? '已提交发送' : '发送未生效，请查看日志')
+  if (!accepted) {
+    ElMessage.error('发送未生效，请查看日志')
+    return
+  }
+  ElMessage.success('已提交发送')
   void load()
 }
 
@@ -222,15 +249,14 @@ async function removeJob(job: WelinkJob) {
     { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
   ).catch(() => false)
   if (confirmed === false) return
-  await store.removeJob(job.pk)
-  ElMessage.success('已删除任务记录')
-  void load()
+  const ok = await runUiAction(() => store.removeJob(job.pk), { fail: '删除任务记录失败', ok: '已删除任务记录' })
+  if (ok) void load()
 }
 
 async function rate(job: WelinkJob, rating: 'up' | 'down') {
   const next = job.rating === rating ? null : rating
-  await store.rateJob(job.pk, next)
-  if (next === 'down') ElMessage.info('已标记为差评：该输入输出对将出现在回溯页「只看差评」')
+  const ok = await runUiAction(() => store.rateJob(job.pk, next), { fail: '评价失败' })
+  if (ok && next === 'down') ElMessage.info('已标记为差评：该输入输出对将出现在回溯页「只看差评」')
 }
 
 const expandedDraft = ref<number[]>([])
@@ -281,7 +307,7 @@ function latency(job: WelinkJob): string {
         <span class="stat__value num is-danger">{{ stats.failedCount }}</span>
       </div>
       <div class="stat">
-        <span class="stat__label">被拦 m 条</span>
+        <span class="stat__label">已拦截</span>
         <span class="stat__value num is-muted">{{ stats.skippedCount }}</span>
       </div>
       <div class="stat">
@@ -483,7 +509,13 @@ function latency(job: WelinkJob): string {
     </div>
 
     <!-- 编辑并发送弹层 -->
-    <el-dialog v-model="editDialog.open" title="编辑并发送" width="560px">
+    <el-dialog
+      v-model="editDialog.open"
+      title="编辑并发送"
+      width="560px"
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
       <p class="dialog__hint">人工发送同样经过安全闸口（开关 / 频控 / 黑名单），命中敏感句式需显式确认。</p>
       <el-input
         v-model="editDialog.text"
@@ -504,8 +536,13 @@ function latency(job: WelinkJob): string {
       />
       <el-checkbox v-if="editDialog.hit" v-model="editDialog.risk" class="dialog__risk">我确认无误发风险</el-checkbox>
       <template #footer>
-        <el-button @click="editDialog.open = false">取消</el-button>
-        <el-button type="primary" :disabled="editDialog.hit && !editDialog.risk" @click="confirmEdit"
+        <el-button size="small" @click="editDialog.open = false">取消</el-button>
+        <el-button
+          size="small"
+          type="primary"
+          :loading="sending"
+          :disabled="editDialog.hit && !editDialog.risk"
+          @click="confirmEdit"
           >确认发送</el-button
         >
       </template>

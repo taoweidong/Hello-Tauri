@@ -427,7 +427,7 @@ onMounted(load)
 .btn--primary {
   border-color: transparent;
   background: var(--ht-primary);
-  color: #fff;
+  color: var(--ht-on-accent);
 }
 
 .btn--primary:hover {
@@ -680,7 +680,7 @@ onMounted(load)
 .chip.is-active {
   border-color: transparent;
   background: var(--ht-primary);
-  color: #fff;
+  color: var(--ht-on-accent);
 }
 
 .list {
@@ -809,6 +809,6 @@ onMounted(load)
 }
 
 .mono {
-  font-family: var(--ht-mono, ui-monospace, monospace);
+  font-family: var(--ht-mono);
 }
 </style>

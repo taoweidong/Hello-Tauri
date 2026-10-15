@@ -180,9 +180,7 @@ async function refreshAll() {
 async function playDemo() {
   try {
     const ok = await store.playDemoScript()
-    ElMessage[ok ? 'success' : 'warning'](
-      ok ? '演示剧本已回放，请查看消息中心与回复历史' : '当前数据源不支持演示剧本',
-    )
+    ElMessage[ok ? 'success' : 'warning'](ok ? '演示剧本已回放，请查看消息中心与回复历史' : '当前数据源不支持演示剧本')
   } catch (error) {
     failAction('回放演示剧本', error)
   }
@@ -442,7 +440,7 @@ watch(
   padding: 0 5px;
   border-radius: 9px;
   background: var(--ht-danger);
-  color: #fff;
+  color: var(--ht-on-accent);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
@@ -453,10 +451,18 @@ watch(
   padding-right: 4px;
 }
 
+/**
+ * 单一滚动容器原则。
+ *
+ * 原先这里 `max-height: calc(100vh - 320px); overflow: auto`，而外层 `.canvas`
+ * （`MainLayout`）本身也是 `overflow: auto` —— 于是出现**双层滚动**：滚轮在页签
+ * 区域内滚内层、出界后才滚外层，长列表永远看不到页脚，用户直觉是"页面卡住了"。
+ * 现在内层不再自带滚动，滚动统一交给 `.canvas`（内层 `.logbox__list` 这类
+ * 定高小区域除外，它们是刻意的有界区）。
+ */
 .tabs__body {
   min-height: 420px;
-  max-height: calc(100vh - 320px);
-  overflow: auto;
+  padding: 14px;
 }
 
 .logbox {
@@ -525,7 +531,6 @@ watch(
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 6px 18px rgb(27 32 48 / 0.12);
 }
 
 .demo-fab:hover {

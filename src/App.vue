@@ -36,6 +36,17 @@ const updateStore = useUpdateStore()
  */
 const locale = zhCn
 
+/**
+ * 全局组件规格（第三轮 S3 一致性收口）。
+ *
+ * 勘察实测：102 个 `<el-button>` 里 81 个显式 `size="small"`、21 个漏写；其它组件
+ * （`el-input` 44 处、`el-switch` 12 处、`el-radio-group` 14 处全覆盖缺失……）
+ * 漏写合计 106 处。逐处补属性是「用重复去解决不一致」，下一次新增又会漏；
+ * 这里由 `ConfigProvider` 统一注入默认值 —— **显式写的 `size` 仍然优先**，
+ * 因此 81 处既有的 `size="small"` 无需改动也不会被顶掉。
+ */
+const componentSize = 'small' as const
+
 // —— 服务常驻：关窗策略下发（service-residency T-B）——
 // 前端是唯一读 config 的人（Rust 不碰配置文件，T-L）。immediate 覆盖启动时序：
 // 装配先于 load() 用默认 'tray' 兜底（用户立刻点 X 已受隐藏语义保护），配置
@@ -121,7 +132,7 @@ watch(
 </script>
 
 <template>
-  <el-config-provider :locale="locale">
+  <el-config-provider :locale="locale" :size="componentSize">
     <MainLayout />
   </el-config-provider>
 </template>

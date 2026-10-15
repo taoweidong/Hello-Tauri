@@ -13,6 +13,10 @@ const ragProbe = vi.hoisted(() => ({
 }))
 vi.mock('@/infra/rag', () => ({ createRagProbe: vi.fn(() => ({ retrieve: ragProbe.retrieve })) }))
 
+/** Agent 探针假件：探测不许真的发起网络请求（用假件钉住「注册」这一件事） */
+const agentProbe = vi.hoisted(() => ({ complete: vi.fn(async () => 'ok') }))
+vi.mock('@/infra/agent', () => ({ createAgentProbe: vi.fn(() => ({ complete: agentProbe.complete })) }))
+
 function job(pk: number, overrides: Partial<WelinkJob> = {}): WelinkJob {
   return { pk, targetId: 'G-1', status: 'ready', holdReason: '', createdAt: '', ...overrides } as WelinkJob
 }
@@ -186,4 +190,42 @@ describe('data：收件箱 / 搜索 / 演示', () => {
     expect(result.latencyMs).toBeGreaterThanOrEqual(0) // 真实计时（回归钉：曾硬编码 0）
     expect(result.preview).toContain('先查网关日志')
   })
+
+  /**
+   * 探测走的是**草稿**（尚未 applySettings），不在 `applySettings`/`reload` 两个
+   * 既有注册点覆盖范围内。`agent-http` 会把响应体前 200 字拼进 `AgentError`，
+   * 网关 4xx 回显请求信息时密钥会顺着错误串进日志与 UI 运行日志区 —— 故必须就
+   * 地注册。断言的是「出口真被遮蔽」，不是「registerSecret 被调用过」。
+   *
+   * 反证：去掉 data.ts 里 probeAgent/probeRag 的 `registerSecret(...)` → 两条用例变红。
+   */
+  it.each([['probeAgent', 'probe-agent-key-777'] as const, ['probeRag', 'probe-rag-key-888'] as const])(
+    '%s：草稿密钥进遮蔽表（探测错误串不外泄）',
+    async (method, key) => {
+      const { logger, onLog, resetSecretsForTest } = await import('@/utils/logger')
+      vi.stubGlobal('console', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+      resetSecretsForTest()
+      const harness = makeHarness()
+      const data = createWelinkData(harness.deps)
+      const lines: string[] = []
+      const stop = onLog((level, text) => lines.push(`[${level}] ${text}`))
+      try {
+        if (method === 'probeAgent') {
+          await data.probeAgent({ ...DEFAULT_WELINK_SETTINGS.agent, apiKey: key })
+        } else {
+          await data.probeRag({ ...DEFAULT_WELINK_SETTINGS.rag, apiKey: key })
+        }
+        // 复刻 agent-http / rag-http 的错误形态：把响应体片段拼进日志
+        logger.error(`探测失败 HTTP 401：invalid api key: ${key}`)
+
+        const out = lines.join('')
+        expect(out).not.toContain(key)
+        expect(out).toContain('***')
+      } finally {
+        stop()
+        resetSecretsForTest()
+        vi.unstubAllGlobals()
+      }
+    },
+  )
 })

@@ -19,6 +19,7 @@ import { useAppStore } from '@/stores/app'
 import { useWelinkStore } from '@/stores/welink'
 import type { WelinkConversation, WelinkConvType } from '@/types/welink'
 import { asBoolean, rowOf } from '@/utils/table'
+import { errorText, runUiAction } from '@/utils/ui-action'
 import { isMuted as isConversationMuted, muteLabel as muteLabelOf } from '@/utils/welink-display'
 
 const store = useWelinkStore()
@@ -155,25 +156,28 @@ function openEdit(conv: WelinkConversation) {
   dialog.remark = conv.remark
 }
 
+/** 弹层保存的繁忙态（防重复提交：写库动作没有它，连点会打两遍） */
+const saving = ref(false)
+
 async function submitDialog() {
   const convId = dialog.convId.trim()
   if (!convId) {
     ElMessage.warning('会话 ID 不能为空')
     return
   }
-  try {
-    await store.upsertConversation({
-      convType: dialog.convType,
-      convId,
-      title: dialog.title.trim(),
-      remark: dialog.remark.trim(),
-    })
-    dialog.open = false
-    ElMessage.success('已保存')
-    await load()
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '保存失败')
-  }
+  const ok = await runUiAction(
+    () =>
+      store.upsertConversation({
+        convType: dialog.convType,
+        convId,
+        title: dialog.title.trim(),
+        remark: dialog.remark.trim(),
+      }),
+    { fail: '保存失败', ok: '已保存', busy: saving },
+  )
+  if (!ok) return
+  dialog.open = false
+  await load()
 }
 
 // —— 开关 ——
@@ -182,9 +186,18 @@ async function submitDialog() {
  * 监控开关。关掉监控时 store 会联动关掉自动回复（watching=0 的会话不该继续外发），
  * 这里给出提示让用户知道这个联动是刻意的。
  */
+/**
+ * 开关类动作的通用形态：写完**无论成败都重拉**。
+ *
+ * 为什么要重拉：`el-switch` 是 `:model-value` + 事件（乐观更新），界面上的开关
+ * 在点下的那一刻就变了；写库失败时库里的值没变，若不重拉，用户看到的是
+ * 「开了」而系统认为「没开」——典型的静默失效。重拉即把界面回滚到真值。
+ */
 async function toggleWatching(conv: WelinkConversation, value: boolean) {
-  await store.updateConversation(conv.convId, { watching: value })
-  if (!value && conv.autoReply) ElMessage.info(`「${conv.title || conv.convId}」已停止监控，自动回复同步关闭`)
+  const ok = await runUiAction(() => store.updateConversation(conv.convId, { watching: value }), {
+    fail: '更新监控状态失败',
+  })
+  if (ok && !value && conv.autoReply) ElMessage.info(`「${conv.title || conv.convId}」已停止监控，自动回复同步关闭`)
   await load()
 }
 
@@ -194,19 +207,28 @@ async function toggleAutoReply(conv: WelinkConversation, value: boolean) {
     ElMessage.warning('请先开启「监控」，未监控的会话不参与拉取也无法回复')
     return
   }
-  await store.updateConversation(conv.convId, { autoReply: value })
+  await runUiAction(() => store.updateConversation(conv.convId, { autoReply: value }), {
+    fail: '更新自动回复失败',
+  })
   await load()
 }
 
 /** O11 静音 */
 async function mute(conv: WelinkConversation, hours: number) {
-  await store.muteConversation(conv.convId, hours)
-  ElMessage.success(`「${conv.title || conv.convId}」已静音 ${hours} 小时`)
+  const ok = await runUiAction(() => store.muteConversation(conv.convId, hours), { fail: '静音失败' })
+  if (ok) ElMessage.success(`「${conv.title || conv.convId}」已静音 ${hours} 小时`)
   await load()
 }
 
 async function remove(conv: WelinkConversation) {
-  const messageCount = await store.countMessagesOf(conv.convId)
+  // 条数是删除确认文案的一部分：读不到就中止，不能带着「0 条」的假安心去删
+  let messageCount: number
+  try {
+    messageCount = await store.countMessagesOf(conv.convId)
+  } catch (error) {
+    ElMessage.error(errorText(error, '读取会话消息条数失败，已取消删除'))
+    return
+  }
   const detail = messageCount
     ? `该会话有 ${messageCount} 条存档消息，删除将**级联删除**这些消息与全部回复任务，不可恢复。`
     : '该会话暂无存档消息，删除后仅移除配置。'
@@ -217,9 +239,8 @@ async function remove(conv: WelinkConversation) {
     dangerouslyUseHTMLString: false,
   }).catch(() => false)
   if (confirmed === false) return
-  await store.removeConversation(conv.convId)
-  ElMessage.success('已删除')
-  await load()
+  const ok = await runUiAction(() => store.removeConversation(conv.convId), { fail: '删除会话失败', ok: '已删除' })
+  if (ok) await load()
 }
 
 // —— 批量 ——
@@ -239,7 +260,14 @@ async function batchAutoReply(enabled: boolean) {
   if (confirmed === false) return
   // 只对监控中的会话生效：未监控的会话开启 autoReply 无意义（Gate 会拦）
   const targets = selected.value.filter((conv) => enabled === false || conv.watching).map((conv) => conv.convId)
-  const changed = await store.setAutoReply(targets, enabled)
+  let changed = 0
+  const ok = await runUiAction(
+    async () => {
+      changed = await store.setAutoReply(targets, enabled)
+    },
+    { fail: '批量更新自动回复失败' },
+  )
+  if (!ok) return
   ElMessage.success(`已更新 ${changed} 个会话`)
   selected.value = []
   await load()
@@ -279,7 +307,12 @@ onMounted(load)
     <div class="conf__bar">
       <div class="conf__search">
         <IconFilter class="conf__search-icon" />
-        <input v-model="filter.keyword" class="conf__input" placeholder="按名称 / 会话 ID 过滤" />
+        <input
+          v-model="filter.keyword"
+          class="conf__input"
+          placeholder="按名称 / 会话 ID 过滤"
+          aria-label="按名称或会话 ID 过滤"
+        />
       </div>
       <el-select v-model="filter.type" multiple collapse-tags placeholder="类型" size="small" class="conf__sel">
         <el-option label="群聊" value="group" />
@@ -288,14 +321,14 @@ onMounted(load)
       <el-checkbox v-model="filter.onlyWatching" size="small">仅看监控中</el-checkbox>
       <el-button size="small" :icon="IconRefresh" @click="load()">刷新</el-button>
       <span class="spacer" />
-      <el-button size="small" type="primary" plain @click="syncConversations">同步会话</el-button>
+      <el-button size="small" plain @click="syncConversations">同步会话</el-button>
       <el-button size="small" :icon="IconPlus" @click="openCreate">新增监控</el-button>
     </div>
 
     <!-- 批量操作条 -->
     <div v-if="selected.length" class="conf__batch">
       <span class="conf__batch-text">已选 {{ selected.length }} 项</span>
-      <el-button size="small" type="primary" plain @click="batchAutoReply(true)">批量开自动回复</el-button>
+      <el-button size="small" plain @click="batchAutoReply(true)">批量开自动回复</el-button>
       <el-button size="small" plain @click="batchAutoReply(false)">批量关自动回复</el-button>
       <el-button size="small" text @click="selected = []">取消选择</el-button>
     </div>
@@ -394,7 +427,13 @@ onMounted(load)
     </p>
 
     <!-- 新增 / 编辑弹层 -->
-    <el-dialog v-model="dialog.open" :title="dialog.editing ? '编辑会话' : '新增监控会话'" width="460px">
+    <el-dialog
+      v-model="dialog.open"
+      :title="dialog.editing ? '编辑会话' : '新增监控会话'"
+      width="460px"
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
       <el-form label-width="80px" @submit.prevent>
         <el-form-item label="类型">
           <el-radio-group v-model="dialog.convType" :disabled="dialog.editing">
@@ -413,13 +452,15 @@ onMounted(load)
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialog.open = false">取消</el-button>
-        <el-button type="primary" :icon="IconCheck" @click="submitDialog">保存</el-button>
+        <el-button size="small" @click="dialog.open = false">取消</el-button>
+        <el-button size="small" type="primary" :loading="saving" :icon="IconCheck" @click="submitDialog">
+          保存
+        </el-button>
       </template>
     </el-dialog>
 
     <!-- 同步会话 diff 预览（§11.5）：新增项可勾选直接开启监控；已有项从不覆盖 -->
-    <el-dialog v-model="syncDialog.open" title="同步会话" width="620px">
+    <el-dialog v-model="syncDialog.open" title="同步会话" width="620px" destroy-on-close :close-on-click-modal="false">
       <p class="sync__summary">
         数据源候选共 <b class="num">{{ syncDialog.total }}</b> 个：新增
         <b class="num sync__fresh">{{ syncDialog.fresh.length }}</b> 个、已有
@@ -458,8 +499,8 @@ onMounted(load)
       <p v-else class="sync__empty">没有新会话需要导入，数据源与本地配置已一致。</p>
 
       <template #footer>
-        <el-button @click="syncDialog.open = false">取消</el-button>
-        <el-button type="primary" :icon="IconCheck" :loading="syncDialog.loading" @click="confirmSync">
+        <el-button size="small" @click="syncDialog.open = false">取消</el-button>
+        <el-button size="small" type="primary" :icon="IconCheck" :loading="syncDialog.loading" @click="confirmSync">
           确认导入{{ syncDialog.watchIds.length ? `（${syncDialog.watchIds.length} 个开启监控）` : '' }}
         </el-button>
       </template>

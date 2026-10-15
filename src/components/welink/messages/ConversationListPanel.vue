@@ -317,7 +317,7 @@ const timeLabel = (stamp: string) => shortStamp(stamp)
   padding: 0 5px;
   border-radius: 8px;
   background: var(--ht-text-3);
-  color: #fff;
+  color: var(--ht-on-accent);
   font-size: 10.5px;
   line-height: 16px;
   text-align: center;
