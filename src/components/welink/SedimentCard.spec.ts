@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -27,12 +27,14 @@ import type { WelinkSedimentSettings } from '@/types/welink'
 
 const applySettings = vi.fn()
 const runOnce = vi.fn()
+const loadConversations = vi.fn(async () => undefined)
+const loadLogs = vi.fn(async () => undefined)
 
 vi.mock('@/stores/welink', () => ({
   useWelinkStore: () => ({
     settings: {},
     conversations: [],
-    loadConversations: async () => undefined,
+    loadConversations,
     applySettings,
   }),
 }))
@@ -43,7 +45,7 @@ vi.mock('@/stores/welink/knowledge', () => ({
     busy: false,
     lastReport: null,
     logs: [],
-    loadLogs: async () => undefined,
+    loadLogs,
     runOnce,
   }),
 }))
@@ -177,6 +179,23 @@ describe('welink/SedimentCard（知识沉淀配置卡）', () => {
     })
     await vm.extractNow()
     expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining('问答归档失败：boom'))
+  })
+
+  it('挂载即装载：会话清单与沉淀日志各拉一次（成功不提示）', async () => {
+    mountCard(BASE)
+    await flushPromises()
+    expect(loadConversations).toHaveBeenCalledTimes(1)
+    expect(loadLogs).toHaveBeenCalledTimes(1)
+    expect(ElMessage.error).not.toHaveBeenCalled()
+  })
+
+  it('装载失败可见：会话清单 / 沉淀日志的拒绝都必须提示，不得静默吞掉', async () => {
+    loadConversations.mockRejectedValueOnce(new Error('会话清单读取失败'))
+    loadLogs.mockRejectedValueOnce(new Error('日志文件损坏'))
+    mountCard(BASE)
+    await flushPromises()
+    expect(ElMessage.error).toHaveBeenCalledWith('会话清单读取失败')
+    expect(ElMessage.error).toHaveBeenCalledWith('日志文件损坏')
   })
 
   it('web 调试模式：整体降级提示（沉淀管理需桌面模式）', async () => {

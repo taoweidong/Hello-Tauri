@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
+import { ElMessage } from 'element-plus'
 
 import type { CodeHubMrRecord, CodeHubMrState, CodeHubRepo, CodeHubSyncState } from '@/types/codehub'
 import type { CodeHubSyncSummary } from '@/orchestrator/events'
@@ -112,6 +113,11 @@ describe('CodehubReviewView', () => {
     vi.clearAllMocks()
   })
 
+  // 仅「切筛选」那条用例要断言提示出口；spY 装上去后必须还原，否则污染后续用例
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('未配置：整页只出引导卡，不渲染数据区也不发任何调用', async () => {
     const wrapper = await mountView([], () => ({ configured: false }))
     expect(wrapper.get('[aria-label="未配置引导"]').text()).toContain('尚未配置 codehub-cli')
@@ -207,6 +213,15 @@ describe('CodehubReviewView', () => {
     await flushPromises()
     expect(wrapper.get('.repos__error').text()).toContain('数据库被占用')
     expect(asMock('loadRepos')).toHaveBeenCalled()
+  })
+
+  it('切筛选查库失败：给出可见提示，而不是停在上一份列表上装作切换成功', async () => {
+    const wrapper = await mountView([record('demo/a', '101', 'open')])
+    const errorSpy = vi.spyOn(ElMessage, 'error').mockImplementation((() => ({})) as never)
+    asMock('listMrs').mockRejectedValueOnce(new Error('快照读取失败'))
+    await wrapper.findAll('.chip')[1].trigger('click')
+    await flushPromises()
+    expect(errorSpy).toHaveBeenCalledWith('快照读取失败')
   })
 
   it('截断降级：状态条把「快照可能不完整」显示出来', async () => {

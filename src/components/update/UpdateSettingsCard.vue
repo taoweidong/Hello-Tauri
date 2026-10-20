@@ -15,6 +15,8 @@ import { IconRefresh, IconDownload, IconFolder } from '@/components/icons'
 import { platform } from '@/api'
 import { useAppStore } from '@/stores/app'
 import { useUpdateStore } from '@/stores/update'
+import { SETTINGS_PUSH_DEBOUNCE_MS } from '@/utils/debounce'
+import { runUiAction } from '@/utils/ui-action'
 import { normalizeUpdateSettings, validateEndpoint, type UpdateSettings } from '@/types/update'
 
 const props = defineProps<{ modelValue: Partial<UpdateSettings> }>()
@@ -45,7 +47,7 @@ watch(draft, push, { deep: true })
 
 function push() {
   if (pushTimer) clearTimeout(pushTimer)
-  pushTimer = setTimeout(flushPush, 300)
+  pushTimer = setTimeout(flushPush, SETTINGS_PUSH_DEBOUNCE_MS)
 }
 
 function flushPush() {
@@ -127,21 +129,32 @@ function fmtBytes(n: number): string {
 
 // —— 动作 ——
 
+/**
+ * 三个运行时动作的出口。
+ *
+ * 编排层 `orchestrator/update.ts` 内部会兜住大多数失败并落到状态机的 `failed`
+ * 态（卡片上已有状态行与告警条），**但那不等于这里可以裸 await**：
+ *  1. 编排层的兜底只覆盖它自己 await 到的调用，装载/装载前的 rejected 仍会冒泡；
+ *  2. 裸 await 一旦 reject 就是**未处理的 Promise 拒绝**——按钮看着点过了、状态行
+ *     停在「尚未检查」，用户没有任何线索（下载安装失败是最不该静默的一种）。
+ *
+ * 扫描摆渡目录另外补 `scanning` 繁忙态：它会读写数据目录，连点会重复扫盘。
+ */
+const scanning = ref(false)
+
 async function checkNow() {
-  await updateStore.checkNow()
+  await runUiAction(() => updateStore.checkNow(), { fail: '检查更新失败' })
 }
 
 async function install() {
-  await updateStore.install()
+  await runUiAction(() => updateStore.install(), { fail: '下载并安装失败' })
 }
 
 async function scanInbox() {
-  await updateStore.scanInbox()
+  await runUiAction(() => updateStore.scanInbox(), { fail: '扫描摆渡目录失败', busy: scanning })
 }
 
-const canInstall = computed(
-  () => ['available', 'ready', 'failed'].includes(status.value.state) && !updateStore.busy,
-)
+const canInstall = computed(() => ['available', 'ready', 'failed'].includes(status.value.state) && !updateStore.busy)
 </script>
 
 <template>
@@ -209,9 +222,7 @@ const canInstall = computed(
           :stroke-width="8"
           :format="
             () =>
-              progressPercent !== null
-                ? `${progressPercent}%`
-                : `已接收 ${fmtBytes(status.progress?.received ?? 0)}`
+              progressPercent !== null ? `${progressPercent}%` : `已接收 ${fmtBytes(status.progress?.received ?? 0)}`
           "
         />
 
@@ -252,6 +263,7 @@ const canInstall = computed(
             size="small"
             :icon="IconFolder"
             :disabled="updateStore.busy"
+            :loading="scanning"
             @click="scanInbox"
           >
             扫描摆渡目录

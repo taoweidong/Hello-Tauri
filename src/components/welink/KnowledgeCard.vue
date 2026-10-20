@@ -49,22 +49,18 @@ const reviewing = ref<null | {
 const docs = computed(() => knowledgeStore.docs)
 
 async function load() {
-  loading.value = true
-  try {
-    await knowledgeStore.loadDocs()
-  } catch (error) {
-    ElMessage.error(`知识库清单读取失败：${error instanceof Error ? error.message : String(error)}`)
-  } finally {
-    loading.value = false
-  }
+  await runUiAction(() => knowledgeStore.loadDocs(), { fail: '知识库清单读取失败', busy: loading })
 }
 
+/**
+ * 待评审队列读取。
+ *
+ * 此前是**空 catch**（注释写「不阻断」）—— 但「不阻断」不等于「不说」：失败时
+ * 待评审区永远空白，而沉淀提取其实一直在产出条目，用户会以为「没有需要评审的」，
+ * 评审这道可信化闸门（K-E）等于被悄悄绕过。现在失败必给可见提示。
+ */
 async function loadQueue() {
-  try {
-    await knowledgeStore.loadDrafts()
-  } catch {
-    // 评审队列加载失败不阻断知识库管理（桌面模式下重试即可）
-  }
+  await runUiAction(() => knowledgeStore.loadDrafts(), { fail: '待评审队列读取失败' })
 }
 
 function openNew() {
@@ -72,7 +68,17 @@ function openNew() {
 }
 
 async function openEdit(doc: { file: string; title: string }) {
-  const content = await knowledgeStore.readDoc(doc.file)
+  // 读文件是「打开编辑」的前置：裸 await 一旦 reject，点了编辑什么都不会发生，
+  // 用户只会以为按钮坏了。content === null 是**业务级**结果（文件已被移走），
+  // 与「读取失败」分开提示。
+  let content: string | null = null
+  const ok = await runUiAction(
+    async () => {
+      content = await knowledgeStore.readDoc(doc.file)
+    },
+    { fail: `读取知识文档失败（${doc.file}）` },
+  )
+  if (!ok) return
   if (content === null) {
     ElMessage.warning(`文件已被移走（${doc.file}）：可重新登记同名文件，或直接下架该条目`)
     return

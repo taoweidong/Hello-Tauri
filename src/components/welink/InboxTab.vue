@@ -14,6 +14,7 @@ import { ElMessage } from 'element-plus'
 import { IconSearch } from '@/components/icons'
 import { useWelinkStore } from '@/stores/welink'
 import type { WelinkMessage } from '@/types/welink'
+import { runUiAction } from '@/utils/ui-action'
 import { shortStamp } from '@/utils/welink-display'
 
 const emit = defineEmits<{ (e: 'open-conversation', convId: string): void }>()
@@ -24,6 +25,9 @@ const threads = ref<
   Array<{ convPk: number; convId: string; title: string; unreadCount: number; lastMsgAt: string; lastContent: string }>
 >([])
 const loading = ref(false)
+/** 打开会话 / 加载更早的繁忙态：两者都是读库动作，防连点也防「点了没反应」无提示 */
+const selecting = ref(false)
+const loadingEarlier = ref(false)
 const selectedConvId = ref('')
 const detail = ref<WelinkMessage[]>([])
 const detailLimit = ref(100)
@@ -71,19 +75,34 @@ async function load() {
   }
 }
 
+/**
+ * 打开联系人：早期版本是「裸 async（无 try/catch、无 loading）」，会话读失败时
+ * 界面停在上一联系人的时间线上 —— 点了没反应，也没有任何提示（静默失效）。
+ * 现在失败必提示，`selecting` 给列表一个在飞标记。
+ */
 async function selectThread(convId: string) {
   selectedConvId.value = convId
   const conv = store.conversations.find((item) => item.convId === convId)
   if (!conv) return
   // 打开即清未读（与消息中心同一套口径，O6）
-  await store.selectConversation(convId, detailLimit.value)
-  detail.value = store.messages
+  await runUiAction(
+    async () => {
+      await store.selectConversation(convId, detailLimit.value)
+      detail.value = store.messages
+    },
+    { fail: '打开会话失败', busy: selecting },
+  )
 }
 
 async function loadEarlier() {
   detailLimit.value += 100
-  await store.selectConversation(selectedConvId.value, detailLimit.value)
-  detail.value = store.messages
+  await runUiAction(
+    async () => {
+      await store.selectConversation(selectedConvId.value, detailLimit.value)
+      detail.value = store.messages
+    },
+    { fail: '加载更早消息失败', busy: loadingEarlier },
+  )
 }
 
 function resetFilters() {
@@ -115,22 +134,23 @@ async function searchContent(reset = true) {
   }
   msgSearch.active = true
   msgSearch.loading = true
-  try {
-    const rows = await store.searchMessages(
-      kw,
-      filter.from || undefined,
-      filter.to ? `${filter.to} 23:59:59` : undefined,
-      50,
-      msgSearch.offset,
-    )
-    msgSearch.rows = [...msgSearch.rows, ...rows]
-    msgSearch.offset += rows.length
-    msgSearch.done = rows.length < 50
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '搜索消息失败')
-  } finally {
-    msgSearch.loading = false
-  }
+  const ok = await runUiAction(
+    async () => {
+      const rows = await store.searchMessages(
+        kw,
+        filter.from || undefined,
+        filter.to ? `${filter.to} 23:59:59` : undefined,
+        50,
+        msgSearch.offset,
+      )
+      msgSearch.rows = [...msgSearch.rows, ...rows]
+      msgSearch.offset += rows.length
+      msgSearch.done = rows.length < 50
+    },
+    { fail: '搜索消息失败' },
+  )
+  if (ok && !msgSearch.rows.length) ElMessage.info('没有匹配的私聊消息')
+  msgSearch.loading = false
 }
 
 /** 命中结果 → 跳到所属会话时间线（并清空搜索态，回到常规浏览） */
@@ -141,8 +161,10 @@ async function openHit(message: WelinkMessage) {
     return
   }
   msgSearch.active = false
-  await load()
-  await selectThread(conv.convId)
+  // 两步都失败必须让用户看见：只跳列表不打开会话，界面会停在「什么都没选中」
+  if (await runUiAction(() => load(), { fail: '刷新联系人失败' })) {
+    await selectThread(conv.convId)
+  }
 }
 
 const timeLabel = (stamp: string) => shortStamp(stamp)
@@ -156,7 +178,13 @@ onMounted(load)
     <div class="inbox__filter">
       <div class="inbox__search">
         <IconSearch class="inbox__search-icon" />
-        <input v-model="filter.keyword" class="inbox__input" placeholder="按昵称 / 工号搜索" @keyup.enter="load()" />
+        <input
+          v-model="filter.keyword"
+          class="inbox__input"
+          placeholder="按昵称 / 工号搜索"
+          aria-label="按昵称或工号搜索联系人"
+          @keyup.enter="load()"
+        />
       </div>
       <el-date-picker
         v-model="filter.from"
@@ -191,12 +219,13 @@ onMounted(load)
         <span class="spacer" />
         <el-button size="small" text @click="msgSearch.active = false">返回联系人</el-button>
       </header>
-      <div v-for="hit in msgSearch.rows" :key="hit.msgUid" class="hit pressable" @click="openHit(hit)">
+      <!-- 命中行用 button 而不是 div：可点击的 div 不在 Tab 序列里，键盘用户进不来 -->
+      <button v-for="hit in msgSearch.rows" :key="hit.msgUid" class="hit pressable" @click="openHit(hit)">
         <span class="hit__conv">{{ convTitleOf(hit.convPk) }}</span>
         <span class="hit__who">{{ hit.direction === 'out' ? '我' : hit.senderName || hit.senderId }}</span>
         <span class="hit__text">{{ hit.content }}</span>
         <span class="hit__time">{{ timeLabel(hit.sentAt) }}</span>
-      </div>
+      </button>
       <p v-if="!msgSearch.rows.length && !msgSearch.loading" class="inbox__empty">没有命中的消息</p>
       <div v-if="msgSearch.rows.length && !msgSearch.done" class="inbox__hits-more">
         <el-button size="small" text @click="searchContent(false)">加载更多</el-button>
@@ -241,7 +270,9 @@ onMounted(load)
         </header>
 
         <div v-if="selectedThread" class="inbox__stream">
-          <button class="inbox__more pressable" @click="loadEarlier">加载更早</button>
+          <button class="inbox__more pressable" :disabled="loadingEarlier" @click="loadEarlier">
+            {{ loadingEarlier ? '加载中…' : '加载更早' }}
+          </button>
           <div
             v-for="message in detail"
             :key="message.msgUid"
@@ -311,6 +342,7 @@ onMounted(load)
   padding: 8px 0;
 }
 
+/* 命中行是 `<button>`（键盘可达）：必须显式继承字体与颜色，否则落到 UA 默认值 */
 .hit {
   display: grid;
   grid-template-columns: 150px 80px minmax(0, 1fr) 90px;
@@ -321,6 +353,8 @@ onMounted(load)
   border: 1px solid var(--ht-line);
   border-radius: 6px;
   background: var(--ht-surface);
+  font: inherit;
+  color: inherit;
   text-align: left;
   margin-bottom: 6px;
   cursor: pointer;

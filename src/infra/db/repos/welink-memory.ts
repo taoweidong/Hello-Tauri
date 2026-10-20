@@ -438,6 +438,9 @@ export const memoryWelinkRepository: WelinkRepository = {
       draft,
       status: 'ready',
       holdReason: '',
+      // 与 SQLite 实现同口径：生成阶段的重试计数在草稿就绪时归零，
+      // 外发阶段重新计预算（详见 welink.ts commitDraft 的说明）
+      attempts: 0,
       ...(contextSnapshot === undefined ? {} : { contextSnapshot }),
       ...(skill ? { skillId: skill.id, skillName: skill.name, skillSource: skill.source as SkillSource } : {}),
     })

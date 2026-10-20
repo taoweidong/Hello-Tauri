@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useAppStore } from '@/stores/app'
+import { navRoutes } from '@/router'
 import { IconBox, IconLayers, IconSliders, IconDatabase } from '@/components/icons'
 
 const appStore = useAppStore()
@@ -27,7 +28,7 @@ const structure = [
   { path: 'src/', desc: '前端源码，承载全部业务逻辑', icon: IconLayers },
   { path: 'src/api/', desc: '桥接层，屏蔽桌面与浏览器差异', icon: IconSliders },
   { path: 'src/stores/', desc: 'Pinia 状态与业务规则', icon: IconDatabase },
-  { path: 'src/views/', desc: '四个功能页面', icon: IconLayers },
+  { path: 'src/views/', desc: `${navRoutes().length} 个功能页面（由路由表派生）`, icon: IconLayers },
   { path: 'src-tauri/', desc: 'Rust 薄桥接层，仅窗口与存储读写', icon: IconBox },
   { path: 'scripts/', desc: '一键打包脚本', icon: IconSliders },
 ]

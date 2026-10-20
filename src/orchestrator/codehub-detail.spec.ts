@@ -112,6 +112,24 @@ describe('codehub 详情补拉', () => {
     expect(backfill.pending('demo/a', '101')).toBe(false)
   })
 
+  /**
+   * 快照读取本身失败（DB 抖动 / 库被锁）曾经是**死键**：`run()` 把 `repo.getMr`
+   * 写在 try 之外，它一抛，`finally` 根本不执行，在飞表的键永不删除；此后
+   * `fetch()` 每次都复用同一个 rejected promise —— 这条 MR 的详情**永久加载不出**，
+   * 且违反「永不 reject」的接口契约。用例先于修复提交，作为回归锚。
+   */
+  it('快照读取失败：永不 reject，且在飞键必须清理（否则该 MR 永久加载不出）', async () => {
+    const repo = fakeRepo([record(null)])
+    repo.getMr.mockRejectedValueOnce(new Error('库被锁'))
+    const backfill = createDetailBackfill({ repo, port: () => port })
+    await expect(backfill.fetch('demo/a', '101')).resolves.toBeNull()
+    expect(backfill.pending('demo/a', '101')).toBe(false)
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('详情快照读取失败'))
+    // 下一次点击必须真再试一次（而不是复用那个死 promise）
+    await expect(backfill.fetch('demo/a', '101')).resolves.toEqual(record(DETAIL))
+    expect(repo.getMr).toHaveBeenCalledTimes(2)
+  })
+
   it('失败后在飞表清理：再次点击会真再试一次', async () => {
     const repo = fakeRepo([record(null), record(null), record(null)])
     port.getMergeRequestDetail.mockRejectedValueOnce(new CodeHubError('通道故障', 'transport'))

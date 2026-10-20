@@ -256,7 +256,12 @@ async function removeJob(job: WelinkJob) {
 async function rate(job: WelinkJob, rating: 'up' | 'down') {
   const next = job.rating === rating ? null : rating
   const ok = await runUiAction(() => store.rateJob(job.pk, next), { fail: '评价失败' })
-  if (ok && next === 'down') ElMessage.info('已标记为差评：该输入输出对将出现在回溯页「只看差评」')
+  if (!ok) return
+  // 评价只改库里的 rating 字段，本页表格是 `load()` 拉出来的快照 —— 不重拉，
+  // 👍/👎 的高亮就不会变，用户会以为没点上（评价是改进闭环的输入，点了没反馈
+  // 等于这条语料白标）。
+  void runUiAction(() => load(), { fail: '刷新回复历史失败' })
+  if (next === 'down') ElMessage.info('已标记为差评：该输入输出对将出现在回溯页「只看差评」')
 }
 
 const expandedDraft = ref<number[]>([])

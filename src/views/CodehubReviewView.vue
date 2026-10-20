@@ -23,6 +23,7 @@ import { CODEHUB_STATE_LABEL } from '@/types/codehub'
 import { useCodehubStore } from '@/stores/codehub'
 import { useAppStore } from '@/stores/app'
 import { logger } from '@/utils/logger'
+import { runUiAction } from '@/utils/ui-action'
 
 const router = useRouter()
 const appStore = useAppStore()
@@ -81,6 +82,17 @@ async function reload() {
   }
 }
 
+/**
+ * `reload()` 的**可调用出口**。
+ *
+ * 为什么单包一层：切仓库 / 切筛选这两个调用点此前是裸 `void reload()` —— 查库
+ * reject 时变成未处理拒绝，界面**停在上一份列表**（看着像切换生效了，其实没查），
+ * 用户要刷一次页面才发现。凡是「界面状态已变、需要读回真值」的动作都必须有出口。
+ */
+function reloadSafely() {
+  return runUiAction(() => reload(), { fail: '刷新列表失败' })
+}
+
 // ---------------- 详情 ----------------
 
 const selected = ref<CodeHubMrRecord | null>(null)
@@ -90,13 +102,17 @@ async function openDetail(record: CodeHubMrRecord) {
   selected.value = record
   if (record.detail) return
   // 快照缺详情 → 经编排层补拉（同条在飞去重，失败退回列表字段占位）
-  detailLoading.value = true
-  try {
-    const fresh = await store.getMr(record.summary.repoId, record.summary.mrIid)
-    if (fresh) selected.value = fresh
-  } finally {
-    detailLoading.value = false
-  }
+  //
+  // 走 runUiAction 而不是裸 try/finally：早期版本**没有 catch**，补拉 reject 时
+  // detailLoading 复位了但错误无人接（未捕获的 Promise 拒绝），用户看到的是
+  // 「点开了详情面板但内容一直是列表字段」——典型的静默失效。
+  await runUiAction(
+    async () => {
+      const fresh = await store.getMr(record.summary.repoId, record.summary.mrIid)
+      if (fresh) selected.value = fresh
+    },
+    { fail: '详情补拉失败，已退回列表字段', busy: detailLoading },
+  )
 }
 
 function closeDetail() {
@@ -115,15 +131,16 @@ const degradedHint = computed(() => {
 })
 
 async function refresh() {
-  refreshing.value = true
   refreshHint.value = ''
-  try {
-    const summary = await store.refresh()
-    if (summary.phase === 'failed') refreshHint.value = summary.reason
-  } finally {
-    refreshing.value = false
-    await reload()
-  }
+  await runUiAction(
+    async () => {
+      const summary = await store.refresh()
+      if (summary.phase === 'failed') refreshHint.value = summary.reason
+    },
+    { fail: '同步失败', busy: refreshing },
+  )
+  // 同步失败也要重拉：批量同步是「逐仓库」的，部分成功时界面与快照最容易不一致
+  await reloadSafely()
 }
 
 // ---------------- 仓库注册 ----------------
@@ -132,28 +149,41 @@ const newRepoId = ref('')
 const repoError = ref('')
 /** 两步删除确认（避免引入弹窗组件：点一次变「确认删除」，失焦还原） */
 const pendingRemovePk = ref<number | null>(null)
+/**
+ * 注册 / 启停 / 删除的繁忙态。
+ *
+ * 三个都是**不可逆写操作**（写仓库清单、删除会级联清掉该仓库快照），按钮必须
+ * `:loading` 防连点；早期版本只有「两步删除确认」挡着，连点两次仍会发两次请求。
+ */
+const addingRepo = ref(false)
+const togglingRepo = ref(false)
+const removingRepo = ref(false)
 
 async function addRepo() {
   repoError.value = ''
-  try {
-    await store.addRepo(newRepoId.value, '')
-    newRepoId.value = ''
-  } catch (error) {
-    repoError.value = error instanceof Error ? error.message : String(error)
-  }
-  await reload()
+  const ok = await runUiAction(() => store.addRepo(newRepoId.value, ''), {
+    fail: '注册仓库失败',
+    busy: addingRepo,
+  })
+  if (ok) newRepoId.value = ''
+  await reloadSafely()
 }
 
 async function toggleRepo(pk: number, enabled: boolean) {
-  repoError.value = ''
-  try {
-    await store.setRepoEnabled(pk, enabled)
-  } catch (error) {
-    repoError.value = error instanceof Error ? error.message : String(error)
-    // 失败时把清单读回真值：否则复选框停在用户刚点出来的假状态，看不出没生效
-    await store.loadRepos()
-  }
-  await Promise.all([reload(), store.loadSyncStates()])
+  // 失败文案写进行内错误区（`.repos__error`）：这里既有固定的展示位，再弹 toast 就是同一条错误报两遍
+  const ok = await runUiAction(() => store.setRepoEnabled(pk, enabled), {
+    fail: enabled ? '开启参与同步失败' : '关闭参与同步失败',
+    busy: togglingRepo,
+    error: repoError,
+  })
+  // 开关是乐观更新的：成败都要把仓库清单读回真值，否则复选框停在用户刚点出来的
+  // 假状态上（「看着开了、库里没开」），要刷一次页面才现形。
+  if (!ok) repoError.value = `${repoError.value}（已按库中真值刷新）`
+  await Promise.all([
+    runUiAction(() => store.loadRepos(), { fail: '仓库清单读取失败' }),
+    reloadSafely(),
+    runUiAction(() => store.loadSyncStates(), { fail: '同步状态读取失败' }),
+  ])
 }
 
 async function removeRepo(pk: number) {
@@ -163,38 +193,51 @@ async function removeRepo(pk: number) {
   }
   pendingRemovePk.value = null
   const removed = store.repos.find((repo) => repo.pk === pk)
-  try {
-    await store.removeRepo(pk)
+  const ok = await runUiAction(() => store.removeRepo(pk), { fail: '删除仓库失败', busy: removingRepo })
+  if (ok && removed) {
     // 删掉的仓库若正被筛选/详情引用，视图状态必须一起收口，否则会停在空筛选上
-    if (removed && selectedRepo.value === removed.repoId) selectedRepo.value = ''
-    if (removed && selected.value?.summary.repoId === removed.repoId) selected.value = null
-  } catch (error) {
-    repoError.value = error instanceof Error ? error.message : String(error)
+    if (selectedRepo.value === removed.repoId) selectedRepo.value = ''
+    if (selected.value?.summary.repoId === removed.repoId) selected.value = null
   }
-  await reload()
+  await reloadSafely()
 }
 
 /** 选中仓库并重新查快照（仓库按钮与「全部仓库」共用） */
 function selectRepo(repoId: string) {
   selectedRepo.value = repoId
-  void reload()
+  void reloadSafely()
 }
 
 /** 切状态筛选并重新查快照（列表与计数同一口径，见 reload） */
 function selectState(option: '' | CodeHubMrState) {
   stateFilter.value = option
-  void reload()
+  void reloadSafely()
 }
 
-/** 装载：init 失败（表结构/数据目录不可用）落到可重试的失败态 */
+/**
+ * 装载：init 失败（表结构/数据目录不可用）落到可重试的失败态。
+ *
+ * 早期版本 `await store.init()` **没有 try/catch**：一旦 reject，`ready` 与
+ * `initFailed` 双双停在 false，页面永远渲染「正在装载本地快照…」且没有重试出口。
+ * 现在失败必然落到 initFailed（模板上有重试按钮）+ 一条可见提示。
+ *
+ * 注意 `store.init()` 是**「返回布尔、永不 reject」**的语义，所以必须带
+ * `failOnFalse` —— 否则「装载失败（false）」会被当成没抛错而判成成功，
+ * 页面照样停在「装载中」，比原来还难排查。
+ */
 async function load() {
   ready.value = false
   initFailed.value = false
-  const ok = await store.init()
+  const ok = await runUiAction(() => store.init(), { fail: '本地快照装载失败，请重试', failOnFalse: true })
   ready.value = ok
   initFailed.value = !ok
   // 未配置时整页只出引导卡，连本地快照都不必查（配置齐全后重新进入页面才装载列表）
-  if (ok && store.configured) await reload()
+  if (ok && store.configured) await reloadSafely()
+}
+
+/** 模板内裸 `router.push` 在重复导航时会 reject（未处理的 Promise 拒绝） */
+function go(path: string) {
+  void router.push(path).catch(() => undefined)
 }
 
 onMounted(load)
@@ -214,7 +257,7 @@ onMounted(load)
       <p class="guide__text">
         需要 codehub-cli 可执行文件路径与访问 token 才能拉取内网 MR。 浏览与同步全部走本地快照，配置完成后即可使用。
       </p>
-      <button class="btn btn--primary" @click="router.push('/settings')">去配置页填写</button>
+      <button class="btn btn--primary" @click="go('/settings')">去配置页填写</button>
     </section>
 
     <template v-else-if="canBrowse">
@@ -243,9 +286,18 @@ onMounted(load)
               v-model="newRepoId"
               class="repos__input"
               placeholder="仓库标识，如 space/repo"
+              aria-label="仓库标识"
               @keyup.enter="addRepo"
             />
-            <button class="btn" :aria-label="'注册仓库'" @click="addRepo"><IconPlus class="btn__icon" /></button>
+            <button
+              class="btn"
+              aria-label="注册仓库"
+              :disabled="addingRepo"
+              :aria-busy="addingRepo"
+              @click="addRepo"
+            >
+              <IconPlus class="btn__icon" :class="{ 'is-spinning': addingRepo }" />
+            </button>
           </div>
           <p v-if="repoError" class="repos__error">{{ repoError }}</p>
 
@@ -264,10 +316,10 @@ onMounted(load)
             <button class="repo__main" @click="selectRepo(repo.repoId)">
               <span class="repo__name">{{ repo.name || repo.repoId }}</span>
               <span v-if="store.syncStates[repo.repoId]?.lastError" class="repo__error">
-                {{ store.syncStates[repo.repoId]!.lastError }}
+                {{ store.syncStates[repo.repoId]?.lastError }}
               </span>
               <span v-else-if="store.syncStates[repo.repoId]?.lastSyncedAt" class="repo__meta">
-                同步于 {{ store.syncStates[repo.repoId]!.lastSyncedAt }}
+                同步于 {{ store.syncStates[repo.repoId]?.lastSyncedAt }}
               </span>
               <span v-else class="repo__meta">从未同步</span>
             </button>
@@ -275,6 +327,7 @@ onMounted(load)
               <input
                 type="checkbox"
                 :checked="repo.enabled"
+                :disabled="togglingRepo"
                 :aria-label="`启用 ${repo.repoId}`"
                 @change="toggleRepo(repo.pk, ($event.target as HTMLInputElement).checked)"
               />
@@ -284,6 +337,8 @@ onMounted(load)
               class="repo__remove pressable"
               :class="{ 'is-armed': pendingRemovePk === repo.pk }"
               :aria-label="`删除 ${repo.repoId}`"
+              :disabled="removingRepo"
+              :aria-busy="removingRepo"
               @blur="pendingRemovePk = null"
               @click="removeRepo(repo.pk)"
             >

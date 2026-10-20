@@ -451,8 +451,37 @@ export function createPipeline(options: PipelineOptions): Pipeline {
      * **永远短路**（它刻意不对未知发送者做合并），规则形同虚设。
      * job 只存了 `trigger_msg_pk`，因此这里补一次主键查询 —— 单行读，
      * 且只在「即将外发」这一条路径上发生（不在 check 的循环里）。
+     *
+     * 为什么不再写成 `.catch(() => null)`（第四轮 S4 修复）：它把「库里没有这条
+     * 消息」和「查询本身失败（IPC 断、库锁等待超时、磁盘 IO 错）」压成同一个
+     * null —— DB 一抖 senderId 就静默变空，Gate 的 S5 限流随即**在用户完全无感
+     * 的情况下失效**。这是典型的「兜底掩盖真实失败」，正是本项目最忌讳的缺陷形态。
+     *
+     * 三种口径必须分开：
+     *  * 查得到 → 用真实 senderId（限流正常生效）；
+     *  * 查得到但为 `null`（消息已被保留期清理）→ 发送者确实不可知，放行；
+     *  * **查询抛错** → 不放行：限流的输入不能靠猜，按一次发送失败计数并重试。
      */
-    const triggerMsg = conv ? await options.repo.getMessage(job.triggerMsgPk).catch(() => null) : null
+    let triggerMsg: Awaited<ReturnType<WelinkRepository['getMessage']>> = null
+    if (conv) {
+      try {
+        triggerMsg = await options.repo.getMessage(job.triggerMsgPk)
+      } catch (error) {
+        const message = `读取触发消息失败：${error instanceof Error ? error.message : String(error)}`
+        const attempts = job.attempts + 1
+        if (attempts < MAX_SEND_ATTEMPTS) {
+          await options.repo.recordAttemptFailure(jobPk, 'ready', message)
+          emitStatus(jobPk, 'ready', 'ready', `触发消息读取失败，第 ${attempts} 次重试：${message}`)
+          sendQueue.push(jobPk)
+          scheduleRetry(Math.min(60_000, attempts * 5000))
+        } else {
+          await options.repo.recordAttemptFailure(jobPk, 'failed', message)
+          emitStatus(jobPk, 'ready', 'failed', `触发消息读取重试 ${attempts} 次耗尽：${message}`)
+        }
+        logger.error(`触发消息读取失败，本次不放行（job ${jobPk}）：${message}`)
+        return false
+      }
+    }
     const senderId = triggerMsg?.senderId ?? ''
     const decision = options.gate.check({ job, senderId, conversation: conv })
 
@@ -586,6 +615,13 @@ export function createPipeline(options: PipelineOptions): Pipeline {
     // 一条路径忘了出队」兜底 —— 把它改成事件驱动等于重写调度语义，收益为零、
     // 回归风险显著（这是 orchestrator 里覆盖率最高也最脆的一段）。
     for (let guard = 0; guard < 500; guard += 1) {
+      // 停止语义必须**每次迭代都复检**，不能只在函数入口判一次：
+      // 外发段是 `await sendOne(...)` 之后 `continue` 回循环头的，`stop()` 只清
+      // 定时器、不清队列 —— 入口那一次判定过后，用户在这一段 await 期间按急停或
+      // 关总开关，循环照样继续消费 sendQueue、照样外发。文件头承诺「停止后不再
+      // 消费队列」，靠的就是这里。
+      if (!running) break
+
       // —— 生成段：并发 N（无副作用，可并行） ——
       while (inflightGenerate.size < GENERATE_CONCURRENCY && generateQueue.length) {
         const jobPk = generateQueue.shift()!

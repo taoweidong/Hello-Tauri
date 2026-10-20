@@ -125,22 +125,41 @@ export const sqlSedimentRepository: SedimentRepository = {
 
   async applyAnnouncements(items) {
     if (!items.length) return []
-    const inserted: WelinkAnnouncement[] = []
-    for (const item of items) {
-      const convRows = await bridge.dbSelect('SELECT id FROM welink_conversations WHERE conv_id = ?1', [item.convId])
-      const convPk = num(convRows[0]?.id)
-      if (!convPk) continue // 会话不存在：跳过该条目（FK 不可悬空），其余照常
-      const result = await bridge.dbExecute(
-        `INSERT OR IGNORE INTO welink_announcements
-           (ann_uid, conv_pk, title, content, published_at, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
-        [item.annUid, convPk, item.title, item.content, item.publishedAt, nowStamp()],
-      )
-      if (result.changes <= 0) continue // ann_uid 已存在：幂等跳过
-      const rows = await bridge.dbSelect(`${ANNOUNCEMENT_SELECT} WHERE a.ann_uid = ?1`, [item.annUid])
-      if (rows[0]) inserted.push(announcementFromRow(rows[0]))
-    }
-    return inserted
+    // 批量形态（S9）：旧实现逐条「查会话 → INSERT → 回查」，N 条公告 = 3N 次跨进程
+    // IPC（宿主 SQLite 连接是全局 Mutex，量上来后每轮沉淀都在排队）。这里压到固定
+    // 3 次：1 次会话批量查询 + 1 次事务批量插入 + 1 次插入行批量回查。
+    const convIds = [...new Set(items.map((item) => item.convId))]
+    const convRows = await bridge.dbSelect(
+      `SELECT id, conv_id FROM welink_conversations WHERE conv_id IN (${placeholders(convIds.length)})`,
+      convIds,
+    )
+    const convPkById = new Map(convRows.map((row) => [str(row.conv_id), num(row.id)]))
+    const prepared = items
+      .map((item) => ({ item, convPk: convPkById.get(item.convId) }))
+      .filter((entry): entry is { item: (typeof items)[number]; convPk: number } => Boolean(entry.convPk))
+    if (!prepared.length) return [] // 会话全部不存在：不开启空事务
+
+    const createdAt = nowStamp()
+    const changes = await bridge.dbTransaction(
+      prepared.map(({ item, convPk }) => ({
+        sql: `INSERT OR IGNORE INTO welink_announcements
+                (ann_uid, conv_pk, title, content, published_at, created_at)
+              VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+        params: [item.annUid, convPk, item.title, item.content, item.publishedAt, createdAt],
+      })),
+    )
+    // changes 与 prepared 同序：0 = ann_uid 已存在（幂等跳过）。批内重复的 annUid
+    // 同样只会有一条 changes>0，Set 去重后保持首次出现的顺序（与旧实现返回序一致）。
+    const insertedUids = [...new Set(prepared.filter((_, index) => changes[index] > 0).map(({ item }) => item.annUid))]
+    if (!insertedUids.length) return []
+    const rows = await bridge.dbSelect(
+      `${ANNOUNCEMENT_SELECT} WHERE a.ann_uid IN (${placeholders(insertedUids.length)})`,
+      insertedUids,
+    )
+    const byUid = new Map(rows.map((row) => [str(row.ann_uid), announcementFromRow(row)]))
+    return insertedUids
+      .map((uid) => byUid.get(uid))
+      .filter((announcement): announcement is WelinkAnnouncement => Boolean(announcement))
   },
 
   async listAnnouncements(limit, offset) {

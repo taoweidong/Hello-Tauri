@@ -11,6 +11,7 @@ import { ElMessage } from 'element-plus'
 
 import { IconRefresh } from '@/components/icons'
 import { useWelinkStore } from '@/stores/welink'
+import { SETTINGS_PUSH_DEBOUNCE_MS } from '@/utils/debounce'
 import { normalizeWelinkSettings, type WelinkRagSettings, type WelinkSettings } from '@/types/welink'
 
 const props = defineProps<{ modelValue: Partial<WelinkRagSettings> }>()
@@ -45,7 +46,7 @@ watch(draft, push, { deep: true })
 
 function push() {
   if (pushTimer) clearTimeout(pushTimer)
-  pushTimer = setTimeout(flushPush, 300)
+  pushTimer = setTimeout(flushPush, SETTINGS_PUSH_DEBOUNCE_MS)
 }
 
 function flushPush() {

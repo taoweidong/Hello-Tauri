@@ -5,10 +5,12 @@
  * failed/skipped → 「重试」回 ready 入队（重发同样过 Gate）；
  * ready + hold_reason（manual 草稿/黑名单转审）→ 「查看草稿」跳回复历史并预设待审筛选。
  */
+import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { useWelinkStore } from '@/stores/welink'
 import type { WelinkJob } from '@/types/welink'
+import { runUiAction } from '@/utils/ui-action'
 import { shortStamp } from '@/utils/welink-display'
 
 const emit = defineEmits<{
@@ -17,9 +19,25 @@ const emit = defineEmits<{
 
 const store = useWelinkStore()
 
+/**
+ * 重试：把 job 回 ready 重新入队 —— **真实外发的前一步**，所以必须有 busy 防连点。
+ *
+ * 此前是裸 `await store.retryJob(...)`：编排层装配失败（runtime 未起、库不可用）
+ * 时会 reject，右侧面板完全无反应。这里把「抛错」与「业务上不接受（返回 false）」
+ * 分开提示，两者不是一回事。
+ */
+const retrying = ref(false)
+
 async function retryJob(job: WelinkJob) {
-  const ok = await store.retryJob(job.pk)
-  if (ok) ElMessage.success('已重新入队，将再次通过安全闸口校验')
+  let accepted = false
+  const ok = await runUiAction(
+    async () => {
+      accepted = await store.retryJob(job.pk)
+    },
+    { fail: '重试失败', busy: retrying },
+  )
+  if (!ok) return
+  if (accepted) ElMessage.success('已重新入队，将再次通过安全闸口校验')
   else ElMessage.warning('重排失败：该任务状态已变化，请刷新后重试')
 }
 
@@ -63,6 +81,7 @@ const timeLabel = (stamp: string) => shortStamp(stamp)
             size="small"
             text
             type="primary"
+            :loading="retrying"
             @click="retryJob(job)"
           >
             重试

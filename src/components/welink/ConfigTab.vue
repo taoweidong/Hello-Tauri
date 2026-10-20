@@ -314,7 +314,15 @@ onMounted(load)
           aria-label="按名称或会话 ID 过滤"
         />
       </div>
-      <el-select v-model="filter.type" multiple collapse-tags placeholder="类型" size="small" class="conf__sel">
+      <el-select
+        v-model="filter.type"
+        multiple
+        collapse-tags
+        placeholder="类型"
+        aria-label="按会话类型筛选"
+        size="small"
+        class="conf__sel"
+      >
         <el-option label="群聊" value="group" />
         <el-option label="私聊" value="private" />
       </el-select>

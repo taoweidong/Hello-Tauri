@@ -11,6 +11,7 @@ import { ElMessage } from 'element-plus'
 import { IconSearch } from '@/components/icons'
 import { useWelinkStore } from '@/stores/welink'
 import type { WelinkConversation } from '@/types/welink'
+import { runUiAction } from '@/utils/ui-action'
 import { muteLabel as muteLabelOf, shortStamp } from '@/utils/welink-display'
 
 const emit = defineEmits<{
@@ -60,9 +61,23 @@ function convStateTitle(convId: string): string {
   return state.lastOkAt ? `上次成功拉取：${state.lastOkAt}` : '拉取正常'
 }
 
+/**
+ * 行内动作的繁忙态（暂停监控 / 静音）。
+ *
+ * 这两个动作此前是**裸 await 与裸 .then（无 .catch）**：写库失败时下拉菜单一关，
+ * 界面上什么都没变、也没有任何提示 —— 用户会以为「暂停了」，但该会话其实还在
+ * 被轮询拉取。暂停监控是「停止外发相关行为」的人工入口，静默失败代价很高。
+ */
+const rowBusy = ref(false)
+
 async function pauseMonitor(conv: WelinkConversation) {
-  await store.updateConversation(conv.convId, { watching: false })
-  ElMessage.success('该会话已暂停监控（消息不再拉取）')
+  const ok = await runUiAction(() => store.updateConversation(conv.convId, { watching: false }), {
+    fail: '暂停监控失败',
+    ok: '该会话已暂停监控（消息不再拉取）',
+    busy: rowBusy,
+  })
+  // 失败也要重拉：列表是 store 的派生状态，不重拉就停在「看着还在监控」的假值上
+  if (!ok) await runUiAction(() => store.loadConversations(), { fail: '会话列表刷新失败' })
 }
 
 /** 会话行操作菜单（§11.1 左栏「更多」） */
@@ -71,21 +86,33 @@ function onMenu(command: string, conv: WelinkConversation) {
   if (command === 'history') return emit('open-history', conv.convId)
   if (command.startsWith('mute:')) {
     const hours = Number(command.split(':')[1])
-    return void store
-      .muteConversation(conv.convId, hours)
-      .then(() => ElMessage.success(`已静音 ${hours} 小时，到期自动恢复`))
+    return void runUiAction(() => store.muteConversation(conv.convId, hours), {
+      fail: '静音失败',
+      ok: `已静音 ${hours} 小时，到期自动恢复`,
+      busy: rowBusy,
+    })
   }
 }
 
 /** 时间列文案（统一实现，T-4） */
 const timeLabel = (stamp: string) => shortStamp(stamp)
+
+/**
+ * 键盘激活行内「更多」。
+ *
+ * 会话行是 `<button>`，行内不能再嵌套 `<button>`，所以触发器是带 role/tabindex 的
+ * span。Enter/Space 在这里转发成 click，交给 el-dropdown 自身的点击触发器处理。
+ */
+function openMore(event: KeyboardEvent) {
+  if (event.currentTarget instanceof HTMLElement) event.currentTarget.click()
+}
 </script>
 
 <template>
   <aside class="mc__left">
     <div class="mc__search">
       <IconSearch class="mc__search-icon" />
-      <input v-model="keyword" class="mc__input" placeholder="按群名 / 群号过滤" />
+      <input v-model="keyword" class="mc__input" placeholder="按群名 / 群号过滤" aria-label="过滤监控会话" />
     </div>
 
     <div class="mc__list">
@@ -117,7 +144,17 @@ const timeLabel = (stamp: string) => shortStamp(stamp)
 
           <!-- 行操作：暂停监控 / 静音 / 查看回复历史（§11.1） -->
           <el-dropdown trigger="click" class="mc__more" @command="(command: string) => onMenu(command, conv)">
-            <span class="mc__more-btn" title="更多操作" @click.stop>⋯</span>
+            <span
+              class="mc__more-btn"
+              role="button"
+              tabindex="0"
+              aria-label="更多操作"
+              title="更多操作"
+              @click.stop
+              @keydown.enter.prevent.stop="openMore"
+              @keydown.space.prevent.stop="openMore"
+              >⋯</span
+            >
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="pause">暂停监控</el-dropdown-item>
@@ -153,7 +190,17 @@ const timeLabel = (stamp: string) => shortStamp(stamp)
           </span>
 
           <el-dropdown trigger="click" class="mc__more" @command="(command: string) => onMenu(command, conv)">
-            <span class="mc__more-btn" title="更多操作" @click.stop>⋯</span>
+            <span
+              class="mc__more-btn"
+              role="button"
+              tabindex="0"
+              aria-label="更多操作"
+              title="更多操作"
+              @click.stop
+              @keydown.enter.prevent.stop="openMore"
+              @keydown.space.prevent.stop="openMore"
+              >⋯</span
+            >
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="pause">暂停监控</el-dropdown-item>
@@ -355,6 +402,11 @@ const timeLabel = (stamp: string) => shortStamp(stamp)
 .mc__more-btn:hover {
   background: var(--ht-surface-2);
   color: var(--ht-text-1);
+}
+
+.mc__more-btn:focus-visible {
+  outline: 2px solid var(--ht-primary);
+  outline-offset: -1px;
 }
 
 .mc__left-foot {

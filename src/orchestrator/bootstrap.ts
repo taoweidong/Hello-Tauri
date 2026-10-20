@@ -157,7 +157,19 @@ export function createBootstrap(options: BootstrapOptions): Bootstrap {
         result.enqueued += 1
         if (job.status === 'discussing') {
           // discussing 是「上次 worker 出队后进程挂了」—— 回 pending 让生成段重新接管
-          await repo.markStatus(job.pk, 'pending', 'discussing')
+          //
+          // 这是整个恢复循环里**唯一没被保护**的 await：一旦它 reject（库锁等待、
+          // IPC 断），`run()` 会整体抛出去 —— 于是 `enqueueMany`、闸口预热、
+          // `pipeline.start()` / `poller.start()` 全部不执行，重启后助手**完全不动**，
+          // 而页面上没有任何异常迹象（启动恢复失败是最典型的静默失效）。
+          // 单条回滚失败不该拖垮整轮：降级为「留在 discussing」并记 warning，
+          // 后续入队仍会带上它（生成段出队时按 discussing 接管）。
+          try {
+            await repo.markStatus(job.pk, 'pending', 'discussing')
+          } catch (error) {
+            result.warnings.push(`job ${job.pk} 回滚到 pending 失败，仍留在 discussing：${String(error)}`)
+            logger.warn(`WeLink：job ${job.pk} 回滚到 pending 失败（保持 discussing）：${String(error)}`)
+          }
         }
       }
       if (enqueue.length) options.pipeline.enqueueMany(enqueue)

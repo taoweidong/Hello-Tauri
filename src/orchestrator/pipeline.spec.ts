@@ -1011,6 +1011,63 @@ describe('orchestrator/pipeline —— 人工模式（manual）', () => {
   })
 })
 
+// ------------------------------------------------- 外发段：S5 的输入不能靠吞异常兜底
+
+describe('orchestrator/pipeline —— 触发消息查询失败不放行（S5 输入完整性）', () => {
+  /**
+   * 反证口径：把实现改回 `getMessage(...).catch(() => null)` 后，前两条用例会红
+   * （Gate 会被带空 senderId 调用、消息会被发出去），这正是「限流静默失效」的形态。
+   */
+  it('getMessage 抛错 → 不进 Gate、不外发，计入一次失败并排重试', async () => {
+    const h = harness({ jobs: [job({ status: 'ready', draft: '草稿' })] })
+    h.repo.mocks.getMessage.mockRejectedValueOnce(new Error('库锁等待超时'))
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await pump(h)
+
+    // 关键：Gate 一次都没被调用 —— 带空 senderId 去 check 等于让 S5 短路
+    expect(h.gate.check).not.toHaveBeenCalled()
+    expect(h.port.send).not.toHaveBeenCalled()
+    expect(h.repo.mocks.recordAttemptFailure).toHaveBeenCalledWith(
+      1,
+      'ready',
+      expect.stringContaining('读取触发消息失败'),
+    )
+    expect(jobOf(h, 1).status).toBe('ready')
+    // 与发送失败同口径：5s 后重试（attempts×5000）
+    expect(h.scheduler.nextAt()).toBe(h.scheduler.now() + 5000)
+  })
+
+  it('getMessage 抛错耗尽重试次数 → failed 交人工（不无限挂起）', async () => {
+    const h = harness({ jobs: [job({ status: 'ready', draft: '草稿' })] })
+    h.repo.mocks.getMessage.mockRejectedValue(new Error('IPC 通道断开'))
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    for (let index = 0; index < MAX_SEND_ATTEMPTS + 2; index += 1) {
+      h.scheduler.advance(60_000)
+      await settle()
+    }
+
+    expect(h.port.send).not.toHaveBeenCalled()
+    expect(jobOf(h, 1).status).toBe('failed')
+    expect(jobOf(h, 1).lastError).toContain('读取触发消息失败')
+  })
+
+  it('消息已被保留期清理（查得到但为 null）→ 按不可知放行，Gate 收到空 senderId', async () => {
+    const h = harness({ jobs: [job({ status: 'ready', draft: '草稿' })] })
+    h.repo.mocks.getMessage.mockResolvedValueOnce(null)
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await pump(h)
+
+    // 「库里确实没有」是事实而不是故障，此时放行是既定语义（S5 对未知发送者不合并）
+    expect(h.gate.check).toHaveBeenCalledTimes(1)
+    expect(h.gate.check.mock.calls[0][0]).toMatchObject({ senderId: '' })
+    expect(h.port.send).toHaveBeenCalledTimes(1)
+  })
+})
+
 // ---------------------------------------------------------------- 外发段：失败与防双发
 
 describe('orchestrator/pipeline —— 外发失败与防双发', () => {
@@ -1270,6 +1327,33 @@ describe('orchestrator/pipeline —— 并发不变量（O1/D12）', () => {
     expect(h.pipeline.running()).toBe(false)
     expect(await h.pipeline.drain()).toBe(0)
     expect(h.scheduler.queued).toBe(0)
+  })
+
+  /**
+   * 停止语义曾经只在 `flush()` 入口判一次 `running`。外发段是 `await sendOne(...)`
+   * 之后 `continue` 回循环头的 —— 用户在这一段 await 期间按急停/关总开关，
+   * `stop()` 只清了定时器，**循环照样继续消费 sendQueue 并继续外发**，
+   * 与文件头「停止后不再消费队列」的承诺直接矛盾。修复是每次迭代开头复检。
+   */
+  it('stop 落在外发 await 期间：本轮循环不再继续消费队列', async () => {
+    const h = harness({
+      jobs: [job({ pk: 1, status: 'ready', draft: 'A' }), job({ pk: 2, status: 'ready', draft: 'B' })],
+      manualSend: true,
+    })
+    h.pipeline.start()
+    await h.pipeline.sendNow(1)
+    await h.pipeline.sendNow(2)
+    const draining = h.pipeline.drain()
+    await settle()
+    // 第一条正卡在 port.send（外发段 await 中）
+    expect(h.port.sendCalls).toEqual(['A'])
+    h.pipeline.stop()
+    h.port.releaseAll()
+    await settle()
+    h.port.releaseAll()
+    await draining
+    // 停止之后不该再冒出第二条外发
+    expect(h.port.sendCalls).toEqual(['A'])
   })
 
   it('pending() 同时反映队列长度与在飞任务', async () => {

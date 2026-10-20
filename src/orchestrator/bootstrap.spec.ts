@@ -195,6 +195,19 @@ describe('orchestrator/bootstrap —— 崩溃恢复三分支（§6.3）', () =>
     expect(h.enqueued.flat()).toContain(5)
   })
 
+  it('discussing 回滚写库失败：只降级该条，不拖垮整轮恢复', async () => {
+    const h = harness({ unfinished: [job({ pk: 15, status: 'discussing' })] })
+    // 反证：修复前 `run()` 会整体 reject —— 入队、闸口预热、pipeline/poller 启动
+    // 全部不执行，重启后助手完全不动，而界面毫无异常迹象。
+    vi.mocked(h.repo.markStatus).mockRejectedValueOnce(new Error('数据库被占用'))
+    const report = await build(h).run()
+
+    expect(h.startCalls.pipeline).toBe(1)
+    expect(h.startCalls.poller).toBe(1)
+    expect(h.enqueued.flat()).toContain(15)
+    expect(report.warnings.join('|')).toContain('15')
+  })
+
   it('failed → **保留原状**，只统计并告知 UI（自动重投失败内容 = 滥发风险）', async () => {
     const h = harness({ unfinished: [job({ pk: 6, status: 'failed', attempts: 3 })] })
     const report = await build(h).run()

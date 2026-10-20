@@ -96,20 +96,23 @@ beforeAll(async () => {
     return realDb.prepare(rewritten.sql).all(...(rewritten.args as unknown as SQLInputValue[])) as DbRow[]
   })
   db.dbTransaction.mockImplementation(async (statements: { sql: string; params?: DbParam[] }[]) => {
-    const ids: number[] = []
+    // 返回值语义必须与宿主一致：`src-tauri/src/db.rs::db_transaction` 返回**各语句
+    // 受影响行数**（changes），不是 lastInsertRowid —— 测试替身与真值不一致时，
+    // 「幂等插入只算新增」这类依赖 changes 的判断会在真机上静默失效。
+    const changes: number[] = []
     realDb.exec('BEGIN')
     try {
       for (const statement of statements) {
         const rewritten = toAnonymous(statement.sql, statement.params ?? [])
         const result = realDb.prepare(rewritten.sql).run(...(rewritten.args as unknown as SQLInputValue[]))
-        ids.push(Number(result.lastInsertRowid))
+        changes.push(Number(result.changes))
       }
       realDb.exec('COMMIT')
     } catch (error) {
       realDb.exec('ROLLBACK')
       throw error
     }
-    return ids
+    return changes
   })
 })
 
@@ -415,6 +418,46 @@ describe('sediment 仓储双实现契约（SQL vs memory）', () => {
     const sqlOut = await runScenario(sqlSedimentRepository, sqlWelinkRepository)
     const memOut = await runScenario(memorySedimentRepository, memoryWelinkRepository)
     expect(memOut).toEqual(sqlOut)
+  })
+
+  it('applyAnnouncements 的 IPC 次数与公告条数无关（S9：3N → 3）', async () => {
+    // 反证口径：旧实现逐条「查会话 → INSERT → 回查」，12 条公告 = 36 次跨进程 IPC；
+    // 这里钉住「2 次查询 + 1 次事务」的批量形态，任何退回逐条循环的改动都会变红。
+    await sqlWelinkRepository.upsertConversation({ convType: 'group', convId: 'g-a', title: 'A 群' })
+    await sqlWelinkRepository.upsertConversation({ convType: 'group', convId: 'g-b', title: 'B 群' })
+    db.dbSelect.mockClear()
+    db.dbExecute.mockClear()
+    db.dbTransaction.mockClear()
+
+    const items = Array.from({ length: 12 }, (_, index) => ({
+      annUid: `batch-${index}`,
+      convId: index === 11 ? 'g-missing' : index % 2 === 0 ? 'g-a' : 'g-b',
+      title: `公告 ${index}`,
+      content: `正文 ${index}`,
+      publishedAt: `2026-10-20 09:${String(index).padStart(2, '0')}:00`,
+    }))
+    const inserted = await sqlSedimentRepository.applyAnnouncements(items)
+
+    expect(inserted).toHaveLength(11) // 会话缺失的那条被跳过，其余照常
+    expect(db.dbTransaction).toHaveBeenCalledTimes(1)
+    expect(db.dbTransaction.mock.calls[0][0]).toHaveLength(11)
+    expect(db.dbSelect).toHaveBeenCalledTimes(2) // 会话 id 批量查询 + 插入行批量回查
+    expect(db.dbExecute).not.toHaveBeenCalled()
+  })
+
+  it('applyAnnouncements 批内重复 annUid 仍幂等，只返回真正新增的行', async () => {
+    await sqlWelinkRepository.upsertConversation({ convType: 'group', convId: 'g-a', title: 'A 群' })
+    const made = (annUid: string) => ({
+      annUid,
+      convId: 'g-a',
+      title: annUid,
+      content: annUid,
+      publishedAt: '2026-10-20 09:00:00',
+    })
+    expect((await sqlSedimentRepository.applyAnnouncements([made('dup'), made('dup'), made('new')])).map((a) => a.annUid)).toEqual(
+      ['dup', 'new'],
+    )
+    expect(await sqlSedimentRepository.applyAnnouncements([made('dup'), made('new')])).toEqual([])
   })
 
   it('关键语义抽查：公告幂等、评审单向、复合水位推进（同秒不丢）', async () => {

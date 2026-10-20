@@ -121,4 +121,37 @@ describe('runUiAction', () => {
     )
     expect(busy.value).toBe(false)
   })
+
+  it('failOnFalse：store「返回布尔不抛」的语义下，false 必须算失败', async () => {
+    const ok = await runUiAction(async () => false, { fail: '本地快照装载失败，请重试', failOnFalse: true })
+    expect(ok).toBe(false)
+    expect(errorSpy()).toHaveBeenCalledWith('本地快照装载失败，请重试')
+  })
+
+  it('不开 failOnFalse 时 false 仍是成功（业务降级由调用方自己提示）', async () => {
+    expect(await runUiAction(async () => false, { fail: '兜底' })).toBe(true)
+    expect(errorSpy()).not.toHaveBeenCalled()
+  })
+
+  it('error ref：失败文案写进行内错误区，且不再重复弹 toast', async () => {
+    const inline = ref('旧的')
+    const ok = await runUiAction(
+      async () => {
+        throw new Error('数据库被占用')
+      },
+      { fail: '开启参与同步失败', error: inline },
+    )
+    expect(ok).toBe(false)
+    expect(inline.value).toBe('数据库被占用')
+    expect(errorSpy()).not.toHaveBeenCalled()
+  })
+
+  it('error ref：动作开始前先清空上一次的错误（不留下失效的红字）', async () => {
+    const inline = ref('上一次失败')
+    expect(await runUiAction(async () => 1, { fail: '兜底', error: inline })).toBe(true)
+    expect(inline.value).toBe('')
+
+    await runUiAction(async () => false, { fail: '装载失败', error: inline, failOnFalse: true })
+    expect(inline.value).toBe('装载失败')
+  })
 })

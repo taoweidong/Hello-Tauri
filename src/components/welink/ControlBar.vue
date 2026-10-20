@@ -16,6 +16,16 @@ import { useWelinkStore } from '@/stores/welink'
 
 const store = useWelinkStore()
 
+/**
+ * 父视图（WeLinkView）传下来的动作繁忙态。
+ *
+ * 为什么要有：启动/急停/刷新这几个动作由父视图执行（store 里没有对应的「在飞」
+ * 标记），子控件不接收这个 prop 就**只能靠用户在请求落地前不乱点**。早期版本
+ * 正是这样，连点会把两次启停叠在一起 —— 而总开关与急停是外发的唯一人工入口，
+ * 重复触发的代价不可逆。
+ */
+const props = defineProps<{ busy?: boolean }>()
+
 const emit = defineEmits<{
   (e: 'toggle-enabled', value: boolean): void
   (e: 'panic'): void
@@ -87,7 +97,7 @@ function liftFuse() {
     <div class="bar__group">
       <el-switch
         v-model="enabled"
-        :disabled="store.status === 'panic'"
+        :disabled="store.status === 'panic' || props.busy"
         inline-prompt
         active-text="开"
         inactive-text="关"
@@ -105,7 +115,13 @@ function liftFuse() {
       :content="store.status === 'panic' ? '解除急停（会先降为人工确认模式）' : '立即停止轮询与外发，封死所有自动发送'"
       placement="bottom"
     >
-      <button class="bar__panic pressable" :class="{ 'is-on': store.status === 'panic' }" @click="emit('panic')">
+      <button
+        class="bar__panic pressable"
+        :class="{ 'is-on': store.status === 'panic' }"
+        :disabled="props.busy"
+        :aria-busy="props.busy"
+        @click="emit('panic')"
+      >
         <IconAlert class="bar__panic-icon" />
         {{ store.status === 'panic' ? '解除急停' : '一键全停' }}
       </button>
@@ -141,11 +157,16 @@ function liftFuse() {
     <!-- 动作。placement 必须用 popper 的合法取值 `bottom-start`（左对齐下沉）；
          原先写的 `bottom-left` 不在 Placement 联合类型里，运行期会被忽略并回退默认定位。 -->
     <el-tooltip :content="backoffDetail" placement="bottom-start">
-      <el-button size="small" :icon="IconRefresh" :loading="store.pulling" @click="emit('pull-now')"
+      <el-button
+        size="small"
+        :icon="IconRefresh"
+        :loading="store.pulling"
+        :disabled="props.busy"
+        @click="emit('pull-now')"
         >立即拉取</el-button
       >
     </el-tooltip>
-    <el-button size="small" text @click="emit('refresh')">刷新</el-button>
+    <el-button size="small" text :loading="props.busy" @click="emit('refresh')">刷新</el-button>
   </div>
 
   <!-- 熔断横幅（S8）—— 两类熔断给不同的出口：

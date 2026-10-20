@@ -40,6 +40,26 @@ export interface UiActionOptions {
   ok?: string
   /** 执行期置 true、结束置 false；用于按钮 `:loading` 防重复提交 */
   busy?: Ref<boolean>
+  /**
+   * 把「任务 resolve 出 `false`」也算失败（默认只看是否抛错）。
+   *
+   * 为什么需要：本项目的 store 有一批**「返回布尔、永不 reject」**的语义
+   * （`init()` / `save()` / `refresh()` 的成功与否靠布尔表达）。直接把它们塞进
+   * `runUiAction`，`false` 会被当成「没抛错 = 成功」—— 装载失败、保存失败全部
+   * 静默变成功，正是这个出口要消灭的缺陷形态。给这类调用点开这个开关即可。
+   *
+   * 反之，业务级「没做但也不算错」的动作（如「数据源不支持演示剧本」返回 false）
+   * 不该开：它们由调用方自己降级提示，不该被这里当成错误。
+   */
+  failOnFalse?: boolean
+  /**
+   * 失败文案写入这个 ref（页面内的行内错误区），而不是弹 toast。
+   *
+   * 为什么要：表单/清单类页面有固定的错误展示位（如仓库清单下的 `.repos__error`），
+   * 再弹一次 toast 就是同一条错误报两遍。给了 `error` 就表示「行内区就是提示出口」，
+   * 出口仍然唯一，只是换了个呈现位置。动作开始前会清空它。
+   */
+  error?: Ref<string>
 }
 
 /**
@@ -48,15 +68,25 @@ export interface UiActionOptions {
  * @returns 成功 true；失败 false（已提示，不再抛）
  */
 export async function runUiAction(task: () => Promise<unknown> | unknown, options: UiActionOptions): Promise<boolean> {
-  const { fail, ok, busy } = options
+  const { fail, ok, busy, failOnFalse, error: errorRef } = options
   if (busy) busy.value = true
+  if (errorRef) errorRef.value = ''
+  /** 失败的唯一出口：给了行内错误区就写区里，否则弹 toast */
+  const report = (text: string) => {
+    if (errorRef) errorRef.value = text
+    else ElMessage.error(text)
+  }
   try {
-    await task()
+    const result = await task()
+    if (failOnFalse && result === false) {
+      report(fail)
+      return false
+    }
     if (ok) ElMessage.success(ok)
     return true
-  } catch (error) {
+  } catch (thrown) {
     // 关键：失败必须让用户看见。返回值交调用方决定是否回滚 UI。
-    ElMessage.error(errorText(error, fail))
+    report(errorText(thrown, fail))
     return false
   } finally {
     if (busy) busy.value = false

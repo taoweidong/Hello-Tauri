@@ -298,6 +298,27 @@ export function createKnowledgeHarvester(options: HarvesterOptions): KnowledgeHa
   }
 
   /**
+   * 沉淀留痕（审计语料）。
+   *
+   * 留痕**不阻断提取**（写不进去也不能让这一轮白干），但**不能静默**：
+   * 原先是 `.catch(() => undefined)`，留痕写失败时界面「最近提取记录」永远空白，
+   * 而用户据此判断「沉淀有没有在工作」——审计链断得无声无息。现在至少落一条 warn。
+   */
+  async function logSediment(entry: {
+    prompt: string
+    response: string
+    status: 'ok' | 'error'
+    latencyMs: number
+    error: string
+  }): Promise<void> {
+    try {
+      await sediment.insertSedimentLog(entry)
+    } catch (error) {
+      logger.warn(`知识沉淀：提取留痕写入失败（界面「最近提取记录」会缺条）：${String(error)}`)
+    }
+  }
+
+  /**
    * 提取段：扫描 → 消毒分批 → LLM → 去重 → 入待评审（或 auto 直通）。
    * 成功（含零候选）推进水位；失败向上抛（水位不推进，下轮重试同批）。
    */
@@ -328,20 +349,16 @@ export function createKnowledgeHarvester(options: HarvesterOptions): KnowledgeHa
       response = await options.agent.complete(prompt)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      await sediment
-        .insertSedimentLog({
-          prompt,
-          response: '',
-          status: 'error',
-          latencyMs: now().getTime() - startedAt,
-          error: message,
-        })
-        .catch(() => undefined)
+      await logSediment({
+        prompt,
+        response: '',
+        status: 'error',
+        latencyMs: now().getTime() - startedAt,
+        error: message,
+      })
       throw error
     }
-    await sediment
-      .insertSedimentLog({ prompt, response, status: 'ok', latencyMs: now().getTime() - startedAt, error: '' })
-      .catch(() => undefined)
+    await logSediment({ prompt, response, status: 'ok', latencyMs: now().getTime() - startedAt, error: '' })
 
     const entries = parseExtractReply(response)
     const knownHashes = await knownDocHashes()
@@ -545,7 +562,16 @@ export function createKnowledgeHarvester(options: HarvesterOptions): KnowledgeHa
           await sediment.setState(SEDIMENT_KEYS.failStreak, '0')
         } catch (error) {
           const streak = failStreak + 1
-          await sediment.setState(SEDIMENT_KEYS.failStreak, String(streak)).catch(() => undefined)
+          // 这里**不能** `.catch(() => undefined)`：failStreak 是「连续失败熔断」
+          // 的唯一输入，写不进去 → 计数恒为 0 → 阈值永不命中 → 模型侧持续失败
+          // 时仍**每轮照调**，既不降级也不告警。写失败要说出来。
+          try {
+            await sediment.setState(SEDIMENT_KEYS.failStreak, String(streak))
+          } catch (streakError) {
+            const detail = streakError instanceof Error ? streakError.message : String(streakError)
+            errors.push(`连续失败计数写入失败（熔断阈值可能不生效）：${detail}`)
+            logger.warn(`知识沉淀：连续失败计数写入失败（熔断阈值可能不生效）：${detail}`)
+          }
           const message = error instanceof Error ? error.message : String(error)
           errors.push(`知识提取失败（连续第 ${streak} 次）：${message}`)
           logger.warn(`知识提取失败（连续第 ${streak} 次）：${message}`)

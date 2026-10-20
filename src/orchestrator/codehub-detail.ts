@@ -41,18 +41,37 @@ export function createDetailBackfill(options: DetailBackfillOptions): CodeHubDet
   const now = options.now ?? (() => new Date())
   const inFlight = new Map<string, Promise<CodeHubMrRecord | null>>()
 
+  /**
+   * `finally` 必须包住**整段**，包括开头的快照读。
+   *
+   * 曾经把 `repo.getMr` 写在 try 之外：它一抛（DB 抖动/库被锁），`finally` 就不执行，
+   * 在飞表的键**永不删除** —— 之后每次 `fetch()` 都复用同一个 rejected promise，
+   * 这条 MR 的详情永久加载不出，且违反「永不 reject」的接口契约。快照读与补拉
+   * 是两种失败语义（前者读不到记录只能返回 null，后者还有列表字段可降级），
+   * 所以分开 catch，但共用同一个 finally 清理在飞键。
+   */
   async function run(repoId: string, mrIid: string): Promise<CodeHubMrRecord | null> {
-    const record = await options.repo.getMr(repoId, mrIid)
-    if (!record || record.detail) return record
     try {
-      const detail = await options.port().getMergeRequestDetail(repoId, mrIid)
-      await options.repo.saveMrDetail(repoId, mrIid, detail, nowStamp(now()))
-      return { summary: record.summary, detail }
-    } catch (error) {
-      logger.warn(
-        `CodeHub 详情补拉失败（${repoId}!${mrIid}）：${error instanceof Error ? error.message : String(error)}`,
-      )
-      return record
+      let record: CodeHubMrRecord | null
+      try {
+        record = await options.repo.getMr(repoId, mrIid)
+      } catch (error) {
+        logger.warn(
+          `CodeHub 详情快照读取失败（${repoId}!${mrIid}）：${error instanceof Error ? error.message : String(error)}`,
+        )
+        return null
+      }
+      if (!record || record.detail) return record
+      try {
+        const detail = await options.port().getMergeRequestDetail(repoId, mrIid)
+        await options.repo.saveMrDetail(repoId, mrIid, detail, nowStamp(now()))
+        return { summary: record.summary, detail }
+      } catch (error) {
+        logger.warn(
+          `CodeHub 详情补拉失败（${repoId}!${mrIid}）：${error instanceof Error ? error.message : String(error)}`,
+        )
+        return record
+      }
     } finally {
       inFlight.delete(keyOf(repoId, mrIid))
     }

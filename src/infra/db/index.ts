@@ -29,6 +29,9 @@ import { migrationV4 } from './migrations/codehub'
 import { migrationV5 } from './migrations/welink-skill'
 import { migrationV6 } from './migrations/welink-sediment'
 import { migrationV7 } from './migrations/welink-purge-index'
+import { migrationV8 } from './migrations/welink-conv-index'
+import { migrationV9 } from './migrations/welink-purge-time-index'
+import { migrationV10 } from './migrations/welink-finished-index'
 
 /**
  * 全库迁移注册表（**唯一真值**）。
@@ -45,6 +48,9 @@ export const MIGRATIONS: Migration[] = [
   migrationV5,
   migrationV6,
   migrationV7,
+  migrationV8,
+  migrationV9,
+  migrationV10,
 ]
 
 let migrated: Promise<number[]> | null = null

@@ -7,6 +7,7 @@ import { bridge, platform } from '@/api'
 import { navRoutes } from '@/router'
 import { useAppStore } from '@/stores/app'
 import { useCodehubStore } from '@/stores/codehub'
+import { runUiAction } from '@/utils/ui-action'
 import { logger } from '@/utils/logger'
 import type { AppSettings } from '@/types'
 import type { WelinkSettings } from '@/types/welink'
@@ -74,7 +75,18 @@ async function save() {
   if (ok) {
     // CodeHub 自动同步随配置即时重评估：间隔归零 → 停，配齐且 >0 → 起（不必重启应用）。
     // 先过 init（幂等）：启动时迁移失败的场景下，修好配置保存即补一次装载。
-    void codehubStore.init().then(() => codehubStore.applyAutoSettings())
+    //
+    // 这里原本是 `void codehubStore.init().then(...)` **没有 .catch**：保存成功提示
+    // 已经弹出，但 CodeHub 的装载/自动同步其实没起来（未处理拒绝），用户下一次
+    // 发现「配置明明存了却不同步」时已经没有任何线索。失败必须说出来。
+    void runUiAction(
+      async () => {
+        const loaded = await codehubStore.init()
+        if (!loaded) throw new Error('本地快照仍未装载成功')
+        codehubStore.applyAutoSettings()
+      },
+      { fail: 'CodeHub 按新配置重新装载失败，请回到检视页查看' },
+    )
     ElMessage({ message: '配置已保存', type: 'success' })
   } else {
     ElMessage.error('保存失败，请查看日志')

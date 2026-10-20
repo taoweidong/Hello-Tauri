@@ -261,6 +261,9 @@ export interface WelinkRepository {
    * 要点3 的原子保证：draft 与 status='ready' **同一条 UPDATE**。
    * `skill` 传入时技能三列与草稿同条写入（skill-routing：分类结果与草稿原子落库）。
    * 返回是否生效（同一 job 被并发处理时后写者不得覆盖）。
+   *
+   * 另：实现必须**同时把 attempts 归零** —— 生成与外发是两段独立的重试预算，
+   * 草稿就绪即生成阶段结束，计数不归零会静默吃掉外发的重试次数（两侧实现同口径）。
    */
   commitDraft(pk: number, draft: string, contextSnapshot?: string, skill?: SkillAttribution): Promise<boolean>
   /** 生成失败：attempts++ 与错误留痕（未耗尽时回 pending 由 worker 重试） */

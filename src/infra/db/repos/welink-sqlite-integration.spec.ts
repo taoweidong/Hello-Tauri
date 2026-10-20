@@ -58,6 +58,10 @@ import { MIGRATIONS } from '@/infra/db'
 import { sqlWelinkRepository } from '@/infra/db/repos/welink'
 
 let realDb: DatabaseSync
+/** 最近一次经仓储下发的 SQL（已改写为 node:sqlite 的匿名占位符）+ 参数 */
+let lastExecute: { sql: string; args: SQLInputValue[] } = { sql: '', args: [] }
+/** 最近一次经仓储下发的 **查询** SQL（v10 的谓词走的是 SELECT） */
+let lastSelect: { sql: string; args: SQLInputValue[] } = { sql: '', args: [] }
 
 /**
  * 仓库 SQL 统一用 `?N` 编号占位符（rusqlite 原生支持），本机 Node 的 node:sqlite
@@ -81,11 +85,13 @@ beforeAll(async () => {
 
   db.dbExecute.mockImplementation(async (sql: string, params: DbParam[] = []) => {
     const rewritten = toAnonymous(sql, params)
+    lastExecute = { sql: rewritten.sql, args: rewritten.args as unknown as SQLInputValue[] }
     const result = realDb.prepare(rewritten.sql).run(...(rewritten.args as unknown as SQLInputValue[]))
     return { changes: Number(result.changes), lastInsertId: Number(result.lastInsertRowid) }
   })
   db.dbSelect.mockImplementation(async (sql: string, params: DbParam[] = []) => {
     const rewritten = toAnonymous(sql, params)
+    lastSelect = { sql: rewritten.sql, args: rewritten.args as unknown as SQLInputValue[] }
     return realDb.prepare(rewritten.sql).all(...(rewritten.args as unknown as SQLInputValue[])) as DbRow[]
   })
   db.dbTransaction.mockImplementation(async (statements: { sql: string; params?: DbParam[] }[]) => {
@@ -203,6 +209,106 @@ describe('migration v7 —— 保留期清理的前置索引', () => {
     const detail = plan.map((row) => row.detail).join(' | ')
     expect(detail).not.toContain('SCAN j')
     expect(detail).toMatch(/SEARCH j.*INDEX/)
+  })
+})
+
+// ---------------- 迁移 DDL：清理/轮询热路径的索引 ----------------
+
+describe('migration v8 / v9 —— 高频谓词的索引（缺了就是全表扫描）', () => {
+  const hasIndex = (name: string) =>
+    (realDb.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`).all(name) as unknown[]).length ===
+    1
+
+  it('v8：会话表的 watching 与排序索引都在（poller 每轮的入口查询）', () => {
+    expect(hasIndex('idx_wc_watching')).toBe(true)
+    expect(hasIndex('idx_wc_type_last')).toBe(true)
+  })
+
+  it('v9：消息 sent_at 与调用日志 created_at 都有独立索引（保留期清理的时间谓词）', () => {
+    expect(hasIndex('idx_wm_sent_at')).toBe(true)
+    expect(hasIndex('idx_wal_created_at')).toBe(true)
+  })
+
+  // EXPLAIN 的必须是**仓储真实下发的那条 DELETE**（捕获自 bridge）。
+  // 只要子查询带着 `ORDER BY id`，SQLite 就会为了省掉排序选择按 rowid 全表扫描 ——
+  // 索引建了也白建；去掉排序后才会走 idx_wm_sent_at / idx_wal_created_at。
+  const explainLastExecute = () =>
+    (realDb.prepare(`EXPLAIN QUERY PLAN ${lastExecute.sql}`).all(...lastExecute.args) as { detail: string }[])
+      .map((row) => row.detail)
+      .join(' | ')
+
+  it('purge 的时间谓词走索引而非全表扫描（(conv_pk, sent_at) 帮不上裸 sent_at）', async () => {
+    await repo.purgeMessagesBefore('2026-06-01 00:00:00', 500)
+    expect(explainLastExecute()).toMatch(/SEARCH m USING (COVERING )?INDEX idx_wm_sent_at/)
+  })
+
+  it('语料清理的 created_at 谓词同样走索引', async () => {
+    await repo.purgeAgentLogsBefore('2026-06-01 00:00:00', 500)
+    expect(explainLastExecute()).toMatch(/SEARCH welink_agent_logs USING (COVERING )?INDEX idx_wal_created_at/)
+  })
+})
+
+// ---------------- 迁移 DDL：已发送时间的热谓词索引 ----------------
+
+describe('migration v10 —— 已发送时间（finished_at）的热谓词索引', () => {
+  const hasIndex = (name: string) =>
+    (realDb.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`).all(name) as unknown[]).length ===
+    1
+
+  const explainLastSelect = () =>
+    (realDb.prepare(`EXPLAIN QUERY PLAN ${lastSelect.sql}`).all(...lastSelect.args) as { detail: string }[])
+      .map((row) => row.detail)
+      .join(' | ')
+
+  it('两条索引都在（Gate 预热与沉淀水位都靠它们）', () => {
+    expect(hasIndex('idx_wrj_target_finished')).toBe(true)
+    expect(hasIndex('idx_wrj_status_finished')).toBe(true)
+  })
+
+  // EXPLAIN 的同样是**仓储真实下发的那条 SELECT**：安全闸预热对每个监控会话都跑一次
+  // countSentSince，N 个会话 = N 次查询。
+  //
+  // 断言口径：**不钉具体哪条索引**（SQLite 在两条都可用时选谁是代价估算的结果，
+  // 不是契约），只钉「走了 v10 的 finished_at 索引、且范围收窄到 finished_at」。
+  // 少了 `finished_at>?` 这一段就退回「定位到 status/target 后把后面全扫一遍」。
+  it('会话级发送计数：谓词收窄到 finished_at 范围', async () => {
+    await repo.countSentSince('g-1', '2026-06-01 00:00:00')
+    const detail = explainLastSelect()
+    expect(detail).toMatch(/USING (COVERING )?INDEX idx_wrj_(target|status)_finished/)
+    expect(detail).toMatch(/finished_at>\?/)
+  })
+
+  it('全局发送计数：谓词收窄到 finished_at 范围', async () => {
+    await repo.countGlobalSentSince('2026-06-01 00:00:00')
+    const detail = explainLastSelect()
+    expect(detail).toMatch(/USING (COVERING )?INDEX idx_wrj_status_finished/)
+    expect(detail).toMatch(/finished_at>\?/)
+  })
+})
+
+// ---------------- 重试预算：两段必须分开计 ----------------
+
+describe('commitDraft —— 生成与外发是两段独立重试预算（回归防线）', () => {
+  it('草稿就绪时 attempts 归零：生成阶段花掉的计数不得吃掉外发重试', async () => {
+    const convPk = seedConversation()
+    seedMessage(convPk, 1, '2026-01-01 00:00:00')
+    seedJob(1, 'discussing')
+    const jobPk = (realDb.prepare('SELECT id FROM welink_reply_jobs').all() as { id: number }[])[0].id
+
+    // 生成阶段连败两次：attempts = 2
+    await repo.recordAttemptFailure(jobPk, 'discussing', '生成失败 1')
+    await repo.recordAttemptFailure(jobPk, 'discussing', '生成失败 2')
+    const attemptsOf = () =>
+      (realDb.prepare('SELECT attempts AS a FROM welink_reply_jobs WHERE id = ?').get(jobPk) as { a: number }).a
+    expect(attemptsOf()).toBe(2)
+
+    // 生成成功 → 草稿就绪。此时 attempts 必须归零，否则外发第一次失败就是
+    // attempts=3（3 < 3 为假）→ 直接判 failed，一次外发重试都没有。
+    expect(await repo.commitDraft(jobPk, '最终草稿', '')).toBe(true)
+    expect(attemptsOf()).toBe(0)
+    expect((realDb.prepare('SELECT status AS s FROM welink_reply_jobs WHERE id = ?').get(jobPk) as { s: string }).s).toBe(
+      'ready',
+    )
   })
 })
 

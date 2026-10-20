@@ -64,6 +64,8 @@ export default tseslint.config(
         // 不引入 globals 包（多一个依赖），按需列出手头真正用到的。
         window: 'readonly',
         document: 'readonly',
+        HTMLElement: 'readonly',
+        KeyboardEvent: 'readonly',
         localStorage: 'readonly',
         navigator: 'readonly',
         console: 'readonly',

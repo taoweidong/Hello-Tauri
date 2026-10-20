@@ -27,6 +27,9 @@ function mountLayout() {
 }
 
 vi.mock('@/router', () => ({
+  // 面包屑首段由路由 meta.group 派生（缺省用 DEFAULT_NAV_GROUP）；
+  // 部分 mock 必须把新导出一并返回，否则组件的 computed 在渲染期取到 undefined。
+  DEFAULT_NAV_GROUP: '工作台',
   navGroups: () => [{ name: '总览', items: [{ path: '/', title: '工作台', icon: { render: () => null } }] }],
 }))
 

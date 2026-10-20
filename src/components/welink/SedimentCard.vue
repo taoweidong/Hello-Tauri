@@ -10,6 +10,8 @@ import { ElMessage } from 'element-plus'
 
 import { useKnowledgeStore } from '@/stores/welink/knowledge'
 import { useWelinkStore } from '@/stores/welink'
+import { SETTINGS_PUSH_DEBOUNCE_MS } from '@/utils/debounce'
+import { runUiAction } from '@/utils/ui-action'
 import { normalizeWelinkSettings, type WelinkSedimentSettings, type WelinkSettings } from '@/types/welink'
 
 const props = defineProps<{ modelValue: Partial<WelinkSedimentSettings> }>()
@@ -45,7 +47,7 @@ watch(draft, push, { deep: true })
 
 function push() {
   if (pushTimer) clearTimeout(pushTimer)
-  pushTimer = setTimeout(flushPush, 300)
+  pushTimer = setTimeout(flushPush, SETTINGS_PUSH_DEBOUNCE_MS)
 }
 
 function flushPush() {
@@ -71,8 +73,14 @@ const convOptions = computed<ConvOption[]>(() =>
 )
 
 onMounted(() => {
-  void welinkStore.loadConversations().catch(() => undefined)
-  void knowledgeStore.loadLogs().catch(() => undefined)
+  // 两张清单都是本卡的输入（白名单候选与历史日志），装载失败必须说出来：
+  // 静默吞掉只会让用户看到「白名单空了 / 日志没了」，误以为是数据丢失。
+  void runUiAction(() => welinkStore.loadConversations(), {
+    fail: '会话清单加载失败，沉淀白名单候选可能不完整',
+  })
+  void runUiAction(() => knowledgeStore.loadLogs(), {
+    fail: '沉淀日志加载失败，历史记录暂不可见',
+  })
 })
 
 // —— 立即提取 ——

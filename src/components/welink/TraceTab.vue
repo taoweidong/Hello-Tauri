@@ -16,6 +16,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { IconDownload, IconRefresh, IconTrash } from '@/components/icons'
 import { useWelinkStore } from '@/stores/welink'
 import type { AgentLogStatus, WelinkAgentLog, WelinkJob } from '@/types/welink'
+import { runUiAction } from '@/utils/ui-action'
 import { shortStamp } from '@/utils/welink-display'
 
 const props = defineProps<{ focusJobPk?: number | null }>()
@@ -107,7 +108,16 @@ function resetFilters() {
 
 // —— 导出（Q6：单 job，含输入输出） ——
 
-function exportJob() {
+/**
+ * 导出与清理的繁忙态。
+ *
+ * 清理是**不可逆删除**（提示词与回复原文无法复现），此前按钮只有 `:disabled`、
+ * 没有 `:loading` —— 连点会发多次删除请求；导出是写文件动作，同理需要防连点。
+ */
+const exporting = ref(false)
+const clearing = ref(false)
+
+async function exportJob() {
   const job = selectedJob.value
   if (!job) return
   const payload = {
@@ -134,14 +144,24 @@ function exportJob() {
       response: log.response,
     })),
   }
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `welink-trace-job-${job.pk}.json`
-  link.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success(`已导出 job ${job.pk} 的 ${logs.value.length} 条调用记录`)
+  // 写文件动作：Blob/下载本身也可能失败（配额、被浏览器策略拦），
+  // 失败必须说出来 —— 否则点了「导出」桌面静悄悄，用户以为已经导出。
+  await runUiAction(
+    () => {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `welink-trace-job-${job.pk}.json`
+      link.click()
+      URL.revokeObjectURL(url)
+    },
+    {
+      fail: '导出失败',
+      ok: `已导出 job ${job.pk} 的 ${logs.value.length} 条调用记录`,
+      busy: exporting,
+    },
+  )
 }
 
 async function clearLogs() {
@@ -153,9 +173,17 @@ async function clearLogs() {
     { type: 'warning', confirmButtonText: '清理', cancelButtonText: '取消' },
   ).catch(() => false)
   if (confirmed === false) return
-  const removed = await store.clearAgentLogs(job.pk)
-  await loadJobs()
-  ElMessage.success(`已清理 ${removed} 条记录`)
+  // 不可逆删除：抛错必须可见，且**只有真的删成功才报成功**。
+  // 旧写法先 `await clearAgentLogs` 再无条件 `loadJobs + success`，删没删掉都说「已清理」。
+  let removed = 0
+  const ok = await runUiAction(
+    async () => {
+      removed = await store.clearAgentLogs(job.pk)
+    },
+    { fail: '清理回溯记录失败', busy: clearing },
+  )
+  await runUiAction(() => loadJobs(), { fail: '刷新任务列表失败' })
+  if (ok) ElMessage.success(`已清理 ${removed} 条记录`)
 }
 
 // —— 展示辅助 ——
@@ -185,7 +213,15 @@ onMounted(loadJobs)
     <!-- 筛选器 -->
     <div class="trace__filter">
       <el-checkbox v-model="filter.onlyDownRated" size="small">只看差评</el-checkbox>
-      <el-select v-model="filter.status" multiple collapse-tags placeholder="调用状态" size="small" class="trace__sel">
+      <el-select
+        v-model="filter.status"
+        multiple
+        collapse-tags
+        placeholder="调用状态"
+        aria-label="按调用状态筛选"
+        size="small"
+        class="trace__sel"
+      >
         <el-option v-for="(label, key) in STATUS_LABEL" :key="key" :label="label" :value="key" />
       </el-select>
       <el-date-picker
@@ -193,6 +229,7 @@ onMounted(loadJobs)
         type="date"
         size="small"
         placeholder="起始"
+        aria-label="起始日期"
         value-format="YYYY-MM-DD"
         class="trace__date"
       />
@@ -201,6 +238,7 @@ onMounted(loadJobs)
         type="date"
         size="small"
         placeholder="截止"
+        aria-label="截止日期"
         value-format="YYYY-MM-DD"
         class="trace__date"
       />
@@ -253,7 +291,13 @@ onMounted(loadJobs)
           </template>
           <span v-else class="trace__hint">请选择左侧任务</span>
           <span class="spacer" />
-          <el-button v-if="selectedJob" size="small" :icon="IconDownload" :disabled="!logs.length" @click="exportJob"
+          <el-button
+            v-if="selectedJob"
+            size="small"
+            :icon="IconDownload"
+            :disabled="!logs.length"
+            :loading="exporting"
+            @click="exportJob"
             >导出 JSON</el-button
           >
           <el-button
@@ -263,6 +307,7 @@ onMounted(loadJobs)
             type="danger"
             :icon="IconTrash"
             :disabled="!logs.length"
+            :loading="clearing"
             @click="clearLogs"
           >
             清理记录

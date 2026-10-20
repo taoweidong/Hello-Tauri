@@ -24,6 +24,7 @@ import { useWelinkStore } from '@/stores/welink'
 import { normalizeWelinkSettings, type WelinkSettings } from '@/types/welink'
 import SafetySection from './settings/SafetySection.vue'
 import { decodeBase64Text } from '@/utils/b64'
+import { SETTINGS_PUSH_DEBOUNCE_MS } from '@/utils/debounce'
 import { formatMs, formatSec } from '@/utils/welink-display'
 
 const props = defineProps<{ modelValue: Partial<WelinkSettings> }>()
@@ -66,7 +67,7 @@ let pushTimer: ReturnType<typeof setTimeout> | null = null
 
 function push() {
   if (pushTimer) clearTimeout(pushTimer)
-  pushTimer = setTimeout(flushPush, 300)
+  pushTimer = setTimeout(flushPush, SETTINGS_PUSH_DEBOUNCE_MS)
 }
 
 function flushPush() {

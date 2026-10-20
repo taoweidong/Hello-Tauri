@@ -240,7 +240,10 @@ describe('infra/db/welink —— 分页强制（P7）', () => {
     expect(removed).toBe(17)
     const { sql, params } = lastExec()
     expect(sql).toContain('DELETE FROM welink_messages WHERE id IN')
-    expect(sql).toContain('ORDER BY m.id LIMIT ?2')
+    expect(sql).toContain('LIMIT ?2')
+    // 不能按主键排序：会导致 SQLite 放弃 idx_wm_sent_at 改走 rowid 全表扫描
+    //（分批顺序无语义）。计划层面的验证在 welink-sqlite-integration.spec.ts。
+    expect(sql).not.toContain('ORDER BY')
     // NOT EXISTS 不是优化而是必需：trigger_msg_pk 外键无 ON DELETE，
     // 不跳过被引用的行整条 DELETE 会抛 FOREIGN KEY constraint failed。
     // 语义与行为的验证在 welink-sqlite-integration.spec.ts（真库跑）。
@@ -255,7 +258,9 @@ describe('infra/db/welink —— 分页强制（P7）', () => {
     const { sql, params } = lastExec()
     expect(sql).toContain('DELETE FROM welink_agent_logs WHERE id IN')
     expect(sql).toContain('created_at < ?1')
-    expect(sql).toContain('ORDER BY id LIMIT ?2')
+    expect(sql).toContain('LIMIT ?2')
+    // 同上：ORDER BY id 会让 v9 的 created_at 索引失效
+    expect(sql).not.toContain('ORDER BY')
     expect(params).toEqual(['2026-07-01', 500])
     // 语义边界：只删语料留痕，**不能**顺带动 job（job 是回复历史的主体）
     expect(sql).not.toContain('welink_reply_jobs')
@@ -299,6 +304,14 @@ describe('infra/db/welink —— 要点3 原子性（draft 与 ready 同条 UPDA
     expect(sql).toContain('skill_source = ?6')
     expect(sql).toContain('WHERE id = ?7')
     expect(params).toEqual(['草稿', expect.any(String), '上下文快照', 'fault-fix', '故障咨询', 'rule', 9])
+  })
+
+  it('commitDraft 把 attempts 归零（外发阶段重新计预算，不被生成重试吃掉）', async () => {
+    await repo.commitDraft(9, '草稿')
+    const { sql } = lastExec()
+    expect(sql).toContain('attempts = 0')
+    // 仍必须是单条 UPDATE（拆开就破坏要点3 的原子性）
+    expect(sql.match(/UPDATE welink_reply_jobs/g)).toHaveLength(1)
   })
 
   it('commitDraft 条件不匹配（changes=0）返回 false', async () => {

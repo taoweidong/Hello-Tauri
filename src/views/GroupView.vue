@@ -14,6 +14,7 @@ import { useGroupStore } from '@/stores/group'
 import { platform } from '@/api'
 import { normalizeWelinkSettings } from '@/types/welink'
 import { useAppStore } from '@/stores/app'
+import { logger } from '@/utils/logger'
 import CreateTab from '@/components/group/CreateTab.vue'
 import TemplateTab from '@/components/group/TemplateTab.vue'
 // 命名避开 welink 的 HistoryTab：同类名会让 unplugin-vue-components 的
@@ -40,7 +41,14 @@ const sourceLabel = ref('')
 const initFailed = ref(false)
 
 async function runInit() {
-  initFailed.value = !(await store.init())
+  // store.init 的正常失败走返回值，但迁移/桥接异常会直接拒绝；两种都要落到告警，
+  // 否则页头停在「无错」，模板与历史只剩空列表。
+  try {
+    initFailed.value = !(await store.init())
+  } catch (error) {
+    initFailed.value = true
+    logger.error('快速建群初始化失败（模板与历史暂不可用）', error)
+  }
 }
 
 onMounted(() => {

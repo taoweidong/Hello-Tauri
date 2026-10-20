@@ -24,6 +24,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 import { IconAlert } from '@/components/icons'
 import { useWelinkStore } from '@/stores/welink'
+import { SETTINGS_PUSH_DEBOUNCE_MS } from '@/utils/debounce'
 import { normalizeWelinkSettings, type WelinkSettings } from '@/types/welink'
 import AgentSection from './settings/AgentSection.vue'
 import SkillsSection from './settings/SkillsSection.vue'
@@ -66,7 +67,7 @@ watch(draft, push, { deep: true })
 /** 300ms 防抖：逐键 push 会造成逐键热更新与日志（与 SettingsCard 同款权衡） */
 function push() {
   if (pushTimer) clearTimeout(pushTimer)
-  pushTimer = setTimeout(flushPush, 300)
+  pushTimer = setTimeout(flushPush, SETTINGS_PUSH_DEBOUNCE_MS)
 }
 
 function flushPush() {

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { IconSun, IconMoon, IconPanelLeft } from '@/components/icons'
-import { navGroups } from '@/router'
+import { DEFAULT_NAV_GROUP, navGroups } from '@/router'
 
 import { platform } from '@/api'
 import { useAppStore } from '@/stores/app'
@@ -51,6 +51,14 @@ const welinkBadge = computed(() => welinkStore.unreadTotal + welinkStore.reviewC
 
 const collapsed = computed(() => appStore.settings.sidebarCollapsed)
 const currentTitle = computed(() => String(route.meta.title ?? ''))
+/**
+ * 面包屑首段取当前路由的分组（此前写死「工作台」）。
+ *
+ * 写死会让 WeLink / CodeHub / 系统分组下的页面都显示成「工作台 / xxx」，
+ * 与左侧栏的分组标题对不上 —— 导航项双真值是本项目待清理的老问题之一，
+ * 这里至少让「分组」这一个真值回到路由表。
+ */
+const currentGroup = computed(() => String(route.meta.group ?? DEFAULT_NAV_GROUP))
 const platformLabel = computed(() => (platform === 'tauri' ? '桌面' : 'Web'))
 const themeIcon = computed(() => (appStore.settings.theme === 'dark' ? IconSun : IconMoon))
 const themeTip = computed(() => (appStore.settings.theme === 'dark' ? '切换到浅色' : '切换到深色'))
@@ -134,7 +142,7 @@ function go(path: string) {
     <div class="stage">
       <header class="topbar">
         <div class="topbar__crumb">
-          <span>工作台</span>
+          <span>{{ currentGroup }}</span>
           <svg
             class="topbar__sep"
             viewBox="0 0 24 24"

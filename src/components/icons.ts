@@ -140,14 +140,17 @@ function makeIcon(name: IconName, weight = 1.75): Component {
   return defineComponent({
     name: `Icon${name[0].toUpperCase()}${name.slice(1)}`,
     props: { size: { type: [Number, String], default: undefined } },
-    setup(_, { attrs }) {
-      return () =>
-        h(
+    setup(props, { attrs }) {
+      return () => {
+        // size 是声明过的 prop（不会进 attrs）：不消费它就是一个「传了也没用」的
+        // 静默空操作。缺省仍用 1em 跟随字号，显式传入时按像素/字符串原样落宽高。
+        const side = props.size === undefined ? '1em' : String(props.size)
+        return h(
           'svg',
           {
             viewBox: '0 0 24 24',
-            width: '1em',
-            height: '1em',
+            width: side,
+            height: side,
             fill: 'none',
             stroke: 'currentColor',
             'stroke-width': weight,
@@ -158,6 +161,7 @@ function makeIcon(name: IconName, weight = 1.75): Component {
           },
           shapes.map(([tag, a]) => h(tag, a)),
         )
+      }
     },
   })
 }

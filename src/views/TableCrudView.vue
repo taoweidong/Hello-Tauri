@@ -226,10 +226,17 @@ function onPageSizeChange(size: number) {
           v-model="tableStore.keyword"
           class="toolbar__search"
           placeholder="搜索名称或负责人"
+          aria-label="搜索名称或负责人"
           clearable
           :prefix-icon="IconSearch"
         />
-        <el-select v-model="tableStore.category" class="toolbar__select" placeholder="全部分类" clearable>
+        <el-select
+          v-model="tableStore.category"
+          class="toolbar__select"
+          placeholder="全部分类"
+          aria-label="按分类筛选"
+          clearable
+        >
           <el-option v-for="(item, i) in CATEGORIES" :key="item" :label="item" :value="item">
             <span class="dot" :class="`dot--${i}`" /> {{ item }}
           </el-option>

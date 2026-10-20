@@ -649,7 +649,13 @@ export const sqlWelinkRepository: WelinkRepository = {
     // 技能三列并入同条 UPDATE（skill-routing D5）：分类结果与草稿原子落库，避免
     // 「草稿已就绪但留痕缺失」的中间态被回复历史读到。
     const now = nowStamp()
-    const sets = ['draft = ?1', "status = 'ready'", 'updated_at = ?2', "hold_reason = ''"]
+    // `attempts = 0`：**生成阶段与外发阶段的重试预算必须分开计**。
+    // attempts 只有一列，而 pipeline 的两段各自有预算（生成 MAX_ATTEMPTS / 外发
+    // MAX_SEND_ATTEMPTS）。草稿就绪意味着「生成这一关过了」，若不归零，生成重试
+    // 花掉的计数会继续算在外发上 —— 生成失败 2 次的 job 一转到 ready，外发第一次
+    // 失败就 attempts=3 直接判 failed，**一次外发重试都没有**，且用户完全看不出
+    // 预算被谁吃掉了。归零后两段预算互不侵占。
+    const sets = ['draft = ?1', "status = 'ready'", 'updated_at = ?2', "hold_reason = ''", 'attempts = 0']
     const params: DbParam[] = [draft, now]
     if (contextSnapshot !== undefined) {
       params.push(contextSnapshot)
@@ -884,12 +890,17 @@ export const sqlWelinkRepository: WelinkRepository = {
     // 该子查询依赖 `idx_wrj_trigger_msg`（migration v7）：无索引时 EXPLAIN 为
     // `CORRELATED SCALAR SUBQUERY → SCAN j`，5 万行库上单批耗时 21.8s，会长时间独占
     // SQLite 全局连接锁、拖住所有 DB 命令；补索引后 8.3ms。
+    //
+    // **不能写 `ORDER BY m.id`**：分批顺序没有业务语义（调度器循环到返回 0 为止），
+    // 但排序键一旦是主键，SQLite 会为省掉排序而选择按 rowid 全表扫描，v9 的
+    // `idx_wm_sent_at` 就完全用不上（实测 EXPLAIN：`SCAN m`）。去掉排序后计划变为
+    // `SEARCH m USING COVERING INDEX idx_wm_sent_at` —— 索引才真正生效。
     const result = await bridge.dbExecute(
       `DELETE FROM welink_messages WHERE id IN (
          SELECT m.id FROM welink_messages m
           WHERE m.sent_at < ?1
             AND NOT EXISTS (SELECT 1 FROM welink_reply_jobs j WHERE j.trigger_msg_pk = m.id)
-          ORDER BY m.id LIMIT ?2)`,
+          LIMIT ?2)`,
       [cutoff, batch],
     )
     return result.changes
@@ -899,9 +910,12 @@ export const sqlWelinkRepository: WelinkRepository = {
     // 与消息清理同构（子查询 + LIMIT）。job 不受本方法影响（只删留痕），因此不存在
     // 悬垂引用；`purgeMessagesBefore` 跳过的那些被引用消息，其 job 仍在，
     // 对应的语料由本方法按 `created_at` 正常清理。
+    //
+    // 同 `purgeMessagesBefore`：不写 ORDER BY id，否则 SQLite 走 rowid 全表扫描，
+    // v9 的 `idx_wal_created_at` 失效（分批顺序无语义，循环删除直到收敛即可）。
     const result = await bridge.dbExecute(
       `DELETE FROM welink_agent_logs WHERE id IN (
-         SELECT id FROM welink_agent_logs WHERE created_at < ?1 ORDER BY id LIMIT ?2)`,
+         SELECT id FROM welink_agent_logs WHERE created_at < ?1 LIMIT ?2)`,
       [cutoff, batch],
     )
     return result.changes

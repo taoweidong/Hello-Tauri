@@ -38,6 +38,9 @@ const OVERALL_META: Record<EnvCheckOverall, { type: AlertType; title: string } |
   fail: { type: 'error', title: '检测未通过 —— 存在异常项，请按步骤详情排查' },
 }
 
+/** 模板里 v-if 的窄化不跨访问，统一取一次，省掉两处非空断言 */
+const overallMeta = computed(() => OVERALL_META[store.overall])
+
 /** 步骤行图标：ok 勾 / warn 三角 / fail 叉 / timeout 时钟 */
 function stepIcon(status: EnvCheckRunStatus): IconName {
   switch (status) {
@@ -97,13 +100,7 @@ onDeactivated(() => {
       description="桌面模式（exe）下将真实执行 welink-cli 子命令进行检测。"
     />
 
-    <el-alert
-      v-if="OVERALL_META[store.overall]"
-      :type="OVERALL_META[store.overall]!.type"
-      show-icon
-      :closable="false"
-      :title="OVERALL_META[store.overall]!.title"
-    >
+    <el-alert v-if="overallMeta" :type="overallMeta.type" show-icon :closable="false" :title="overallMeta.title">
       <template #default>
         <span v-if="store.lastRunAt">最近检测：{{ store.lastRunAt }}</span>
       </template>

@@ -315,6 +315,25 @@ describe('orchestrator/knowledge-harvester —— 采集与提取（4.1）', () 
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('连续失败'))
   })
 
+  it('连续失败计数写入失败必须说出来（否则熔断阈值永不命中，模型每轮照调）', async () => {
+    await seedWelink({ repo: memoryWelinkRepository, messages: [{ content: '门禁卡办理' }] })
+    const h = harness(makeSettings(), {
+      complete: vi.fn(async () => {
+        throw new Error('模型超时')
+      }),
+    })
+    // 反证：修复前这里是 `.catch(() => undefined)` —— 写失败被吞，
+    // failStreak 恒为 0，report.error 里不会出现任何关于计数的线索。
+    const spy = vi.spyOn(h.sediment, 'setState').mockRejectedValue(new Error('库被占用'))
+    try {
+      const report = await h.run()
+      expect(report.error).toContain('连续失败计数写入失败')
+      expect(vi.mocked(logger.warn).mock.calls.flat().join('|')).toContain('连续失败计数写入失败')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('成功提取后失败计数归零；沉淀全程不产生任何外发', async () => {
     await seedWelink({ repo: memoryWelinkRepository, messages: [{ content: '门禁办理' }] })
     await memorySedimentRepository.setState(SEDIMENT_KEYS.failStreak, '2')

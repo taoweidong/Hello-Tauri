@@ -16,6 +16,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { IconCheck } from '@/components/icons'
 import { useCodehubStore } from '@/stores/codehub'
 import { CODEHUB_MAX_BATCH, normalizeCodeHubSettings, type CodeHubSettings } from '@/types/codehub'
+import { SETTINGS_PUSH_DEBOUNCE_MS } from '@/utils/debounce'
 import { registerSecret } from '@/utils/logger'
 
 const props = defineProps<{ modelValue: Partial<CodeHubSettings> }>()
@@ -50,7 +51,7 @@ watch(draft, push, { deep: true })
 /** 300ms 防抖：app store 对 settings 深度监听并自动落盘，逐键 push 会造成逐键写盘 */
 function push() {
   if (pushTimer) clearTimeout(pushTimer)
-  pushTimer = setTimeout(flushPush, 300)
+  pushTimer = setTimeout(flushPush, SETTINGS_PUSH_DEBOUNCE_MS)
 }
 
 function flushPush() {
