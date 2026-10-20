@@ -18,6 +18,7 @@ import type {
   WelinkJob,
   WelinkMessage,
 } from '@/types/welink'
+import { maskSecrets } from '@/utils/logger'
 import { nowStamp } from '@/utils/time'
 import type {
   ApplyResult,
@@ -451,7 +452,8 @@ export const memoryWelinkRepository: WelinkRepository = {
     const job = state.jobs.find((item) => item.pk === pk)
     if (!job) return
     job.attempts += 1
-    job.lastError = error.slice(0, 500)
+    // 与 SQLite 实现同一口径：落库前遮蔽（`utils/logger.maskSecrets`），再截断
+    job.lastError = maskSecrets(error).slice(0, 500)
     job.status = status
     if (status === 'failed' || status === 'skipped') job.finishedAt = nowStamp()
     job.updatedAt = nowStamp()
@@ -461,7 +463,15 @@ export const memoryWelinkRepository: WelinkRepository = {
   async requeueJob(pk) {
     const job = state.jobs.find((item) => item.pk === pk)
     if (!job || !['failed', 'skipped', 'ready'].includes(job.status)) return false
-    touchJob(pk, { status: 'ready', skipReason: '', holdReason: '', lastError: '', finishedAt: null })
+    // `attempts: 0` 与 SQLite 实现同一口径：人工重发要拿回完整的外发预算
+    touchJob(pk, {
+      status: 'ready',
+      skipReason: '',
+      holdReason: '',
+      lastError: '',
+      finishedAt: null,
+      attempts: 0,
+    })
     return true
   },
 

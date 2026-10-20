@@ -14,14 +14,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
 import { IconUsers } from '@/components/icons'
-import { GroupGateError } from '@/orchestrator/group'
-import { useGroupStore } from '@/stores/group'
+// 经 stores/group 转出：UI 层不直触 orchestrator（分层闸门）
+import { GroupGateError, useGroupStore, validateGroupDraft } from '@/stores/group'
 import { useAppStore } from '@/stores/app'
 import { platform } from '@/api'
 import { isLocalGroupId } from '@/types/welink'
 import { normalizeWelinkSettings, normalizeMemberIds } from '@/types/welink'
 import type { GroupTemplate } from '@/types/welink'
-import { validateGroupDraft } from '@/orchestrator/group'
 
 const emit = defineEmits<{ (e: 'switch-tab', tab: 'templates' | 'history'): void }>()
 

@@ -191,6 +191,7 @@ onMounted(load)
         type="date"
         size="small"
         placeholder="开始日期"
+        aria-label="开始日期"
         value-format="YYYY-MM-DD"
         class="inbox__date"
       />
@@ -200,6 +201,7 @@ onMounted(load)
         type="date"
         size="small"
         placeholder="结束日期"
+        aria-label="结束日期"
         value-format="YYYY-MM-DD"
         class="inbox__date"
       />

@@ -32,6 +32,7 @@ import { migrationV7 } from './migrations/welink-purge-index'
 import { migrationV8 } from './migrations/welink-conv-index'
 import { migrationV9 } from './migrations/welink-purge-time-index'
 import { migrationV10 } from './migrations/welink-finished-index'
+import { migrationV11 } from './migrations/sediment-log-index'
 
 /**
  * 全库迁移注册表（**唯一真值**）。
@@ -51,6 +52,7 @@ export const MIGRATIONS: Migration[] = [
   migrationV8,
   migrationV9,
   migrationV10,
+  migrationV11,
 ]
 
 let migrated: Promise<number[]> | null = null

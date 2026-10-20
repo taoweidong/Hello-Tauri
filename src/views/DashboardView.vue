@@ -27,6 +27,17 @@ function fmt(n: number) {
   return n.toLocaleString('zh-CN')
 }
 
+/**
+ * 站内跳转的统一出口。
+ *
+ * 模板里裸写 `router.push(path)` 在**重复导航**（已经在目标路由、又点了同一个入口）
+ * 时会 reject —— 那是一个未被处理的 Promise 拒绝，控制台报警但界面毫无反馈。
+ * 工作台的入口全是「点同一个面板头」这种很容易重复触发的形态，所以统一收口。
+ */
+function go(path: string) {
+  void router.push(path).catch(() => undefined)
+}
+
 const platformLabel = computed(() => (platform === 'tauri' ? '桌面' : 'Web'))
 
 // ---------------- 摘要装载（全部只读：查本地快照/库，不触发同步与轮询） ----------------
@@ -154,7 +165,7 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
     <!-- 双域状态面板：业务域只有 WeLink（助手 + 快速建群）与 CodeHub（检视） -->
     <section class="domains" aria-label="工作域概览">
       <section class="panel" aria-label="WeLink 域概览">
-        <button class="panel__head pressable" @click="router.push('/welink')">
+        <button class="panel__head pressable" @click="go('/welink')">
           <span class="panel__badge" aria-hidden="true">
             <IconActivity class="panel__icon" />
           </span>
@@ -189,17 +200,17 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
         </div>
 
         <div class="panel__actions">
-          <button class="entry pressable" @click="router.push('/welink')">
+          <button class="entry pressable" @click="go('/welink')">
             打开助手 <IconArrowRight class="entry__icon" />
           </button>
-          <button class="entry pressable" @click="router.push('/groups')">
+          <button class="entry pressable" @click="go('/groups')">
             <IconUsers class="entry__icon" /> 快速建群 <IconArrowRight class="entry__icon" />
           </button>
         </div>
       </section>
 
       <section class="panel" aria-label="CodeHub 域概览">
-        <button class="panel__head pressable" @click="router.push('/codehub')">
+        <button class="panel__head pressable" @click="go('/codehub')">
           <span class="panel__badge" aria-hidden="true">
             <IconGitBranch class="panel__icon" />
           </span>
@@ -233,7 +244,7 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
         </div>
 
         <div class="panel__actions">
-          <button class="entry pressable" @click="router.push('/codehub')">
+          <button class="entry pressable" @click="go('/codehub')">
             去检视 <IconArrowRight class="entry__icon" />
           </button>
         </div>
@@ -247,12 +258,12 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
           <span>待审回复</span>
           <span v-if="welinkStore.reviewCount" class="count num">{{ welinkStore.reviewCount }}</span>
           <span class="spacer" />
-          <button class="link pressable" @click="router.push('/welink')">
+          <button class="link pressable" @click="go('/welink')">
             去处理 <IconArrowRight class="link__icon" />
           </button>
         </header>
         <div v-if="reviewQueue.length" class="queue">
-          <button v-for="job in reviewQueue" :key="job.pk" class="queue__row pressable" @click="router.push('/welink')">
+          <button v-for="job in reviewQueue" :key="job.pk" class="queue__row pressable" @click="go('/welink')">
             <span class="queue__main">
               <span class="queue__title">{{ job.targetTitle || job.targetId }}</span>
               <span class="queue__sub">{{ job.triggerSummary || '（无摘要）' }}</span>
@@ -273,7 +284,7 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
           <span>开启中的 MR</span>
           <span v-if="codehubReady && openMrCount" class="count count--muted num">{{ openMrCount }}</span>
           <span class="spacer" />
-          <button class="link pressable" @click="router.push('/codehub')">
+          <button class="link pressable" @click="go('/codehub')">
             去检视 <IconArrowRight class="link__icon" />
           </button>
         </header>
@@ -282,7 +293,7 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
             v-for="mr in openMrs"
             :key="`${mr.summary.repoId}#${mr.summary.mrIid}`"
             class="queue__row pressable"
-            @click="router.push('/codehub')"
+            @click="go('/codehub')"
           >
             <span class="queue__main">
               <span class="queue__title">{{ mr.summary.title }}</span>

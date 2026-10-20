@@ -1380,6 +1380,54 @@ describe('orchestrator/pipeline —— 并发不变量（O1/D12）', () => {
     expect(jobOf(h, 2).status).toBe('sent')
   })
 
+  it('生成段异常必须回写状态：不得把 job 永久留在 discussing（P0 静默卡死）', async () => {
+    // 反证过的回归闸：修复前 `flush()` 里 `generateOne(...).catch(logger.error)` 只记日志，
+    // 路由/取上下文/落草稿任何一步抛错都会让 job 停在 discussing —— 既不在生成队列
+    // 也不在外发队列，本会话内再也无人处理，界面却一直显示「生成中」。
+    const h = harness({ jobs: [job({ pk: 1, attempts: 0 })] })
+    h.repo.mocks.getConversation.mockRejectedValue(new Error('库挂了'))
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await pump(h)
+
+    expect(jobOf(h, 1).status).not.toBe('discussing')
+    // 走的是「生成失败」同一套预算：第一次异常 = 一次重试机会，而不是直接判死
+    expect(h.repo.mocks.recordAttemptFailure).toHaveBeenCalledWith(
+      1,
+      'pending',
+      expect.stringContaining('库挂了'),
+    )
+    // 状态事件也要发出去，否则 UI 上的状态列不会变
+    expect(h.events.some((event) => event.type === 'jobStatusChanged')).toBe(true)
+  })
+
+  it('生成段异常耗尽预算才落 failed（不会一次异常就判死，也不会无限重试）', async () => {
+    const h = harness({ jobs: [job({ pk: 1, attempts: MAX_ATTEMPTS - 1 })] })
+    h.repo.mocks.getConversation.mockRejectedValue(new Error('库挂了'))
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await pump(h)
+
+    expect(h.repo.mocks.recordAttemptFailure).toHaveBeenCalledWith(1, 'failed', expect.stringContaining('库挂了'))
+    expect(jobOf(h, 1).status).toBe('failed')
+  })
+
+  it('异常后连读 job 也失败：兜底必须自己兜住，不得把异常重新抛出', async () => {
+    // 双重故障（生成抛 + 读 job 抛）：此时已经没有可靠的 attempts 基准，按首次失败计。
+    // 关键是**不能抛** —— 抛出去就回到「异常逃出 generateOne」的原点。
+    const h = harness({ jobs: [job({ pk: 1 })] })
+    h.repo.mocks.getConversation.mockRejectedValue(new Error('库挂了'))
+    h.repo.mocks.getJob.mockRejectedValue(new Error('连读都读不到'))
+    h.pipeline.start()
+    h.pipeline.enqueue(1)
+    await pump(h)
+    expect(h.repo.mocks.recordAttemptFailure).toHaveBeenCalledWith(
+      1,
+      'pending',
+      expect.stringContaining('连读都读不到'),
+    )
+  })
+
   it('外发段异常（底层抛）被隔离，后续任务继续', async () => {
     const h = harness({
       jobs: [job({ pk: 1, status: 'ready', draft: 'A' }), job({ pk: 2, status: 'ready', draft: 'B' })],

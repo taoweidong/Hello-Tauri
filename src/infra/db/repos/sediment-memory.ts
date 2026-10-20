@@ -188,11 +188,13 @@ export const memorySedimentRepository: SedimentRepository = {
     return [...state.logs].sort((a, b) => b.pk - a.pk).slice(0, limit)
   },
 
-  async clearSedimentLogs() {
-    const count = state.logs.length
-    state.logs = []
+  async purgeSedimentLogsBefore(cutoff, batch) {
+    // 与 SQLite 实现同构：按 created_at 分批删（字符串时间戳可直接比较）
+    const doomed = state.logs.filter((log) => log.createdAt < cutoff).slice(0, batch)
+    if (!doomed.length) return 0
+    state.logs = state.logs.filter((log) => !doomed.includes(log))
     flush()
-    return count
+    return doomed.length
   },
 
   // ---------------- 原料扫描（只读 welink 内存状态） ----------------

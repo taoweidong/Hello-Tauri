@@ -167,6 +167,15 @@ export const RETENTION_KEEP_DAYS = 180
  */
 export const AGENT_LOG_KEEP_DAYS = 90
 
+/**
+ * 沉淀提取留痕保留期（天）。
+ *
+ * 比语料短得多是刻意的：`sediment_logs` 每条存的是**完整 prompt（上限 8000 字）
+ * + response**，单条 10 KB 量级，而它唯一的用途是排障时回看「上一轮提取为什么
+ * 没结果」。90 天既不必要、也扛不住长跑 —— 30 天足够覆盖一轮排障周期。
+ */
+export const SEDIMENT_LOG_KEEP_DAYS = 30
+
 /** 保留期清理的批大小（设计 §5-P1：大事务分批 ≤500 行，由调用方循环） */
 export const PURGE_BATCH_SIZE = 500
 

@@ -336,22 +336,7 @@ export function createPipeline(options: PipelineOptions): Pipeline {
     }
 
     if (failure) {
-      // attempts 以**库中值 + 1** 为准（job 可能是上一次崩溃留下的 discussing，
-      // 本地计数会丢；库里那个数是唯一可信的重试轨迹）
-      const attempts = job.attempts + 1
-      if (attempts < MAX_ATTEMPTS) {
-        await options.repo.recordAttemptFailure(jobPk, 'pending', failure)
-        emitStatus(jobPk, 'discussing', 'pending', `生成失败，第 ${attempts} 次重试：${failure}`)
-        logger.warn(`生成失败，重试 ${attempts}/${MAX_ATTEMPTS}（job ${jobPk}）：${failure}`)
-        // 进**延时重试队列**而不是立刻重排（见 retryGenerate / scheduleRetry 的注释）
-        retryGenerate.push(jobPk)
-        scheduleRetry(GENERATE_RETRY_MS * 2 ** (generateRetries.get(jobPk) ?? 0))
-        generateRetries.set(jobPk, (generateRetries.get(jobPk) ?? 0) + 1)
-      } else {
-        await options.repo.recordAttemptFailure(jobPk, 'failed', failure)
-        emitStatus(jobPk, 'discussing', 'failed', `重试 ${attempts} 次耗尽：${failure}`)
-        logger.error(`生成耗尽（job ${jobPk}）：${failure}`)
-      }
+      await reportGenerateFailure(jobPk, job.attempts, failure)
       return
     }
 
@@ -393,6 +378,63 @@ export function createPipeline(options: PipelineOptions): Pipeline {
     emitStatus(jobPk, 'discussing', 'ready', '草稿已生成')
     sendQueue.push(jobPk)
     scheduleFlush(0)
+  }
+
+  /**
+   * 生成段失败的统一收口：按重试预算决定「pending + 延时重试」还是「failed 终态」。
+   *
+   * 抽出来是为了让**两条失败路径共用同一套语义**：
+   *  1. 模型调用本身失败（`generateOne` 内的 `failure`）；
+   *  2. 生成段**任何一步抛异常**（技能路由 / 取会话上下文 / 取触发消息 / 清洗 /
+   *     落草稿 / 转人工审核）。
+   *
+   * 第 2 条此前只 `logger.error` 就吞掉了（见 `flush()` 里 `generateOne` 的 `.catch`），
+   * 于是 job 永远停在 `discussing`：既不在生成队列也不在外发队列，本会话不会再被
+   * 处理，界面上却一直显示「生成中」—— 用户只能重启应用才看得到变化。
+   */
+  async function reportGenerateFailure(jobPk: number, attemptsBase: number, failure: string): Promise<void> {
+    // attempts 以**库中值 + 1** 为准（job 可能是上一次崩溃留下的 discussing，
+    // 本地计数会丢；库里那个数是唯一可信的重试轨迹）
+    const attempts = attemptsBase + 1
+    if (attempts < MAX_ATTEMPTS) {
+      await options.repo.recordAttemptFailure(jobPk, 'pending', failure)
+      emitStatus(jobPk, 'discussing', 'pending', `生成失败，第 ${attempts} 次重试：${failure}`)
+      logger.warn(`生成失败，重试 ${attempts}/${MAX_ATTEMPTS}（job ${jobPk}）：${failure}`)
+      // 进**延时重试队列**而不是立刻重排（见 retryGenerate / scheduleRetry 的注释）
+      retryGenerate.push(jobPk)
+      scheduleRetry(GENERATE_RETRY_MS * 2 ** (generateRetries.get(jobPk) ?? 0))
+      generateRetries.set(jobPk, (generateRetries.get(jobPk) ?? 0) + 1)
+    } else {
+      await options.repo.recordAttemptFailure(jobPk, 'failed', failure)
+      emitStatus(jobPk, 'discussing', 'failed', `重试 ${attempts} 次耗尽：${failure}`)
+      logger.error(`生成耗尽（job ${jobPk}）：${failure}`)
+    }
+  }
+
+  /**
+   * 生成段**未预期异常**的兜底（P0）：把异常当成一次生成失败处理。
+   *
+   * 读取当前 job 只为拿 attempts 基准；读不到时按 0 起算（宁可多给一次重试，
+   * 也不要在库抖的时候把 job 静默判死）。回写本身再失败就只剩告警 —— 此刻
+   * 已经没有更可靠的落点了，但**不能因为兜底失败就重新抛出**（那会回到
+   * 「异常逃出 generateOne」的原点）。
+   */
+  async function abortGenerate(jobPk: number, error: unknown): Promise<void> {
+    const failure = error instanceof Error ? `${error.name}：${error.message}` : String(error)
+    logger.error(`生成段异常（job ${jobPk}）`, error)
+    let base = 0
+    try {
+      const job = await options.repo.getJob(jobPk)
+      if (job) base = job.attempts
+    } catch (readError) {
+      const reason = readError instanceof Error ? readError.message : String(readError)
+      logger.warn(`生成段异常后读取任务失败（job ${jobPk}），按首次失败计：${reason}`)
+    }
+    try {
+      await reportGenerateFailure(jobPk, base, failure)
+    } catch (writeError) {
+      logger.error(`生成段异常后仍无法回写状态（job ${jobPk}）`, writeError)
+    }
   }
 
   // ---------------------------------------------------------------- 外发段
@@ -626,9 +668,9 @@ export function createPipeline(options: PipelineOptions): Pipeline {
       while (inflightGenerate.size < GENERATE_CONCURRENCY && generateQueue.length) {
         const jobPk = generateQueue.shift()!
         handled += 1
-        const task = generateOne(jobPk).catch((error) => {
-          logger.error(`生成段异常（job ${jobPk}）`, error)
-        })
+        // 异常必须落回状态机：生成段任何一步抛错都要走与「生成失败」同一套
+        // 预算与终态，否则 job 会永远停在 `discussing`（见 `abortGenerate`）。
+        const task = generateOne(jobPk).catch((error) => abortGenerate(jobPk, error))
         inflightGenerate.add(task)
         void task.finally(() => {
           inflightGenerate.delete(task)

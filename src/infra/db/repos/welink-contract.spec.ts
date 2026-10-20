@@ -60,9 +60,14 @@ vi.mock('@/api', () => ({
   },
 }))
 
-vi.mock('@/utils/logger', () => ({
+// 局部 mock：`logger` 换 spy，**遮蔽表（`registerSecret` / `maskSecrets`）保持真实现** ——
+// 第五轮起 `recordAttemptFailure` 落库前要过遮蔽表，用透传替身会让断言恒真。
+vi.mock('@/utils/logger', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/logger')>()),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
+
+import { registerSecret, resetSecretsForTest } from '@/utils/logger'
 
 import { sqlWelinkRepository } from '@/infra/db/repos/welink'
 import { memoryWelinkRepository, resetWelinkMemory } from '@/infra/db/repos/welink-memory'
@@ -190,6 +195,33 @@ function execStatement(rawSql: string, params: DbParam[] = []): number {
       updated_at: createdAt,
       finished_at: null,
     })
+    return 1
+  }
+
+  // —— 失败计数（recordAttemptFailure：attempts+1 / last_error / 终态才写 finished_at） ——
+  if (sql.startsWith('UPDATE welink_reply_jobs SET attempts = attempts + 1')) {
+    const job = tables.jobs.find((row) => number(row.id) === number(arg(params, 4)))
+    if (!job) return 0
+    job.attempts = number(job.attempts) + 1
+    job.last_error = text(arg(params, 1))
+    job.status = text(arg(params, 2))
+    job.updated_at = text(arg(params, 3))
+    if (['failed', 'skipped'].includes(text(arg(params, 2)))) job.finished_at = text(arg(params, 3))
+    return 1
+  }
+
+  // —— 人工重发（requeueJob：回 ready **并归零 attempts**；必须排在通用 status 分支之前）——
+  if (sql.startsWith("UPDATE welink_reply_jobs SET status = 'ready', skip_reason")) {
+    const job = tables.jobs.find((row) => number(row.id) === number(arg(params, 2)))
+    if (!job) return 0
+    if (!['failed', 'skipped', 'ready'].includes(text(job.status))) return 0
+    job.status = 'ready'
+    job.skip_reason = ''
+    job.hold_reason = ''
+    job.last_error = ''
+    job.attempts = 0
+    job.updated_at = text(arg(params, 1))
+    job.finished_at = null
     return 1
   }
 
@@ -561,6 +593,54 @@ describe('WelinkRepository 双实现契约（SQLite ⇄ 内存）', () => {
     for (const job of [sqlite, memory]) {
       expect(job).toMatchObject({ skillId: '', skillName: '', skillSource: '' })
     }
+  })
+
+  it('requeueJob 回 ready 且把 attempts 归零：人工重发要拿回完整外发预算', async () => {
+    // 反证点：修复前两侧实现都不重置 attempts —— 外发失败 3 次的 job 被人工重发后
+    // attempts 仍是 3，下一次外发失败就直接判「重试耗尽」。而「上一条就是发送失败」
+    // 恰恰是用户会点重发的唯一场景，即这条路径在最该生效时必然失效。
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      await repo.upsertConversation({ convType: 'group', convId: 'G-1', title: '群', watching: true })
+      const applied = await repo.applyPollResult('G-1', messagesFor('G-1', [{}]), 'c1', {
+        triggers: { 'uid-1': 'group_at_me' },
+        sendMode: 'auto',
+      })
+      const pk = applied.createdJobs[0].pk
+      await repo.recordAttemptFailure(pk, 'failed', '第一次失败')
+      await repo.recordAttemptFailure(pk, 'failed', '第二次失败')
+      const before = await repo.getJob(pk)
+      const ok = await repo.requeueJob(pk)
+      const after = await repo.getJob(pk)
+      return { ok, attemptsBefore: before?.attempts, attemptsAfter: after?.attempts, status: after?.status }
+    })
+
+    for (const side of [sqlite, memory]) {
+      expect(side.ok).toBe(true)
+      expect(side.attemptsBefore).toBe(2)
+      expect(side.attemptsAfter).toBe(0)
+      expect(side.status).toBe('ready')
+    }
+  })
+
+  it('recordAttemptFailure 的 last_error 落库即遮蔽（密钥不进库，两侧同口径）', async () => {
+    registerSecret('sk-live-abcdef123456')
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      await repo.upsertConversation({ convType: 'group', convId: 'G-1', title: '群', watching: true })
+      const applied = await repo.applyPollResult('G-1', messagesFor('G-1', [{}]), 'c1', {
+        triggers: { 'uid-1': 'group_at_me' },
+        sendMode: 'auto',
+      })
+      const pk = applied.createdJobs[0].pk
+      // 错误串里带着已注册的密钥：日志出口遮蔽不了「落库」这条路
+      await repo.recordAttemptFailure(pk, 'failed', '鉴权失败 sk-live-abcdef123456')
+      return (await repo.getJob(pk))?.lastError
+    })
+
+    for (const side of [sqlite, memory]) {
+      expect(side).not.toContain('sk-live-abcdef123456')
+      expect(side).toContain('***')
+    }
+    resetSecretsForTest()
   })
 
   it('commitDraft 的技能三列与草稿同条落库（skill-routing：留痕与草稿原子一致）', async () => {

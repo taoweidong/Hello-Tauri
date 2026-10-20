@@ -140,9 +140,12 @@ export default tseslint.config(
   },
 
   // —— 分层闸门（quality-hardening-2026-10 D4）——
-  // UI 层（views/components）禁止直触 infra / repositories：宿主与数据访问一律
-  // 经 stores（组合点例外与口径见 AGENTS.md「TS 内部分层」）。V1/V2/V3 已清零，
-  // 本规则是防回流的机器闸。
+  // UI 层（views/components）禁止直触 infra / repositories / orchestrator：宿主、
+  // 数据访问与编排一律经 stores（组合点例外与口径见 AGENTS.md「TS 内部分层」）。
+  // V1/V2/V3 已清零，本规则是防回流的机器闸。
+  //
+  // 第五轮补 `@/orchestrator`：它此前不在名单里，于是 `CreateTab.vue` 长期直接
+  // import `@/orchestrator/group` —— 与「UI 直触 infra」同样性质的洞，只是没被闸住。
   {
     files: ['src/views/**/*.{ts,vue}', 'src/components/**/*.{ts,vue}'],
     rules: {
@@ -155,6 +158,11 @@ export default tseslint.config(
               message:
                 'UI 层（views/components）禁止直触 infra/repositories —— 一律经 stores（AGENTS.md「TS 内部分层」；quality-hardening-2026-10 D4）。',
             },
+            {
+              group: ['@/orchestrator', '@/orchestrator/**'],
+              message:
+                'UI 层禁止直触 orchestrator —— 编排能力一律由对应 store 转出（如 stores/group 转出 validateGroupDraft / GroupGateError）。',
+            },
           ],
         },
       ],
@@ -162,11 +170,16 @@ export default tseslint.config(
   },
 
   // 测试文件放宽：允许非空断言、允许 any（构造边界数据）
+  //
+  // 分层闸门对 spec 一并放开：用例要**直接**断言编排层的类型与工厂（比如
+  // `import type { CodeHubSyncSummary } from '@/orchestrator/events'`），
+  // 走 store 转一层反而测不到真契约。产品代码的闸门不受影响。
   {
     files: ['**/*.spec.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
+      'no-restricted-imports': 'off',
     },
   },
 

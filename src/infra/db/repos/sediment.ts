@@ -288,8 +288,14 @@ export const sqlSedimentRepository: SedimentRepository = {
     return rows.map(logFromRow)
   },
 
-  async clearSedimentLogs() {
-    const result = await bridge.dbExecute('DELETE FROM sediment_logs', [])
+  async purgeSedimentLogsBefore(cutoff, batch) {
+    // 与 `purgeAgentLogsBefore` 同构：子查询 + LIMIT 分批，且**不写 ORDER BY id**
+    // （否则 SQLite 放弃 v11 的 `idx_slog_created_at`、改走 rowid 全表扫描）。
+    const result = await bridge.dbExecute(
+      `DELETE FROM sediment_logs WHERE id IN (
+         SELECT id FROM sediment_logs WHERE created_at < ?1 LIMIT ?2)`,
+      [cutoff, batch],
+    )
     return result.changes
   },
 

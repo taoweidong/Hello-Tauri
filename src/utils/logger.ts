@@ -33,7 +33,17 @@ export function resetSecretsForTest(): void {
   secrets.clear()
 }
 
-function maskSecrets(message: string): string {
+/**
+ * 按遮蔽表对任意字符串做等值替换（导出给**落库**路径用）。
+ *
+ * 为什么必须导出：`registerSecret` 只覆盖了「日志出口」这一条路，而错误串还有
+ * 第二条出路 —— **写进数据库**（`welink_reply_jobs.last_error` 会存 500 字失败
+ * 原因，`agent-http` 会把响应体前 200 字拼进 `AgentError`，部分网关 4xx 时回显
+ * 请求信息）。日志里看不见、库里躺着的密钥同样算泄漏，且留痕比日志活得更久。
+ *
+ * 落库前调它，与日志出口共用同一张表：注册点不变，覆盖面从「出口」扩到「落点」。
+ */
+export function maskSecrets(message: string): string {
   let masked = message
   for (const secret of secrets) {
     if (masked.includes(secret)) masked = masked.split(secret).join('***')

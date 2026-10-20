@@ -5,9 +5,12 @@
  * 倒序分页向上加载（P7）；消息下方内联回复状态微条，点击跳回复历史。
  * 待办栏折叠开关由父级持有（决定三栏/两栏网格），本组件只上报切换意图。
  */
+import { ref } from 'vue'
+
 import { IconUser } from '@/components/icons'
 import { useWelinkStore } from '@/stores/welink'
 import type { WelinkJob, WelinkMessage } from '@/types/welink'
+import { runUiAction } from '@/utils/ui-action'
 import { shortStamp } from '@/utils/welink-display'
 
 defineProps<{ showRight: boolean }>()
@@ -27,6 +30,23 @@ const statusLabel = (job: WelinkJob) => store.statusLabel(job.status)
 
 /** 时间列文案（统一实现，T-4） */
 const timeLabel = (stamp: string) => shortStamp(stamp)
+
+/**
+ * 「加载更早的消息」的繁忙态与失败出口。
+ *
+ * 这里是全项目唯一一处**模板内直接调 store 异步方法**的漏网点：读库失败时
+ * store 只 `finally` 不 `catch`，异常一路冒到模板的 `@click` 上变成未处理拒绝，
+ * 界面既不提示也不复位 —— 用户看到的是「按钮点了没反应」，且连点无效（store 侧
+ * 的 in-flight 锁还压着）。与 `InboxTab.loadEarlier()` 同一形态，走同一出口。
+ */
+const loadingEarlier = ref(false)
+
+async function loadEarlier() {
+  await runUiAction(() => store.loadEarlierMessages(), {
+    fail: '加载更早消息失败',
+    busy: loadingEarlier,
+  })
+}
 </script>
 
 <template>
@@ -46,8 +66,14 @@ const timeLabel = (stamp: string) => shortStamp(stamp)
     </div>
 
     <div v-else class="mc__stream">
-      <button v-if="store.hasMoreMessages" class="mc__load-earlier pressable" @click="store.loadEarlierMessages()">
-        加载更早的消息
+      <button
+        v-if="store.hasMoreMessages"
+        class="mc__load-earlier pressable"
+        :disabled="loadingEarlier"
+        :aria-busy="loadingEarlier"
+        @click="loadEarlier"
+      >
+        {{ loadingEarlier ? '加载中…' : '加载更早的消息' }}
       </button>
       <p v-else class="mc__stream-head">— 已到最早 —</p>
 

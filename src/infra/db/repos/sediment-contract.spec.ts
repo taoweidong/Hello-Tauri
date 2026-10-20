@@ -397,7 +397,15 @@ describe('sediment 仓储双实现契约（SQL vs memory）', () => {
       status: row.status,
       error: row.error,
     }))
-    out.logCleared = await repo.clearSedimentLogs()
+    // 保留期清理（v11）：三档语义都要双侧一致
+    //  ① cutoff 在遥远的过去 → 一条都不该删（别把「没过期」当成「清空」）
+    out.logPurgedNone = await repo.purgeSedimentLogsBefore('2000-01-01 00:00:00', 100)
+    out.logListAfterNone = (await repo.listSedimentLogs(10)).length
+    //  ② cutoff 在未来、batch=1 → 只删一条（分批语义，retention 靠「< batch」判收敛）
+    out.logPurgedOne = await repo.purgeSedimentLogsBefore('2999-01-01 00:00:00', 1)
+    out.logListAfterOne = (await repo.listSedimentLogs(10)).length
+    //  ③ 剩下的清干净
+    out.logCleared = await repo.purgeSedimentLogsBefore('2999-01-01 00:00:00', 100)
     out.logListAfterClear = await repo.listSedimentLogs(10)
     expect(log.pk).toBeGreaterThan(0)
 

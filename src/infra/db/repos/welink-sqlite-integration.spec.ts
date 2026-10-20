@@ -50,7 +50,9 @@ vi.mock('@/api', () => ({
   },
 }))
 
-vi.mock('@/utils/logger', () => ({
+// 局部 mock：`logger` 换 spy，遮蔽表保持真实现（与 welink.spec.ts 同口径）
+vi.mock('@/utils/logger', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/logger')>()),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 

@@ -13,6 +13,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+import { bridge } from '@/api'
 import { IconDownload, IconRefresh, IconTrash } from '@/components/icons'
 import { useWelinkStore } from '@/stores/welink'
 import type { AgentLogStatus, WelinkAgentLog, WelinkJob } from '@/types/welink'
@@ -200,9 +201,15 @@ const timeLabel = (stamp: string | null) => shortStamp(stamp)
 /** prompt 折叠时只显示前 5 行（§11.4） */
 const previewOf = (text: string, lines = 5) => text.split('\n').slice(0, lines).join('\n')
 
-function copy(text: string) {
-  void navigator.clipboard?.writeText(text)
-  ElMessage.success('已复制')
+/** 与 `HistoryTab.copyDraft` 同一口径：拿到写入结果才报成功（防「假成功」） */
+async function copy(text: string) {
+  await runUiAction(
+    async () => {
+      const outcome = await bridge.clipboardWrite(text)
+      return outcome.ok
+    },
+    { fail: '复制失败', ok: '已复制', failOnFalse: true },
+  )
 }
 
 onMounted(loadJobs)

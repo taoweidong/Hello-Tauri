@@ -139,8 +139,17 @@ export interface SedimentRepository {
   // —— 沉淀调用留痕 ——
   insertSedimentLog(log: SedimentLogInput): Promise<SedimentLog>
   listSedimentLogs(limit: number): Promise<SedimentLog[]>
-  /** 清理提取留痕（对齐 clearAgentLogs 的「提供清理入口」哲学；返回删除条数） */
-  clearSedimentLogs(): Promise<number>
+  /**
+   * 保留期清理：删除 `created_at` 早于 `cutoff` 的提取留痕，**最多 `batch` 条**。
+   *
+   * 签名与 `purgeAgentLogsBefore` 同构（`retention` 的 `purgeAll` 靠「返回数 < batch」
+   * 判定收敛），替代了早先那个 `clearSedimentLogs()`：后者是**无 LIMIT 的全表
+   * DELETE**，几万行库上一次删完会长时间独占 SQLite 全局 Mutex，且没有调用方 ——
+   * 结果是沉淀留痕（单条可达 10 KB 的 prompt+response）只增不减。
+   *
+   * 依赖 migration v11 的 `idx_slog_created_at`（此前该表无任何索引）。
+   */
+  purgeSedimentLogsBefore(cutoff: string, batch: number): Promise<number>
 
   // —— 原料扫描（对 welink 表**只读**；P7：恒带 limit） ——
   /** 白名单群会话的入方向消息增量（pk 严格大于 afterPk，升序返回；白名单为空返回空） */

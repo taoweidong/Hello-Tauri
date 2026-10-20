@@ -18,9 +18,16 @@ const editingId = ref<number | null>(null)
 const submitting = ref(false)
 const selectedRows = ref<TableRow[]>([])
 const formRef = ref<FormInstance>()
-/** 工具条三个动作的繁忙态：导出写文件、恢复示例覆盖全表，连点代价不可逆 */
+/**
+ * 工具条动作的繁忙态：导出写文件、恢复示例覆盖全表、**删除**（单条/批量）。
+ *
+ * 删除此前漏了 busy：确认框关闭到 store 返回之间有一段窗口，连点会提交两次删除
+ * （第一次返回后列表才刷新，第二次删的是已经不存在的行）。不可逆动作必须有
+ * 防重入 —— 这也是文件头注释写了「三个动作」却只定义了两个 ref 的自相矛盾处。
+ */
 const exporting = ref(false)
 const resetting = ref(false)
+const removing = ref(false)
 
 const draft = reactive<TableRowDraft>({
   name: '',
@@ -113,12 +120,7 @@ async function removeOne(row: TableRow) {
     confirmButtonClass: 'el-button--danger',
   }).catch(() => false)
   if (confirmed === false) return
-  try {
-    await tableStore.remove([row.id])
-    ElMessage.success('已删除')
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? `删除失败：${error.message}` : '删除失败')
-  }
+  await runUiAction(() => tableStore.remove([row.id]), { fail: '删除失败', ok: '已删除', busy: removing })
 }
 
 async function removeSelected() {
@@ -137,13 +139,14 @@ async function removeSelected() {
     },
   ).catch(() => false)
   if (confirmed === false) return
-  try {
-    await tableStore.remove(selectedRows.value.map((row) => row.id))
-    selectedRows.value = []
-    ElMessage.success('已删除')
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? `删除失败：${error.message}` : '删除失败')
-  }
+  await runUiAction(
+    async () => {
+      await tableStore.remove(selectedRows.value.map((row) => row.id))
+      // 成功必然清空勾选；失败时**保留**它便于直接重试（行还在库里，勾选依然有效）
+      selectedRows.value = []
+    },
+    { fail: '批量删除失败', ok: '已删除', busy: removing },
+  )
 }
 
 async function resetData() {
@@ -247,7 +250,13 @@ function onPageSizeChange(size: number) {
         <div class="toolbar__spacer" />
         <el-button size="small" :loading="exporting" :icon="IconDownload" @click="exportCsv">导出 CSV</el-button>
         <el-button size="small" :loading="resetting" :icon="IconRestore" @click="resetData">恢复示例</el-button>
-        <el-button size="small" :disabled="!selectedRows.length" :icon="IconTrash" @click="removeSelected">
+        <el-button
+          size="small"
+          :loading="removing"
+          :disabled="!selectedRows.length"
+          :icon="IconTrash"
+          @click="removeSelected"
+        >
           批量删除<template v-if="selectedRows.length">（{{ selectedRows.length }}）</template>
         </el-button>
         <el-button size="small" type="primary" :icon="IconPlus" @click="openCreate">新增</el-button>
@@ -304,7 +313,13 @@ function onPageSizeChange(size: number) {
           <template #default="{ row }">
             <span class="actions">
               <button class="act pressable" @click="openEdit(rowOf<TableRow>(row))">编辑</button>
-              <button class="act act--danger pressable" @click="removeOne(rowOf<TableRow>(row))">删除</button>
+              <button
+                class="act act--danger pressable"
+                :disabled="removing"
+                @click="removeOne(rowOf<TableRow>(row))"
+              >
+                删除
+              </button>
             </span>
           </template>
         </el-table-column>

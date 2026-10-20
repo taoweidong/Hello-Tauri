@@ -24,6 +24,7 @@ import type {
   WelinkJob,
   WelinkMessage,
 } from '@/types/welink'
+import { maskSecrets } from '@/utils/logger'
 import { nowStamp } from '@/utils/time'
 import type {
   ApplyResult,
@@ -677,19 +678,26 @@ export const sqlWelinkRepository: WelinkRepository = {
   },
 
   async recordAttemptFailure(pk, status, error) {
+    // 落库前先过遮蔽表（`utils/logger.maskSecrets`）：`last_error` 是**持久化留痕**，
+    // 与日志出口同一个泄漏面 —— 网关 4xx 回显请求信息时，密钥会原样写进库里，
+    // 日志看不见也没用。先遮蔽再截断，避免截断把密钥切碎导致替换不掉。
     await bridge.dbExecute(
       `UPDATE welink_reply_jobs SET attempts = attempts + 1, last_error = ?1,
          status = ?2, updated_at = ?3,
          finished_at = CASE WHEN ?2 IN ('failed','skipped') THEN ?3 ELSE finished_at END
        WHERE id = ?4`,
-      [error.slice(0, 500), status, nowStamp(), pk],
+      [maskSecrets(error).slice(0, 500), status, nowStamp(), pk],
     )
   },
 
   async requeueJob(pk) {
+    // `attempts = 0` 不可省：人工「重发」是**外发段**的重来，而 attempts 是外发预算
+    // （生成段在 commitDraft 里已经归零过一次）。带着旧计数回到 ready，下一次外发
+    // 失败就会立刻判「重试耗尽」—— 用户刚点的重发一次都没发出去，界面还报
+    // 「重试 4 次耗尽」，数字与体验对不上。这与 commitDraft 是同一口径的两段预算。
     const result = await bridge.dbExecute(
       `UPDATE welink_reply_jobs SET status = 'ready', skip_reason = '', hold_reason = '',
-         last_error = '', updated_at = ?1, finished_at = NULL
+         last_error = '', attempts = 0, updated_at = ?1, finished_at = NULL
        WHERE id = ?2 AND status IN ('failed','skipped','ready')`,
       [nowStamp(), pk],
     )

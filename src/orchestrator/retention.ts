@@ -7,6 +7,10 @@
  * （每分钟一轮轮询、每轮可能入库几十条），千级数据时察觉不到，上线三个月后
  * 所有列表查询一起变慢。清理任务缺的不是实现，是**调度**。
  *
+ * 同一个毛病在沉淀域又犯了一次（v6 引入的 `sediment_logs`：接口写好了、无人调用、
+ * 且实现是无 LIMIT 的全表 DELETE）—— 第五轮把它改成按时间分批并接进本清理链，
+ * 留痕保留期 30 天（单条可达 10 KB，是三张表里单位体积最大的一张）。
+ *
  * 三条设计约束：
  *
  *  1. **setTimeout 链，不用 setInterval**（与 poller 同一原则）：上一轮清理
@@ -26,8 +30,14 @@
  * 永久销毁另有`dispose()`。
  */
 import type { WelinkRepository } from '@/infra/db'
-import { welink } from '@/infra/db'
-import { AGENT_LOG_KEEP_DAYS, PURGE_BATCH_SIZE, RETENTION_KEEP_DAYS } from '@/infra/db/ports'
+import { sediment, welink } from '@/infra/db'
+import type { SedimentRepository } from '@/infra/db/sediment-ports'
+import {
+  AGENT_LOG_KEEP_DAYS,
+  PURGE_BATCH_SIZE,
+  RETENTION_KEEP_DAYS,
+  SEDIMENT_LOG_KEEP_DAYS,
+} from '@/infra/db/ports'
 import { logger } from '@/utils/logger'
 import { nowStamp } from '@/utils/time'
 import { realTimers, type TimerApi } from './timers'
@@ -49,20 +59,24 @@ export interface RetentionReport {
   messages: number
   /** 删除的 Agent 语料条数 */
   agentLogs: number
+  /** 删除的沉淀提取留痕条数 */
+  sedimentLogs: number
   /** 是否触到轮次上限（说明还有剩余，等下一轮） */
   capped: boolean
 }
 
 export interface RetentionOptions {
   repo?: WelinkRepository
+  /** 沉淀仓储（留痕清理用）；缺省取全局工厂，测试可注入 */
+  sedimentRepo?: SedimentRepository
   timers?: TimerApi
   now?: () => Date
   /** 距首轮清理的延迟（测试传 0） */
   firstDelayMs?: number
   /** 两轮清理之间的间隔（测试传小值） */
   intervalMs?: number
-  /** 保留天数覆盖（测试用；生产用仓储层常量） */
-  keepDays?: { messages: number; agentLogs: number }
+  /** 保留天数覆盖（测试用；生产用仓储层常量）。`sedimentLogs` 可省，缺省 30 天 */
+  keepDays?: { messages: number; agentLogs: number; sedimentLogs?: number }
 }
 
 export interface Retention {
@@ -85,11 +99,13 @@ export interface Retention {
 
 export function createRetention(options: RetentionOptions): Retention {
   const repo = options.repo ?? welink()
+  const sedimentRepo = options.sedimentRepo ?? sediment()
   const timers = options.timers ?? realTimers
   const now = options.now ?? (() => new Date())
   const firstDelayMs = options.firstDelayMs ?? RETENTION_FIRST_DELAY_MS
   const intervalMs = options.intervalMs ?? RETENTION_INTERVAL_MS
   const keep = options.keepDays ?? { messages: RETENTION_KEEP_DAYS, agentLogs: AGENT_LOG_KEEP_DAYS }
+  const sedimentKeepDays = options.keepDays?.sedimentLogs ?? SEDIMENT_LOG_KEEP_DAYS
 
   let timer: unknown = null
   let disposed = false
@@ -134,21 +150,27 @@ export function createRetention(options: RetentionOptions): Retention {
   async function doRun(): Promise<RetentionReport> {
     const messageCutoff = cutoffBefore(keep.messages)
     const logCutoff = cutoffBefore(keep.agentLogs)
-    const [messages, agentLogs] = await Promise.all([
+    // 沉淀留痕此前**从未进过清理链**：接口写好了（旧 `clearSedimentLogs`）却无人调用，
+    // 而它单条可达 10 KB（prompt + response），是三张表里**单位体积最大**的一张 ——
+    // 长跑下最先失控的反而是它。这里与消息/语料同轮清理（依赖 migration v11 索引）。
+    const sedimentCutoff = cutoffBefore(sedimentKeepDays)
+    const [messages, agentLogs, sedimentLogs] = await Promise.all([
       purgeAll((cutoff, batch) => repo.purgeMessagesBefore(cutoff, batch), messageCutoff),
       purgeAll((cutoff, batch) => repo.purgeAgentLogsBefore(cutoff, batch), logCutoff),
+      purgeAll((cutoff, batch) => sedimentRepo.purgeSedimentLogsBefore(cutoff, batch), sedimentCutoff),
     ])
     const result: RetentionReport = {
       messages: messages.removed,
       agentLogs: agentLogs.removed,
-      capped: messages.capped || agentLogs.capped,
+      sedimentLogs: sedimentLogs.removed,
+      capped: messages.capped || agentLogs.capped || sedimentLogs.capped,
     }
     report = result
-    if (result.messages || result.agentLogs) {
+    if (result.messages || result.agentLogs || result.sedimentLogs) {
       logger.info(
-        `WeLink：保留期清理完成（消息 -${result.messages} 条 / 语料 -${result.agentLogs} 条；` +
-          `保留消息 ${keep.messages} 天、语料 ${keep.agentLogs} 天）` +
-          (result.capped ? '，本轮触上限，剩余留待下次' : ''),
+        `WeLink：保留期清理完成（消息 -${result.messages} 条 / 语料 -${result.agentLogs} 条 / ` +
+          `沉淀留痕 -${result.sedimentLogs} 条；保留消息 ${keep.messages} 天、语料 ${keep.agentLogs} 天、` +
+          `留痕 ${sedimentKeepDays} 天）` + (result.capped ? '，本轮触上限，剩余留待下次' : ''),
       )
     }
     return result

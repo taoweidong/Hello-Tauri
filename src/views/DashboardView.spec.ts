@@ -28,7 +28,8 @@ let appStore: {
 let welinkStore: Record<string, unknown>
 let groupStore: Record<string, unknown>
 let updateStore: Record<string, unknown>
-const push = vi.fn()
+// 返回 Promise 才是真路由语义（重复导航会 reject，组件侧靠 `.catch` 兜住未处理拒绝）
+const push = vi.fn(async () => undefined)
 
 vi.mock('@/stores/codehub', () => ({ useCodehubStore: () => codehubStore }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => appStore }))

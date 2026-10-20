@@ -16,6 +16,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+import { bridge } from '@/api'
 import { IconRefresh } from '@/components/icons'
 import { useAppStore } from '@/stores/app'
 import { useWelinkStore } from '@/stores/welink'
@@ -271,10 +272,21 @@ function toggleDraft(pk: number) {
     : [...expandedDraft.value, pk]
 }
 
-/** 复制草稿（模板里拿不到 navigator，收成一个方法） */
-function copyDraft(text: string) {
-  void navigator.clipboard?.writeText(text)
-  ElMessage.success('已复制草稿')
+/**
+ * 复制草稿（模板里拿不到 navigator，收成一个方法）。
+ *
+ * 必须先拿到写入结果再报成功：原实现是「先弹『已复制』再 `void` 写剪贴板」——
+ * 权限被拒 / 无剪贴板 API 时用户看到的是**假成功**，同时留下一个未处理拒绝。
+ * `bridge.clipboardWrite` 是永不 reject 的结果对象语义，用它把失败变成可见提示。
+ */
+async function copyDraft(text: string) {
+  await runUiAction(
+    async () => {
+      const outcome = await bridge.clipboardWrite(text)
+      return outcome.ok
+    },
+    { fail: '复制草稿失败', ok: '已复制草稿', failOnFalse: true },
+  )
 }
 
 const TRIGGER_LABEL: Record<string, string> = { group_at_me: '群 @我', private: '私聊', manual: '手动' }
@@ -323,7 +335,15 @@ function latency(job: WelinkJob): string {
 
     <!-- 筛选器 -->
     <div class="hist__filter">
-      <el-select v-model="filter.status" multiple collapse-tags placeholder="状态" size="small" class="hist__sel">
+      <el-select
+        v-model="filter.status"
+        multiple
+        collapse-tags
+        placeholder="状态"
+        aria-label="按任务状态筛选"
+        size="small"
+        class="hist__sel"
+      >
         <el-option v-for="item in statusOptions" :key="item" :label="JOB_STATUS_LABEL[item]" :value="item" />
       </el-select>
       <el-select
@@ -331,6 +351,7 @@ function latency(job: WelinkJob): string {
         multiple
         collapse-tags
         placeholder="触发类型"
+        aria-label="按触发类型筛选"
         size="small"
         class="hist__sel"
       >
@@ -342,6 +363,7 @@ function latency(job: WelinkJob): string {
         filterable
         clearable
         placeholder="目标会话"
+        aria-label="按目标会话筛选"
         size="small"
         class="hist__sel hist__sel--wide"
       >
@@ -360,6 +382,7 @@ function latency(job: WelinkJob): string {
         type="date"
         size="small"
         placeholder="起始"
+        aria-label="起始日期"
         value-format="YYYY-MM-DD"
         class="hist__date"
       />
@@ -368,6 +391,7 @@ function latency(job: WelinkJob): string {
         type="date"
         size="small"
         placeholder="截止"
+        aria-label="截止日期"
         value-format="YYYY-MM-DD"
         class="hist__date"
       />

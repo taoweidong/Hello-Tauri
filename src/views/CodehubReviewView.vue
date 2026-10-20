@@ -49,6 +49,18 @@ const PAGE_SIZE = 200
 const sourceBadge = computed(() => (store.source === 'mock' ? '模拟数据' : 'CLI'))
 const canBrowse = computed(() => ready.value && store.configured)
 
+/**
+ * 列表被单页上限截断（P1：UI 数字与内容自相矛盾）。
+ *
+ * 左栏「全部仓库」显示的是**筛选后的总条数**，右侧列表却最多只有 `PAGE_SIZE` 条 ——
+ * 超限时用户看到「共 260 条」却只数得出 200 行，会以为是加载失败或筛选坏了。
+ * 日志里的 warn 只有开发者看得到，界面必须自己说清楚。
+ */
+const truncated = computed(() => total.value > items.value.length)
+const pageNote = computed(() =>
+  truncated.value ? `共 ${total.value} 条，当前仅展示最新 ${items.value.length} 条，请用上方筛选收窄` : '',
+)
+
 /** 从未同步过（无任何仓库同步状态）→ 空态文案区分「没数据」与「筛完为空」 */
 const neverSynced = computed(() => Object.keys(store.syncStates).length === 0)
 
@@ -377,6 +389,7 @@ onMounted(load)
           </div>
 
           <div v-else class="list">
+            <p v-if="truncated" class="list__note" role="status">{{ pageNote }}</p>
             <section v-for="group in groupedItems" :key="group.repoId" class="list__group" :aria-label="group.repoId">
               <header class="list__head">
                 <IconGitBranch class="list__head-icon" />
@@ -415,7 +428,7 @@ onMounted(load)
     </section>
 
     <p class="page-foot">
-      数据源与 token 在 <button class="link" @click="router.push('/settings')">配置页</button> 维护；{{
+      数据源与 token 在 <button class="link" @click="go('/settings')">配置页</button> 维护；{{
         appStore.info ? `当前 ${appStore.info.platform}` : ''
       }}
       列表浏览只读本地快照，不产生网络调用；仅当某条 MR 的快照缺详情时，点开它才会补拉一次
@@ -742,6 +755,16 @@ onMounted(load)
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* 截断提示：说明「总数 ≠ 展示数」，避免用户误判为加载失败 */
+.list__note {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--el-border-radius-base);
+  background: var(--el-color-warning-light-9);
+  color: var(--el-color-warning);
+  font-size: 12px;
 }
 
 .list__head {

@@ -52,6 +52,18 @@ function gate(): SafetyGate {
   return sharedGate
 }
 
+/**
+ * 建群域对 UI 的**转出口**（分层闸门用）。
+ *
+ * UI 层不得直触 `@/orchestrator`（与不得直触 `@/infra` 同一理由）：编排层的签名
+ * 变了要改的是状态层，而不是散在各个组件里的 import。此前 `CreateTab.vue` 直接
+ * `import { validateGroupDraft, GroupGateError } from '@/orchestrator/group'` ——
+ * ESLint 闸门只禁了 infra/repositories，这条路径是个洞。这里把 UI 真正需要的
+ * 两个符号转出来，再把 `@/orchestrator` 补进闸门，洞就补上了。
+ */
+export { validateGroupDraft } from '@/orchestrator/group'
+export { GroupGateError } from '@/orchestrator/group'
+
 /** 由 welink control 在 runtime 装配/重建时调用，让建群与消息共用同一个 panic 状态 */
 export function setGroupGate(instance: SafetyGate | null) {
   sharedGate = instance

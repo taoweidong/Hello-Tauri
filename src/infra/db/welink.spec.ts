@@ -37,9 +37,15 @@ vi.mock('@/api', () => ({
   },
 }))
 
-vi.mock('@/utils/logger', () => ({
+// 局部 mock：只把 `logger` 换成 spy，**遮蔽表相关导出保持真实现** ——
+// 第五轮起 `recordAttemptFailure` 落库前会过 `maskSecrets`，这里要能真的注册/遮蔽，
+// 否则「密钥不落库」这条契约无处断言（用透传替身会让断言恒真）。
+vi.mock('@/utils/logger', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/logger')>()),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
+
+import { registerSecret, resetSecretsForTest } from '@/utils/logger'
 
 import { migrationV2 } from '@/infra/db/migrations/welink'
 import { migrationV5 } from '@/infra/db/migrations/welink-skill'
@@ -390,6 +396,28 @@ describe('infra/db/welink —— 状态流转与留痕', () => {
     expect(sql).toContain("finished_at = CASE WHEN ?2 IN ('failed','skipped') THEN ?3 ELSE finished_at END")
     // 错误文本截断到 500，避免单条错误撑爆行
     expect((params[0] as string).length).toBe(500)
+  })
+
+  it('recordAttemptFailure 落库前过遮蔽表（last_error 是持久化留痕，不能只管日志出口）', async () => {
+    // 反证点：修复前这里只有 `error.slice(0,500)` —— 网关 4xx 回显请求信息时，
+    // 密钥会原样写进 `last_error`，且日志里还看不见（日志出口遮蔽了，库里没有）。
+    registerSecret('sk-live-abcdef123456')
+    await repo.recordAttemptFailure(4, 'pending', '鉴权失败：sk-live-abcdef123456 无效')
+    const { params } = lastExec()
+    expect(params[0]).not.toContain('sk-live-abcdef123456')
+    expect(params[0]).toContain('***')
+    resetSecretsForTest()
+  })
+
+  it('requeueJob 回 ready 且把 attempts 归零（人工重发必须拿回完整外发预算）', async () => {
+    // 反证点：修复前 SET 列表没有 `attempts = 0` —— 外发失败 3 次的 job 被人工
+    // 「重发」后 attempts 仍是 3，下一次外发失败就直接判「重试耗尽」，
+    // 用户刚点的重发一次都没发出去（这正是唯一会点重发的场景）。
+    await repo.requeueJob(4)
+    const { sql } = lastExec()
+    expect(sql).toContain("status = 'ready'")
+    expect(sql).toContain('attempts = 0')
+    expect(sql).toContain('finished_at = NULL')
   })
 
   it('holdJob 回 ready 并写 hold_reason（O7 待审的计数依据）', async () => {

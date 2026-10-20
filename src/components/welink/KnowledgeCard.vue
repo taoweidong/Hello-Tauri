@@ -89,6 +89,9 @@ async function openEdit(doc: { file: string; title: string }) {
 /** 写文件类动作的繁忙态：知识文档写入 knowledge/ 目录，连点会重复落盘 */
 const savingDoc = ref(false)
 const approving = ref(false)
+/** 下架 / 拒绝的繁忙态：两者都是写库动作，防连点（同一条目被提交两次会报「已被评审过」） */
+const offShelving = ref(false)
+const rejecting = ref(false)
 
 async function saveEdit() {
   const draft = editing.value
@@ -133,6 +136,7 @@ async function offShelf(doc: { file: string; title: string }) {
   await runUiAction(() => knowledgeStore.offShelf(doc.file), {
     fail: '下架失败',
     ok: '已下架（文件已保留在 knowledge/ 目录）',
+    busy: offShelving,
   })
 }
 
@@ -224,7 +228,7 @@ async function rejectDraft(draft: { pk: number; title: string }) {
     async () => {
       accepted = await knowledgeStore.rejectDraft(draft.pk, '人工拒绝')
     },
-    { fail: '拒绝失败' },
+    { fail: '拒绝失败', busy: rejecting },
   )
   if (!ok) return
   if (accepted) ElMessage.success('已拒绝')
@@ -284,7 +288,9 @@ onMounted(() => {
               <span class="kb__draft-content">{{ draft.content }}</span>
               <span class="spacer" />
               <el-button text type="primary" size="small" @click="openReview(draft)">评审</el-button>
-              <el-button text type="danger" size="small" @click="rejectDraft(draft)">拒绝</el-button>
+              <el-button text type="danger" size="small" :loading="rejecting" @click="rejectDraft(draft)">
+                拒绝
+              </el-button>
             </li>
           </ul>
         </div>
@@ -311,7 +317,9 @@ onMounted(() => {
             <span class="spacer" />
             <span class="kb__time">{{ doc.updatedAt }}</span>
             <el-button text type="primary" size="small" @click="openEdit(doc)">编辑</el-button>
-            <el-button text type="danger" size="small" @click="offShelf(doc)">下架</el-button>
+            <el-button text type="danger" size="small" :loading="offShelving" @click="offShelf(doc)">
+              下架
+            </el-button>
           </li>
         </ul>
 

@@ -113,7 +113,15 @@ onMounted(() => {
 <template>
   <div class="ghist">
     <div class="ghist__filter">
-      <el-select v-model="filter.status" multiple collapse-tags placeholder="状态" size="small" class="ghist__sel">
+      <el-select
+        v-model="filter.status"
+        multiple
+        collapse-tags
+        placeholder="状态"
+        aria-label="按建群状态筛选"
+        size="small"
+        class="ghist__sel"
+      >
         <el-option v-for="item in statusOptions" :key="item" :label="GROUP_JOB_STATUS_LABEL[item]" :value="item" />
       </el-select>
       <el-input
@@ -121,6 +129,7 @@ onMounted(() => {
         size="small"
         clearable
         placeholder="搜群名称 / 模板 / 工号"
+        aria-label="按群名称、模板或工号搜索"
         class="ghist__keyword"
       />
       <el-date-picker
@@ -128,6 +137,7 @@ onMounted(() => {
         type="date"
         size="small"
         placeholder="起始"
+        aria-label="起始日期"
         value-format="YYYY-MM-DD"
         class="ghist__date"
       />
@@ -136,6 +146,7 @@ onMounted(() => {
         type="date"
         size="small"
         placeholder="截止"
+        aria-label="截止日期"
         value-format="YYYY-MM-DD"
         class="ghist__date"
       />

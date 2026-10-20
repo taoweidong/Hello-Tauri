@@ -35,6 +35,8 @@ const convOf = (row: unknown): WelinkConversation => rowOf<WelinkConversation>(r
 const filter = reactive({ keyword: '', type: [] as WelinkConvType[], onlyWatching: false })
 const page = ref(1)
 const loading = ref(false)
+/** 批量改外发开关的繁忙态：一次改 N 个会话，连点会把「关」又刷成「开」 */
+const batching = ref(false)
 const selected = ref<WelinkConversation[]>([])
 
 const pageSize = computed(() => appStore.settings.pageSize || 10)
@@ -265,7 +267,7 @@ async function batchAutoReply(enabled: boolean) {
     async () => {
       changed = await store.setAutoReply(targets, enabled)
     },
-    { fail: '批量更新自动回复失败' },
+    { fail: '批量更新自动回复失败', busy: batching },
   )
   if (!ok) return
   ElMessage.success(`已更新 ${changed} 个会话`)
@@ -336,8 +338,8 @@ onMounted(load)
     <!-- 批量操作条 -->
     <div v-if="selected.length" class="conf__batch">
       <span class="conf__batch-text">已选 {{ selected.length }} 项</span>
-      <el-button size="small" plain @click="batchAutoReply(true)">批量开自动回复</el-button>
-      <el-button size="small" plain @click="batchAutoReply(false)">批量关自动回复</el-button>
+      <el-button size="small" plain :loading="batching" @click="batchAutoReply(true)">批量开自动回复</el-button>
+      <el-button size="small" plain :loading="batching" @click="batchAutoReply(false)">批量关自动回复</el-button>
       <el-button size="small" text @click="selected = []">取消选择</el-button>
     </div>
 

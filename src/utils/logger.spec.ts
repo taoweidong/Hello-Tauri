@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { logger, onLog, registerSecret, resetSecretsForTest } from './logger'
+import { logger, maskSecrets, onLog, registerSecret, resetSecretsForTest } from './logger'
 
 /**
  * 统一日志出口（P10 旁路转发语义）：控制台 + 宿主 appendLog + 订阅者同步转发；
@@ -134,5 +134,25 @@ describe('logger —— 敏感值遮蔽（design D6：CodeHub token 全链路脱
     logger.info('token tok 原样出现')
     expect(sink).toHaveBeenCalledWith('info', 'token tok 原样出现')
     unsubscribe()
+  })
+
+  // —— 第五轮：`maskSecrets` 导出给**落库**路径用（日志出口管不着 `last_error` 这类留痕）——
+  describe('maskSecrets（落库路径的第二道闸）', () => {
+    it('同一张遮蔽表，直接作用于任意字符串（不必经过 logger）', () => {
+      registerSecret('sk-live-abcdef123456')
+      const masked = maskSecrets('鉴权失败：sk-live-abcdef123456 无效')
+      expect(masked).toBe('鉴权失败：*** 无效')
+    })
+
+    it('多个已注册值一次全遮蔽；未注册值原样保留', () => {
+      registerSecret('sk-aaaa1111')
+      registerSecret('sk-bbbb2222')
+      const masked = maskSecrets('key1=sk-aaaa1111 key2=sk-bbbb2222 other=plain')
+      expect(masked).toBe('key1=*** key2=*** other=plain')
+    })
+
+    it('空表时原样返回（没有注册任何密钥就不该改动错误串）', () => {
+      expect(maskSecrets('普通错误：连接被拒绝')).toBe('普通错误：连接被拒绝')
+    })
   })
 })

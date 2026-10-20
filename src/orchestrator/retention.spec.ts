@@ -21,11 +21,20 @@ vi.mock('@/infra/db', () => ({
   welink: () => {
     throw new Error('测试必须显式注入 repo')
   },
+  sediment: () => {
+    throw new Error('测试必须显式注入 sedimentRepo')
+  },
 }))
 
 import { createRetention, PURGE_MAX_ROUNDS, type RetentionReport } from '@/orchestrator/retention'
-import { AGENT_LOG_KEEP_DAYS, PURGE_BATCH_SIZE, RETENTION_KEEP_DAYS } from '@/infra/db/ports'
+import {
+  AGENT_LOG_KEEP_DAYS,
+  PURGE_BATCH_SIZE,
+  RETENTION_KEEP_DAYS,
+  SEDIMENT_LOG_KEEP_DAYS,
+} from '@/infra/db/ports'
 import type { WelinkRepository } from '@/infra/db/ports'
+import type { SedimentRepository } from '@/infra/db/sediment-ports'
 import type { TimerApi } from '@/orchestrator/timers'
 
 // ---------------------------------------------------------------- 假时钟
@@ -76,17 +85,23 @@ interface RepoHarness {
   /** 每次 purge 调用的 [cutoff, batch]，用来断言「截止时刻按保留天数算」 */
   messageCalls: Array<[string, number]>
   logCalls: Array<[string, number]>
+  sedimentCalls: Array<[string, number]>
   /** 预置每批返回的行数序列（用完后返回 0 = 已清空） */
   messageBatches: number[]
   logBatches: number[]
+  sedimentBatches: number[]
+  /** 沉淀仓储替身（v11：留痕也要进清理链） */
+  sedimentRepo: SedimentRepository
   failNextMessages(times: number, message: string): void
 }
 
 function createRepo(): RepoHarness {
   const messageCalls: Array<[string, number]> = []
   const logCalls: Array<[string, number]> = []
+  const sedimentCalls: Array<[string, number]> = []
   let messageBatches: number[] = []
   let logBatches: number[] = []
+  let sedimentBatches: number[] = []
   let failures = 0
   let failureMessage = ''
 
@@ -105,10 +120,19 @@ function createRepo(): RepoHarness {
     },
   } as unknown as WelinkRepository
 
+  const sedimentRepo = {
+    async purgeSedimentLogsBefore(cutoff: string, batch: number) {
+      sedimentCalls.push([cutoff, batch])
+      return sedimentBatches.shift() ?? 0
+    },
+  } as unknown as SedimentRepository
+
   return {
     repo,
+    sedimentRepo,
     messageCalls,
     logCalls,
+    sedimentCalls,
     get messageBatches() {
       return messageBatches
     },
@@ -120,6 +144,12 @@ function createRepo(): RepoHarness {
     },
     set logBatches(value: number[]) {
       logBatches = value
+    },
+    get sedimentBatches() {
+      return sedimentBatches
+    },
+    set sedimentBatches(value: number[]) {
+      sedimentBatches = value
     },
     failNextMessages(times, message) {
       failures = times
@@ -145,6 +175,7 @@ beforeEach(() => {
 function build(overrides: Partial<Parameters<typeof createRetention>[0]> = {}) {
   return createRetention({
     repo: harness.repo,
+    sedimentRepo: harness.sedimentRepo,
     timers: scheduler.timers,
     now: () => FIXED_NOW,
     firstDelayMs: 100,
@@ -288,6 +319,7 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
 
     const retention = createRetention({
       repo: slowRepo,
+      sedimentRepo: harness.sedimentRepo,
       timers: scheduler.timers,
       now: () => FIXED_NOW,
       firstDelayMs: 100,
@@ -377,7 +409,7 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
     expect(retention.lastReport()).toBeNull()
     const report = await retention.runOnce()
     expect(report satisfies RetentionReport).toBe(retention.lastReport())
-    expect(retention.lastReport()).toEqual({ messages: 5, agentLogs: 2, capped: false })
+    expect(retention.lastReport()).toEqual({ messages: 5, agentLogs: 2, sedimentLogs: 0, capped: false })
   })
 
   it('keepDays 可覆盖（测试/定制保留期），截止时刻随之变化', async () => {
@@ -389,5 +421,63 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
 
     expect(harness.messageCalls[0][0]).toBe('2026-09-27 10:00:00')
     expect(harness.logCalls[0][0]).toBe('2026-09-26 10:00:00')
+  })
+
+  // —— 第五轮：沉淀留痕此前「接口写好了但无人调用」，是三张表里唯一没进清理链的 ——
+  describe('沉淀提取留痕（v11）', () => {
+    it('留痕与消息/语料同轮清理，保留期独立（默认 30 天）', async () => {
+      harness.messageBatches = [0]
+      harness.logBatches = [0]
+      harness.sedimentBatches = [0]
+      const retention = build()
+
+      await retention.runOnce()
+
+      // 2026-09-28 10:00:00 减 30 天 = 2026-08-29 10:00:00
+      expect(harness.sedimentCalls[0][0]).toBe('2026-08-29 10:00:00')
+      expect(harness.sedimentCalls[0][1]).toBe(PURGE_BATCH_SIZE)
+      expect(SEDIMENT_LOG_KEEP_DAYS).toBe(30)
+      // 与消息(180)/语料(90)三档互相独立，互不影响
+      expect(harness.messageCalls[0][0]).toBe('2026-04-01 10:00:00')
+      expect(harness.logCalls[0][0]).toBe('2026-06-30 10:00:00')
+    })
+
+    it('留痕删到收敛，计数进报告与日志（留痕单条可达 10KB，是三表里单位体积最大的）', async () => {
+      harness.messageBatches = [0]
+      harness.logBatches = [0]
+      harness.sedimentBatches = [PURGE_BATCH_SIZE, 9]
+      const retention = build()
+
+      const report = await retention.runOnce()
+
+      expect(report.sedimentLogs).toBe(PURGE_BATCH_SIZE + 9)
+      expect(harness.sedimentCalls).toHaveLength(2)
+      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('沉淀留痕 -509 条'))
+    })
+
+    it('留痕清理抛错不拖垮整轮（三路并行，但失败会冒泡成单轮失败并照常续排）', async () => {
+      harness.messageBatches = [3]
+      harness.logBatches = [0]
+      // 没有预置 sedimentBatches 时假件返回 0；这里改成抛错验证「不中断链条」
+      harness.sedimentRepo = {
+        async purgeSedimentLogsBefore() {
+          throw new Error('留痕库抖了')
+        },
+      } as unknown as SedimentRepository
+      const failing = createRetention({
+        repo: harness.repo,
+        sedimentRepo: harness.sedimentRepo,
+        timers: scheduler.timers,
+        now: () => FIXED_NOW,
+        firstDelayMs: 100,
+        intervalMs: 1000,
+      })
+
+      failing.start()
+      await scheduler.advance(100)
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('留痕库抖了'))
+      // 失败后仍排着下一轮（与消息清理同一条「不能永久停摆」的纪律）
+      expect(scheduler.queued).toBe(1)
+    })
   })
 })
