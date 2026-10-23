@@ -65,21 +65,38 @@ async function load() {
   }
 }
 
+/**
+ * 同一 tick 内的多次加载请求合并成一次（与 `HistoryTab` 同款手法）。
+ *
+ * 本页有三个触发源：翻页 / 筛选变更 / `historyVersion`（其它 Tab 建群或删记录）。
+ * 筛选变更会先写 `page.value = 1` 再自己 load 一次，于是与 `watch(page)` 叠加成
+ * 两次查询；删记录时 `historyVersion` 与「减到空页后的翻页」也可能同一 tick 内叠加。
+ */
+let loadQueued = false
+function requestLoad(): void {
+  if (loadQueued) return
+  loadQueued = true
+  void Promise.resolve().then(() => {
+    loadQueued = false
+    void load()
+  })
+}
+
 function resetFilters() {
   filter.status = []
   filter.keyword = ''
   filter.from = ''
   filter.to = ''
   page.value = 1
-  void load()
+  requestLoad()
 }
 
-watch(page, () => void load())
+watch(page, () => requestLoad())
 watch(
   () => [filter.status, filter.keyword, filter.from, filter.to],
   () => {
     page.value = 1
-    void load()
+    requestLoad()
   },
   { deep: true },
 )
@@ -87,7 +104,7 @@ watch(
 // 建群/删记录（其它 Tab 发起）→ 版本号自增 → 这里重载当前页
 watch(
   () => store.historyVersion,
-  () => void load(),
+  () => requestLoad(),
 )
 
 /** 删除建群记录是不可逆动作：按钮必须 `:loading` 防重复提交 */
@@ -157,7 +174,19 @@ onMounted(() => {
       <el-button size="small" text @click="resetFilters">重置</el-button>
     </div>
 
-    <el-table v-loading="loading" :data="rows" size="small" class="ghist__table" empty-text="还没有建群记录">
+    <!--
+      row-key 不是可选项：`type="expand"` 的展开态默认按**行下标**锚定，删掉某一行后
+      原本展开着的行会把展开态落到它的后继行上（A 群的成员清单展开着、标题却写着 B 群）。
+      同为列表的 TableCrudView 早就写了 row-key，这里与另外三张表是漏网的。
+    -->
+    <el-table
+      v-loading="loading"
+      :data="rows"
+      row-key="pk"
+      size="small"
+      class="ghist__table"
+      empty-text="还没有建群记录"
+    >
       <el-table-column type="expand">
         <template #default="{ row }">
           <div class="ghist__detail">

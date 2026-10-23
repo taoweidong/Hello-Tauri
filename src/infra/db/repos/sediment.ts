@@ -13,6 +13,7 @@ import { bridge } from '@/api'
 import type { DbParam, DbRow } from '@/types'
 import type { WelinkMessage } from '@/types/welink'
 import { nowStamp } from '@/utils/time'
+import { maskSecrets } from '@/utils/logger'
 import type {
   KnowledgeDraft,
   KnowledgeDraftSource,
@@ -275,12 +276,20 @@ export const sqlSedimentRepository: SedimentRepository = {
 
   async insertSedimentLog(log) {
     const createdAt = nowStamp()
+    // 落库前先过遮蔽表（与 welink 仓储的 `last_error` / `agent_logs` 同口径）：
+    // 上游 `knowledge-harvester` 把 `error.message` 原样传来，而它可能来自 Agent 的
+    // HTTP 错误串（含网关回显的请求信息）。日志出口已被 `logger` 遮蔽，
+    // 但这里是**持久化落库**，是独立的一条出口。
+    // 先遮蔽再截断：反过来的话密钥会被切断，等值替换匹配不上。
+    const error = maskSecrets(log.error ?? '')
     const result = await bridge.dbExecute(
       `INSERT INTO sediment_logs (prompt, response, status, latency_ms, error, created_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
-      [log.prompt, log.response, log.status, log.latencyMs, log.error, createdAt],
+      [log.prompt, log.response, log.status, log.latencyMs, error, createdAt],
     )
-    return { pk: num(result.lastInsertId), ...log, createdAt }
+    // 返回值必须是**遮蔽后**的那份：旧写法是 `{ ...log }`（把入参原样展开），
+    // 于是「库里安全、调用方拿到明文」—— 上游若把返回值直接渲染给用户，遮蔽等于白做。
+    return { pk: num(result.lastInsertId), ...log, error, createdAt }
   },
 
   async listSedimentLogs(limit) {

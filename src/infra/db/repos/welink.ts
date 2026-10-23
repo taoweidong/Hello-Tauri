@@ -575,13 +575,24 @@ export const sqlWelinkRepository: WelinkRepository = {
   },
 
   async listUnfinishedJobs() {
-    // P7 受控例外（见 ports.ts 说明）：启动恢复的工作集，带硬上限兜底
+    // P7 受控例外（见 ports.ts 说明）：启动恢复的工作集，带硬上限兜底。
+    //
+    // 不含 `failed`：failed 从不入队（只被统计），却永远留在库里。而本查询按
+    // `created_at ASC` 取最老的 2000 条 —— 历史 failed 攒够 2000 就把名额占满，
+    // 真正的在途任务（pending/discussing/ready/sending）一条都进不了恢复集，
+    // 表现为「重启后助手完全不动且无任何告警」的静默失效。
     const rows = await bridge.dbSelect(
-      `${JOB_SELECT} WHERE j.status IN ('pending','discussing','ready','sending','failed')
+      `${JOB_SELECT} WHERE j.status IN ('pending','discussing','ready','sending')
         ORDER BY j.created_at, j.id LIMIT ?1`,
       [UNFINISHED_HARD_LIMIT],
     )
     return rows.map(jobFromRow)
+  },
+
+  async countFailedJobs() {
+    // 只统计，不入恢复集（理由见 `listUnfinishedJobs`）。命中 `idx_wrj_status`。
+    const rows = await bridge.dbSelect("SELECT COUNT(*) AS count FROM welink_reply_jobs WHERE status = 'failed'")
+    return num(rows[0]?.count)
   },
 
   async listJobs(query: JobQuery) {
@@ -844,7 +855,12 @@ export const sqlWelinkRepository: WelinkRepository = {
     const result = await bridge.dbExecute(
       `INSERT INTO welink_agent_logs(job_pk, seq, prompt, response, status, latency_ms, error, created_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
-      [log.jobPk, seq, log.prompt, log.response, log.status, log.latencyMs, log.error, now],
+      // 落库前先过遮蔽表（与 `last_error` 同口径）：`agent-http` 会把响应体前 200 字
+      // 拼进 `AgentError`（见 `orchestrator/secrets.ts` 的自述），部分网关在 4xx 时会
+      // 回显请求信息（含鉴权头）。日志出口已被 `logger` 遮蔽，但这条是**持久化落库**，
+      // 是第二条出口 —— 第七轮前它一直是敞开的。
+      // 顺序：先遮蔽再截断（截断后再遮蔽会把密钥切碎，等值替换匹配不上）。
+      [log.jobPk, seq, log.prompt, log.response, log.status, log.latencyMs, maskSecrets(log.error ?? ''), now],
     )
     const stored = await bridge.dbSelect('SELECT * FROM welink_agent_logs WHERE id = ?1', [result.lastInsertId])
     return agentLogFromRow(stored[0] ?? {})
@@ -924,6 +940,31 @@ export const sqlWelinkRepository: WelinkRepository = {
     const result = await bridge.dbExecute(
       `DELETE FROM welink_agent_logs WHERE id IN (
          SELECT id FROM welink_agent_logs WHERE created_at < ?1 LIMIT ?2)`,
+      [cutoff, batch],
+    )
+    return result.changes
+  },
+
+  async purgeJobsBefore(cutoff, batch) {
+    // 与 `purgeMessagesBefore` 同构（子查询 + LIMIT），但语义边界不同：
+    //  - **只清终态**。在途任务（pending/discussing/ready/sending）绝不可碰 —— 保留期
+    //    清理误删待办是比表增长严重得多的故障，且同样静默（用户只看到「少了一条」）。
+    //  - `finished_at IS NOT NULL` 是第二道保险：在途任务的该列本就为空，
+    //    即使将来状态集合被改动，没有完成时间的行也永远不会被清掉。
+    //  - 不写 ORDER BY（同 `purgeMessagesBefore`）：排序键一旦是主键，SQLite 会为省掉
+    //    排序而走 rowid 全表扫描，索引失效。分批顺序没有业务语义。
+    //
+    // 索引：`idx_wrj_status_finished(status, finished_at)`（migration v10）覆盖本谓词 ——
+    // `status IN (...)` 是等值前缀、`finished_at < ?` 走范围。
+    //
+    // 依赖 `idx_wrj_status_finished`：三个终态各一次范围扫描，无需新建索引。
+    const result = await bridge.dbExecute(
+      `DELETE FROM welink_reply_jobs WHERE id IN (
+         SELECT id FROM welink_reply_jobs
+          WHERE status IN ('sent','failed','skipped')
+            AND finished_at IS NOT NULL
+            AND finished_at < ?1
+          LIMIT ?2)`,
       [cutoff, batch],
     )
     return result.changes

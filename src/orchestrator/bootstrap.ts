@@ -106,6 +106,14 @@ export function createBootstrap(options: BootstrapOptions): Bootstrap {
       }
 
       const enqueue: number[] = []
+      // failed 已移出 `listUnfinishedJobs`（理由见 ports.ts）：它只被统计、从不入队，
+      // 却永不离场，会占满「最老的 N 条」这个恢复工作集。这里单独计数，保持报告口径不变。
+      try {
+        result.failed = await repo.countFailedJobs()
+      } catch (error) {
+        result.warnings.push(`统计失败任务失败：${error instanceof Error ? error.message : String(error)}`)
+        logger.warn('WeLink：统计失败任务失败', error)
+      }
       for (const job of unfinished) {
         if (job.status === 'sending') {
           // 崩溃窗口：发出去了但没记上 vs 没发出去。**必须**查回执才能区分，
@@ -144,8 +152,9 @@ export function createBootstrap(options: BootstrapOptions): Bootstrap {
         }
 
         if (job.status === 'failed') {
-          // failed 不自动重投（重试失败的内容再重投 = 滥发风险），交人工
-          result.failed += 1
+          // 兜底：正常路径下 `listUnfinishedJobs` 已不含 failed（计数改走 `countFailedJobs`）。
+          // 这里保留是为了将来接口语义若被改回时，不至于把失败任务重投出去（重试失败的内容
+          // 再发 = 滥发风险）。
           continue
         }
         if (job.status === 'ready' && job.holdReason) {

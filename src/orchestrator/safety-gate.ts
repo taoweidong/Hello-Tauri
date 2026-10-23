@@ -213,8 +213,24 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
 
   let panic = false
   let enabled = settings.enabled
-  /** 会话开关缓存（O5）：upsert 时失效，避免每次 check 查库 */
+  /**
+   * 会话开关缓存（O5）：upsert 时失效，避免每次 check 查库。
+   *
+   * ⚠️ 与下面 `convStates` **同源的第二个无界 Map**（第七轮补）：`cacheConversation`
+   * 在每次 `loadConversations()` 时把**全量会话**灌进来（`stores/welink/view.ts`），
+   * 而唯一的删除点是 `invalidateConversation()` —— 删除会话的路径
+   * （`view.removeConversation`）恰好**不调用它**，于是被删掉的会话在缓存里永久驻留。
+   * 条目数随「历史会话数」单调增长，与已经修好的 `convStates` 是两个坑、同一种形态。
+   *
+   * 修复分两半：① 这里加与 `CONV_STATE_LIMIT` 同款 LRU（结构兜底，任何写入路径都跑不掉）；
+   * ② 调用方补 `invalidateConversation`（语义兜底，让删除立刻生效而不是等淘汰）。
+   *
+   * 为什么 LRU 是安全的：本缓存装的是**会话开关**（改了要失效重读），不是配额状态 ——
+   * 淘汰冷条目只会让它下次 check 时回库重读，不会造成限流绕过。
+   */
   const convCache = new Map<string, { autoReply: boolean; muteUntil: string | null }>()
+  /** `convCache` 容量上限（与 `CONV_STATE_LIMIT` 同款，2048 远超单机会话规模） */
+  const CONV_CACHE_LIMIT = 2048
   /**
    * 会话级配额状态（S2/S4 的小时计数、最近发送时间、去重窗口）。
    *
@@ -348,8 +364,7 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
   /** 黑名单正则命中（S7）：配置里写坏的正则**不能**让整条链路挂掉——
    *  编译结果缓存、超长模式跳过、灾难性回溯结构跳过，且只扫描草稿前缀（S-22）。 */
   function blacklistHit(draft: string): string | null {
-    const scan =
-      draft.length > MAX_BLACKLIST_SCAN_LEN ? draft.slice(0, MAX_BLACKLIST_SCAN_LEN) : draft
+    const scan = draft.length > MAX_BLACKLIST_SCAN_LEN ? draft.slice(0, MAX_BLACKLIST_SCAN_LEN) : draft
     for (const pattern of settings.safety.blacklistPatterns) {
       if (!pattern.trim()) continue
       const re = compileBlacklist(pattern)
@@ -431,6 +446,11 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
         return { action: 'skip', reason: 'target_missing', detail: '目标会话已被删除，无法外发' }
       }
       const cached = convCache.get(conversation.convId)
+      if (cached) {
+        // 命中即刷新 LRU 位置：活跃会话不会被淘汰（与 `stateOf` 同手法）
+        convCache.delete(conversation.convId)
+        convCache.set(conversation.convId, cached)
+      }
       const autoReply = cached ? cached.autoReply : conversation.autoReply
       const muteUntil = cached ? cached.muteUntil : conversation.muteUntil
       if (!autoReply && !isManual) {
@@ -682,7 +702,14 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
     },
 
     cacheConversation(convId, autoReply, muteUntil) {
+      // 刷新 LRU 位置：先删再插，让 Map 的插入序 = 使用序（与 `stateOf` 同手法）。
+      convCache.delete(convId)
       convCache.set(convId, { autoReply, muteUntil })
+      if (convCache.size > CONV_CACHE_LIMIT) {
+        // 淘汰最久未被 cache/check 的会话（Map 迭代序即插入序 = 使用序）
+        const oldest = convCache.keys().next()
+        if (!oldest.done) convCache.delete(oldest.value)
+      }
     },
 
     primeConversation(convId, hourlyCount, lastSentAt) {

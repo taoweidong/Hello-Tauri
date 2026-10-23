@@ -1151,3 +1151,48 @@ describe('SafetyGate —— 会话配额状态的容量（第六轮）', () => {
     expect(gate.snapshot().convCounts[hot]).toBe(0)
   })
 })
+
+describe('SafetyGate —— 会话开关缓存的容量（第七轮）', () => {
+  /**
+   * `convCache` 是**同源的第二个无界 Map**：`cacheConversation` 在每次
+   * `loadConversations()` 时把全量会话灌进来，而唯一删除点是
+   * `invalidateConversation()` —— 删除会话的路径恰好不调用它，于是被删掉的
+   * 会话在缓存里永久驻留。第六轮只修了 `convStates`，这里是同一形态的第二处。
+   *
+   * 观测方式：缓存命中时 `check` 用**缓存里的** autoReply（false → skip）；
+   * 缓存被淘汰/失效时改用调用方传入的快照（true → send）。所以用「放行还是拦下」
+   * 就能判断某条缓存还在不在 —— 不需要暴露 Map 本身。
+   *
+   * 反证：删掉 `cacheConversation` 里的淘汰分支 → 用例一变红（末尾仍会被拦下）。
+   */
+  it('会话数远超上限时按 LRU 淘汰（缓存不会随历史会话数单调增长）', () => {
+    const { gate } = setup()
+    gate.cacheConversation('G-old', false, null)
+    for (let index = 0; index < 2100; index += 1) {
+      gate.cacheConversation(`G-${index}`, false, null)
+    }
+    // 最老的 G-old 已被挤掉：改用调用方传入的 autoReply=true → 放行
+    expect(check(gate, { conversation: conversation({ convId: 'G-old', autoReply: true }) }).action).toBe('send')
+    // 最近的还在缓存里（autoReply=false）→ 拦下
+    expect(check(gate, { conversation: conversation({ convId: 'G-2099', autoReply: true }) }).action).toBe('skip')
+  })
+
+  it('LRU：缓存被反复命中的活跃会话不会被淘汰', () => {
+    const { gate } = setup()
+    const hot = 'G-hot'
+    gate.cacheConversation(hot, false, null)
+    for (let index = 0; index < 2100; index += 1) {
+      check(gate, { conversation: conversation({ convId: hot, autoReply: true }) }) // 命中即刷新位置
+      gate.cacheConversation(`G-${index}`, false, null)
+    }
+    expect(check(gate, { conversation: conversation({ convId: hot, autoReply: true }) }).action).toBe('skip')
+  })
+
+  it('invalidateConversation 立刻失效（不等 LRU 淘汰）—— 删除会话后的正确处置', () => {
+    const { gate } = setup()
+    gate.cacheConversation('G-x', false, null)
+    expect(check(gate, { conversation: conversation({ convId: 'G-x', autoReply: true }) }).action).toBe('skip')
+    gate.invalidateConversation('G-x')
+    expect(check(gate, { conversation: conversation({ convId: 'G-x', autoReply: true }) }).action).toBe('send')
+  })
+})

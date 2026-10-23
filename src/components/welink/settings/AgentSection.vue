@@ -170,7 +170,12 @@ function insertPlaceholder(token: string) {
           size="small"
           effect="plain"
           class="wc__token pressable"
+          role="button"
+          tabindex="0"
+          :aria-label="`插入占位符 ${token}`"
           @click="insertPlaceholder(token)"
+          @keydown.enter.prevent="insertPlaceholder(token)"
+          @keydown.space.prevent="insertPlaceholder(token)"
         >
           {{ token }}
         </el-tag>

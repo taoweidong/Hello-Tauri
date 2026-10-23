@@ -16,6 +16,7 @@ import { sanitizeUntrusted } from '@/infra/agent/prompt'
 import type { SkillSource, WelinkMessage, WelinkSkill } from '@/types/welink'
 import { FALLBACK_SKILL_ID } from '@/types/welink'
 import { logger } from '@/utils/logger'
+import { looksCatastrophic } from './safety-gate'
 
 export interface SkillDecision {
   skill: WelinkSkill
@@ -41,18 +42,55 @@ export interface RouteSkillInput {
 /** 规则匹配作用域的上限：触发消息 + 最近上下文拼接过长时截断，防超长文本拖慢逐词条匹配 */
 const MATCH_TEXT_MAX_CHARS = 2000
 
+/** 单个正则关键词的模式长度上限（与黑名单同款护栏，理由见下） */
+const MAX_KEYWORD_PATTERN_LEN = 200
+
+/**
+ * 编译结果缓存。
+ *
+ * 为什么必须缓存：`matchSkillByRules` 是**技能 × 关键词**的双重循环，且对每条待回复
+ * 消息都跑一遍（生成段的必经路径）。不缓存时一个 10 技能 × 5 关键词的配置，每条消息
+ * 要 `new RegExp` 五十次 —— 正则编译本身不便宜，而且这是主线程同步活。
+ */
+const keywordCache = new Map<string, RegExp | null>()
+
 /**
  * `/…/` 形式的词条按正则解释（不区分大小写）；非法正则跳过并 warn，不抛 ——
  * 关键词是用户手填的，一个写坏的词条不应该拖垮整个技能路由。
+ *
+ * **S-22 的另一半（第七轮补）**：安全闸的黑名单正则早就装了三道护栏（长度上限 /
+ * 拒绝灾难性回溯结构 / 编译缓存），但技能关键词这条同样由用户手填、同样在生成段
+ * 必经路径上求值的正则路径**一直是裸的**。填一条 `/^(a+)+$/` 就能让含大量重复字符
+ * 的消息触发灾难性回溯，卡死主线程（生成段只有两个并发槽位，一次回溯即整个助手停摆，
+ * 且不抛错、不留痕 —— 只表现为「助手不动了」）。
+ *
+ * 护栏与 `safety-gate.compileBlacklist` 逐条对齐（fail-safe：宁可漏匹配，不可卡死）：
+ *  ① 长度上限；② `looksCatastrophic()` 结构近似检测；③ 编译结果缓存。
  */
 function parseRegexKeyword(keyword: string): RegExp | null {
   if (!(keyword.length > 2 && keyword.startsWith('/') && keyword.endsWith('/'))) return null
-  try {
-    return new RegExp(keyword.slice(1, -1), 'i')
-  } catch (error: unknown) {
-    logger.warn(`技能关键词非法正则已跳过：${keyword}（${String(error)}）`)
+  const pattern = keyword.slice(1, -1)
+  if (pattern.length > MAX_KEYWORD_PATTERN_LEN) {
+    logger.warn(`技能关键词正则过长已跳过（>${MAX_KEYWORD_PATTERN_LEN} 字符）：${keyword}`)
     return null
   }
+  if (looksCatastrophic(pattern)) {
+    logger.warn(`技能关键词正则疑似灾难性回溯已跳过：${keyword}`)
+    return null
+  }
+  const cached = keywordCache.get(pattern)
+  if (cached !== undefined) return cached
+  let re: RegExp | null
+  try {
+    re = new RegExp(pattern, 'i')
+  } catch (error: unknown) {
+    logger.warn(`技能关键词非法正则已跳过：${keyword}（${String(error)}）`)
+    re = null
+  }
+  // 关键词是用户可配的（可以随便改），缓存要有上限，否则改配置会无限累积
+  if (keywordCache.size > 1024) keywordCache.clear()
+  keywordCache.set(pattern, re)
+  return re
 }
 
 /**

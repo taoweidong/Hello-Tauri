@@ -16,6 +16,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { IconPlus, IconTrash } from '@/components/icons'
+import { confirmDanger } from '@/utils/ui-action'
 import { useKnowledgeStore } from '@/stores/welink/knowledge'
 import {
   MAX_SKILL_KNOWLEDGE_DOCS,
@@ -109,7 +110,25 @@ function saveEditor() {
   closeEditor()
 }
 
-function removeSkill(id: string) {
+/**
+ * 删除技能是不可逆动作（整字段替换 `agent.skills`，父级 deep watch 会**直接落盘**）。
+ *
+ * 本组件此前是全项目**唯一一处**没有确认与繁忙态的删除：其余 7 处删除动作（模板 /
+ * 建群记录 / 回复历史 / 业务记录 / 会话 / 回溯 / 知识文档）都是 `confirmDanger` + `busy`
+ * 双全。技能删掉后它配的关键词、专属模板、知识绑定一起消失，且**没有回收站** ——
+ * 手滑一次要整套重配。
+ *
+ * 注意 `defineExpose` 里的 `removeSkill` 被契约测试直接驱动，所以确认框失败（取消）
+ * 必须保持「什么都没发生」，不能抛。
+ */
+async function removeSkill(id: string) {
+  const target = agent.value.skills.find((item) => item.id === id)
+  const confirmed = await confirmDanger(
+    `删除技能「${target?.name || id}」？它的匹配关键词、专属模板与知识绑定会一并消失，不可恢复。`,
+    '删除技能',
+    { verb: '删除', danger: true },
+  )
+  if (!confirmed) return
   agent.value = { ...agent.value, skills: agent.value.skills.filter((item) => item.id !== id) }
   if (editingId.value === id) closeEditor()
 }
@@ -217,7 +236,12 @@ defineExpose({ startAdd, startEdit, saveEditor, closeEditor, removeSkill, setEna
                 size="small"
                 effect="plain"
                 class="wc__token pressable"
+                role="button"
+                tabindex="0"
+                :aria-label="`插入占位符 ${token}`"
                 @click="insertPlaceholder(token)"
+                @keydown.enter.prevent="insertPlaceholder(token)"
+                @keydown.space.prevent="insertPlaceholder(token)"
                 >{{ token }}</el-tag
               >
             </div>

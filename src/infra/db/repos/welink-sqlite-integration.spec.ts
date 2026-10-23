@@ -58,6 +58,7 @@ vi.mock('@/utils/logger', async (importOriginal) => ({
 
 import { MIGRATIONS } from '@/infra/db'
 import { sqlWelinkRepository } from '@/infra/db/repos/welink'
+import { registerSecret } from '@/utils/logger'
 
 let realDb: DatabaseSync
 /** 最近一次经仓储下发的 SQL（已改写为 node:sqlite 的匿名占位符）+ 参数 */
@@ -158,15 +159,15 @@ function seedMessage(convPk: number, id: number, sentAt: string): void {
     .run(id, `u-${id}`, convPk, id, sentAt, sentAt)
 }
 
-/** 往 jobs 插一行并挂到某条消息上 */
-function seedJob(triggerMsgPk: number, status = 'sent'): void {
+/** 往 jobs 插一行并挂到某条消息上（finished_at 可指定，用于保留期清理的终态判定） */
+function seedJob(triggerMsgPk: number, status = 'sent', finishedAt: string | null = null): void {
   realDb
     .prepare(
       `INSERT INTO welink_reply_jobs (trigger_msg_pk, trigger_type, target_type, target_id, send_mode_used,
-         status, draft, created_at, updated_at)
-       VALUES (?, 'group_at_me', 'group', 'g-1', 'auto', ?, '草稿' || ?, '2026-01-01 00:00:00', '2026-01-01 00:00:00')`,
+         status, draft, created_at, updated_at, finished_at)
+       VALUES (?, 'group_at_me', 'group', 'g-1', 'auto', ?, '草稿' || ?, '2026-01-01 00:00:00', '2026-01-01 00:00:00', ?)`,
     )
-    .run(triggerMsgPk, status, triggerMsgPk)
+    .run(triggerMsgPk, status, triggerMsgPk, finishedAt)
 }
 
 /** 往 agent_logs 插一行并挂到某个 job 上 */
@@ -218,8 +219,8 @@ describe('migration v7 —— 保留期清理的前置索引', () => {
 
 describe('migration v8 / v9 —— 高频谓词的索引（缺了就是全表扫描）', () => {
   const hasIndex = (name: string) =>
-    (realDb.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`).all(name) as unknown[]).length ===
-    1
+    (realDb.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`).all(name) as unknown[])
+      .length === 1
 
   it('v8：会话表的 watching 与排序索引都在（poller 每轮的入口查询）', () => {
     expect(hasIndex('idx_wc_watching')).toBe(true)
@@ -254,8 +255,8 @@ describe('migration v8 / v9 —— 高频谓词的索引（缺了就是全表扫
 
 describe('migration v10 —— 已发送时间（finished_at）的热谓词索引', () => {
   const hasIndex = (name: string) =>
-    (realDb.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`).all(name) as unknown[]).length ===
-    1
+    (realDb.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`).all(name) as unknown[])
+      .length === 1
 
   const explainLastSelect = () =>
     (realDb.prepare(`EXPLAIN QUERY PLAN ${lastSelect.sql}`).all(...lastSelect.args) as { detail: string }[])
@@ -308,9 +309,9 @@ describe('commitDraft —— 生成与外发是两段独立重试预算（回归
     // attempts=3（3 < 3 为假）→ 直接判 failed，一次外发重试都没有。
     expect(await repo.commitDraft(jobPk, '最终草稿', '')).toBe(true)
     expect(attemptsOf()).toBe(0)
-    expect((realDb.prepare('SELECT status AS s FROM welink_reply_jobs WHERE id = ?').get(jobPk) as { s: string }).s).toBe(
-      'ready',
-    )
+    expect(
+      (realDb.prepare('SELECT status AS s FROM welink_reply_jobs WHERE id = ?').get(jobPk) as { s: string }).s,
+    ).toBe('ready')
   })
 })
 
@@ -398,6 +399,124 @@ describe('purgeMessagesBefore —— 真库外键行为（回归防线）', () =
   })
 })
 
+// ---------------- 回复任务保留期（第七轮新增的第五条清理链） ----------------
+
+describe('purgeJobsBefore —— 回复任务的保留期清理（真库）', () => {
+  it('**只清终态**：sent/failed/skipped 清掉，在途任务一律不动', async () => {
+    const convPk = seedConversation()
+    seedMessage(convPk, 1, '2026-01-01 00:00:00')
+    seedMessage(convPk, 2, '2026-01-01 00:00:00')
+    seedMessage(convPk, 3, '2026-01-01 00:00:00')
+    seedMessage(convPk, 4, '2026-01-01 00:00:00')
+    seedMessage(convPk, 5, '2026-01-01 00:00:00')
+    seedMessage(convPk, 6, '2026-01-01 00:00:00')
+    seedMessage(convPk, 7, '2026-01-01 00:00:00')
+    // 三个终态 + 四个在途
+    seedJob(1, 'sent', '2026-01-01 00:00:00')
+    seedJob(2, 'failed', '2026-01-01 00:00:00')
+    seedJob(3, 'skipped', '2026-01-01 00:00:00')
+    seedJob(4, 'pending', '2026-01-01 00:00:00')
+    seedJob(5, 'discussing', '2026-01-01 00:00:00')
+    seedJob(6, 'ready', '2026-01-01 00:00:00')
+    seedJob(7, 'sending', '2026-01-01 00:00:00')
+
+    const removed = await repo.purgeJobsBefore('2026-06-01 00:00:00', 500)
+
+    // 反证：把 SQL 的 status 白名单去掉（或加回 pending 等），这条立刻红。
+    // 保留期清理误删待办是比表增长严重得多的故障，且同样静默（用户只看到「少了一条」）。
+    expect(removed).toBe(3)
+    const left = realDb.prepare('SELECT status FROM welink_reply_jobs ORDER BY id').all() as { status: string }[]
+    expect(left.map((r) => r.status)).toEqual(['pending', 'discussing', 'ready', 'sending'])
+  })
+
+  it('finished_at 为空的终态行也不清（第二道保险：没有完成时间 = 不该被当作历史）', async () => {
+    const convPk = seedConversation()
+    seedMessage(convPk, 1, '2026-01-01 00:00:00')
+    seedJob(1, 'sent', null)
+
+    const removed = await repo.purgeJobsBefore('2026-06-01 00:00:00', 500)
+
+    expect(removed).toBe(0)
+    expect(count('welink_reply_jobs')).toBe(1)
+  })
+
+  it('未过期的终态 job 不删（cutoff 边界正确）', async () => {
+    const convPk = seedConversation()
+    seedMessage(convPk, 1, '2026-01-01 00:00:00')
+    seedJob(1, 'sent', '2026-09-01 00:00:00')
+
+    expect(await repo.purgeJobsBefore('2026-06-01 00:00:00', 500)).toBe(0)
+    expect(await repo.purgeJobsBefore('2026-10-01 00:00:00', 500)).toBe(1)
+  })
+
+  it('清掉 job 之后，它引用的过期消息**终于能被清**（job 无清理 = 消息保留期永久失效）', async () => {
+    // 这是本轮 P0 的因果链：`purgeMessagesBefore` 的 NOT EXISTS 会跳过仍被 job 引用的
+    // 消息。job 从不清理 ⇒ 那些消息永不过期。修好 job 链，消息保留期才真正生效。
+    const convPk = seedConversation()
+    seedMessage(convPk, 1, '2026-01-01 00:00:00')
+    seedJob(1, 'sent', '2026-01-01 00:00:00')
+
+    // 反证：去掉 job 清理这一步，下面的 1 会是 0（消息永远清不掉）
+    expect(await repo.purgeMessagesBefore('2026-06-01 00:00:00', 500)).toBe(0)
+    expect(await repo.purgeJobsBefore('2026-06-01 00:00:00', 500)).toBe(1)
+    expect(await repo.purgeMessagesBefore('2026-06-01 00:00:00', 500)).toBe(1)
+    expect(count('welink_messages')).toBe(0)
+  })
+
+  it('删 job 级联带走它的 agent 留痕，但**不碰消息**（外键方向是 job→message）', async () => {
+    const convPk = seedConversation()
+    seedMessage(convPk, 1, '2026-01-01 00:00:00')
+    seedJob(1, 'sent', '2026-01-01 00:00:00')
+    const jobPk = (realDb.prepare('SELECT id FROM welink_reply_jobs').all() as { id: number }[])[0].id
+    seedAgentLog(jobPk, '2026-01-01 00:00:00')
+
+    expect(await repo.purgeJobsBefore('2026-06-01 00:00:00', 500)).toBe(1)
+
+    expect(count('welink_agent_logs')).toBe(0)
+    expect(count('welink_messages')).toBe(1)
+  })
+
+  it('分批语义：batch 限制生效（供调度层循环到收敛）', async () => {
+    const convPk = seedConversation()
+    for (let id = 1; id <= 5; id += 1) {
+      seedMessage(convPk, id, '2026-01-01 00:00:00')
+      seedJob(id, 'sent', '2026-01-01 00:00:00')
+    }
+
+    expect(await repo.purgeJobsBefore('2026-06-01 00:00:00', 2)).toBe(2)
+    expect(count('welink_reply_jobs')).toBe(3)
+  })
+})
+
+// ---------------- 落库遮蔽（第七轮补齐的第二条出口） ----------------
+
+describe('落库遮蔽 —— 密钥不得从持久化路径泄漏', () => {
+  it('insertAgentLog 的 error 落库前过遮蔽表（HTTP 错误串可能含网关回显的鉴权头）', async () => {
+    registerSecret('sk-agent-secret-0001')
+    const convPk = seedConversation()
+    seedMessage(convPk, 1, '2026-01-01 00:00:00')
+    seedJob(1, 'sent', '2026-01-01 00:00:00')
+    const jobPk = (realDb.prepare('SELECT id FROM welink_reply_jobs').all() as { id: number }[])[0].id
+
+    // 反证：把 `insertAgentLog` 里的 maskSecrets 去掉，下面这条立刻红 ——
+    // 第七轮之前这条落库路径一直是敞开的（`last_error` 早已遮蔽，它俩同源不同路）。
+    await repo.insertAgentLog({
+      jobPk,
+      prompt: '提示词',
+      response: '',
+      status: 'error',
+      latencyMs: 12,
+      error: 'Agent 返回 HTTP 401：{"apiKey":"sk-agent-secret-0001"}',
+    })
+
+    const rows = realDb.prepare('SELECT error FROM welink_agent_logs WHERE job_pk = ?').all(jobPk) as {
+      error: string
+    }[]
+    expect(rows[0].error).not.toContain('sk-agent-secret-0001')
+    expect(rows[0].error).toContain('***')
+  })
+})
+
 // ---------------- 既有级联语义未被破坏 ----------------
 
 describe('显式级联删除在真库上仍成立（回归）', () => {
@@ -455,11 +574,9 @@ describe('hasOutgoingReceipt —— 只认本次发送尝试之后的 out 消息
     seedJob(1, 'sending')
     const jobPk = (realDb.prepare('SELECT id FROM welink_reply_jobs').all() as { id: number }[])[0].id
     // 本次尝试开始时刻 T2
-    realDb.prepare(`UPDATE welink_reply_jobs SET draft = ?, updated_at = ? WHERE id = ?`).run(
-      '常见问题答案',
-      '2026-06-01 12:00:00',
-      jobPk,
-    )
+    realDb
+      .prepare(`UPDATE welink_reply_jobs SET draft = ?, updated_at = ? WHERE id = ?`)
+      .run('常见问题答案', '2026-06-01 12:00:00', jobPk)
     // 上一次问答留下的同内容 out 消息（T1 < T2）
     seedOutMessage(convPk, 2, '常见问题答案', '2026-06-01 10:00:00')
 
@@ -471,11 +588,9 @@ describe('hasOutgoingReceipt —— 只认本次发送尝试之后的 out 消息
     seedMessage(convPk, 1, '2026-01-01 00:00:00')
     seedJob(1, 'sending')
     const jobPk = (realDb.prepare('SELECT id FROM welink_reply_jobs').all() as { id: number }[])[0].id
-    realDb.prepare(`UPDATE welink_reply_jobs SET draft = ?, updated_at = ? WHERE id = ?`).run(
-      '常见问题答案',
-      '2026-06-01 12:00:00',
-      jobPk,
-    )
+    realDb
+      .prepare(`UPDATE welink_reply_jobs SET draft = ?, updated_at = ? WHERE id = ?`)
+      .run('常见问题答案', '2026-06-01 12:00:00', jobPk)
     // 本次真的发出去了（sent_at 晚于尝试开始时刻）
     seedOutMessage(convPk, 2, '常见问题答案', '2026-06-01 12:00:03')
 
@@ -487,11 +602,9 @@ describe('hasOutgoingReceipt —— 只认本次发送尝试之后的 out 消息
     seedMessage(convPk, 1, '2026-01-01 00:00:00')
     seedJob(1, 'sending')
     const jobPk = (realDb.prepare('SELECT id FROM welink_reply_jobs').all() as { id: number }[])[0].id
-    realDb.prepare(`UPDATE welink_reply_jobs SET draft = ?, updated_at = ? WHERE id = ?`).run(
-      '常见问题答案',
-      '2026-06-01 12:00:00',
-      jobPk,
-    )
+    realDb
+      .prepare(`UPDATE welink_reply_jobs SET draft = ?, updated_at = ? WHERE id = ?`)
+      .run('常见问题答案', '2026-06-01 12:00:00', jobPk)
     seedOutMessage(convPk, 2, '别的回复', '2026-06-01 12:00:03')
 
     await expect(repo.hasOutgoingReceipt(jobPk)).resolves.toBe(false)

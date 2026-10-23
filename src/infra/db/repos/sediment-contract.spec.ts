@@ -34,9 +34,15 @@ vi.mock('@/api', () => ({
   },
 }))
 
-vi.mock('@/utils/logger', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}))
+// 同上：只替换 `logger`，保留 `maskSecrets` —— 双实现的 `insertSedimentLog`
+// 落库前都会过遮蔽表（`logger.maskSecrets`），全量 mock 会把这条真实路径打没。
+vi.mock('@/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/logger')>()
+  return {
+    ...actual,
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  }
+})
 
 // ---------------- 内存侧：隔离 localStorage ----------------
 
@@ -60,6 +66,7 @@ import {
   type SentQaRecord,
   type WelinkAnnouncement,
 } from '@/infra/db/sediment-ports'
+import { registerSecret } from '@/utils/logger'
 import type { WelinkRepository } from '@/infra/db/ports'
 import type { WelinkMessage } from '@/types/welink'
 import type { SedimentRepository } from '@/infra/db/sediment-ports'
@@ -480,9 +487,9 @@ describe('sediment 仓储双实现契约（SQL vs memory）', () => {
       content: annUid,
       publishedAt: '2026-10-20 09:00:00',
     })
-    expect((await sqlSedimentRepository.applyAnnouncements([made('dup'), made('dup'), made('new')])).map((a) => a.annUid)).toEqual(
-      ['dup', 'new'],
-    )
+    expect(
+      (await sqlSedimentRepository.applyAnnouncements([made('dup'), made('dup'), made('new')])).map((a) => a.annUid),
+    ).toEqual(['dup', 'new'])
     expect(await sqlSedimentRepository.applyAnnouncements([made('dup'), made('new')])).toEqual([])
   })
 
@@ -519,5 +526,44 @@ describe('sediment 仓储双实现契约（SQL vs memory）', () => {
     expect(out.annCountAfterOne).toBe(3)
     expect(out.annCleared).toBe(3)
     expect(out.annCountAfterClear).toBe(0)
+  })
+})
+
+// ---------------- 落库遮蔽（第七轮） ----------------
+
+describe('落库遮蔽 —— 沉淀留痕的 error 不得成为密钥的第二条出口', () => {
+  /**
+   * 与 `welink-sqlite-integration.spec.ts` 的 insertAgentLog 用例同款：
+   * `knowledge-harvester` 把 `error.message` 原样传给 `insertSedimentLog`，而它可能
+   * 来自 Agent 的 HTTP 错误串（网关 4xx 会回显请求信息）。日志出口早被 `logger`
+   * 遮蔽了，但这里是**持久化落库**，是独立的一条出口。
+   *
+   * 反证：去掉双实现里的 `maskSecrets`，下面三条立刻红。
+   */
+  it('SQL 与内存两个实现都在落库前遮蔽（且遮蔽结果一致）', async () => {
+    registerSecret('sk-sediment-secret-0002')
+    const message = 'Agent 返回 HTTP 401：{"apiKey":"sk-sediment-secret-0002"}'
+
+    const sql = await sqlSedimentRepository.insertSedimentLog({
+      prompt: 'p',
+      response: '',
+      status: 'error',
+      latencyMs: 1,
+      error: message,
+    })
+    const memory = await memorySedimentRepository.insertSedimentLog({
+      prompt: 'p',
+      response: '',
+      status: 'error',
+      latencyMs: 1,
+      error: message,
+    })
+
+    for (const stored of [sql.error, memory.error]) {
+      expect(stored).not.toContain('sk-sediment-secret-0002')
+      expect(stored).toContain('***')
+    }
+    // 双实现同口径（否则「浏览器调试模式安全、桌面模式泄漏」这种分叉无从发现）
+    expect(sql.error).toBe(memory.error)
   })
 })

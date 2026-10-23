@@ -152,6 +152,7 @@ onMounted(() => {
     <el-table
       v-loading="loading"
       :data="store.templates"
+      row-key="pk"
       class="tpl__table"
       empty-text="暂无模板，点右上角「新建模板」创建"
     >
@@ -173,7 +174,9 @@ onMounted(() => {
       <el-table-column label="操作" width="130" fixed="right">
         <template #default="{ row }">
           <el-button text type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-          <el-button text type="danger" size="small" :icon="IconTrash" :loading="removing" @click="remove(row)">删除</el-button>
+          <el-button text type="danger" size="small" :icon="IconTrash" :loading="removing" @click="remove(row)"
+            >删除</el-button
+          >
         </template>
       </el-table-column>
     </el-table>

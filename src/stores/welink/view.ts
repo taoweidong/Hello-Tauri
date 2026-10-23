@@ -300,6 +300,9 @@ export function createConversationView(deps: ConversationViewDeps): Conversation
 
   async function removeConversation(convId: string) {
     await repo().removeConversation(convId)
+    // 会话已删除 → Gate 的开关缓存必须失效，否则残留条目会永久驻留
+    // （`convCache` 的唯一删除点就是这里，漏了它 LRU 只是把泄漏变慢）
+    runtimeHolder.current?.gate.invalidateConversation(convId)
     if (selectedConvId.value === convId) {
       selectedConvId.value = ''
       messages.value = []

@@ -9,6 +9,7 @@
  */
 import type { WelinkMessage } from '@/types/welink'
 import { nowStamp } from '@/utils/time'
+import { maskSecrets } from '@/utils/logger'
 import { memoryRawMaterials } from './welink-memory'
 import type {
   KnowledgeDraft,
@@ -178,7 +179,13 @@ export const memorySedimentRepository: SedimentRepository = {
   // ---------------- 沉淀调用留痕 ----------------
 
   async insertSedimentLog(log: SedimentLogInput) {
-    const record: SedimentLog = { pk: (state.seq.log += 1), ...log, createdAt: nowStamp() }
+    // 与 SQLite 实现同一口径：落库前遮蔽（错误串可能来自 Agent 的 HTTP 响应回显）
+    const record: SedimentLog = {
+      pk: (state.seq.log += 1),
+      ...log,
+      error: maskSecrets(log.error ?? ''),
+      createdAt: nowStamp(),
+    }
     state.logs.push(record)
     flush()
     return record

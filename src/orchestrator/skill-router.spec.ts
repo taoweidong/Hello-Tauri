@@ -103,6 +103,41 @@ describe('skill-router —— matchSkillByRules（规则优先）', () => {
     expect(matchSkillByRules('报错了', '', [skill({ enabled: false })])).toBeNull()
     expect(matchSkillByRules('报错了', '', [fallbackSkill({ keywords: ['报错'] })])).toBeNull()
   })
+
+  it('灾难性回溯的正则被拒（S-22 的另一半：技能关键词与黑名单同款护栏）', () => {
+    // 反证：去掉 `parseRegexKeyword` 里的 `looksCatastrophic`，下面两条立刻红 ——
+    // 且**不只是变红**：真机上 `(a+)+$` 对长串重复字符会指数回溯，卡死主线程
+    // （生成段只有两个并发槽位，一次回溯即整个助手停摆，不抛错、不留痕）。
+    expect(matchSkillByRules('aaaa', '', [skill({ keywords: ['/^(a+)+$/'] })])).toBeNull()
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('灾难性回溯'))
+  })
+
+  it('超长正则被拒（模式长度上限，避免编译与匹配都失控）', () => {
+    const long = `/^${'a|'.repeat(150)}b$/`
+    expect(matchSkillByRules('b', '', [skill({ keywords: [long] })])).toBeNull()
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('过长'))
+  })
+
+  it('安全正则仍然生效（护栏不能把正常配置一并打掉）', () => {
+    // fail-safe 是「宁可漏匹配、不可卡死」，但绝不能把普通正则也拒了
+    expect(matchSkillByRules('接口超时了', '', [skill({ keywords: ['/接口(超时|失败)/'] })])?.id).toBe('fault-fix')
+    expect(matchSkillByRules('退款流程怎么走', '', [skill({ keywords: ['/退款|发票/'] })])?.id).toBe('fault-fix')
+  })
+
+  it('编译结果被缓存：同一词条重复匹配不重复 new RegExp', () => {
+    // 反证：去掉 `keywordCache`，spy 的调用次数会从 1 变成 N。
+    // 为什么值得测：本函数是「技能 × 关键词」双重循环，且每条待回复消息都跑一遍，
+    // 不缓存时一个 10×5 的配置每条消息要编译五十次。
+    const spy = vi.spyOn(globalThis, 'RegExp')
+    // 词条必须是本文件**独一份**的：`keywordCache` 是模块级单例，前面的用例已经把
+    // `/^接口.*异常/` 编译进缓存了 —— 复用它会让 spy 直接记到 0 次（恒真断言的近亲）。
+    const keywords = ['/^缓存探针.*命中/']
+    for (let i = 0; i < 20; i += 1) matchSkillByRules(`缓存探针第 ${i} 次命中`, '', [skill({ keywords })])
+    // 20 次匹配只编译 1 次（无缓存会是 20）
+    expect(spy.mock.calls).toHaveLength(1)
+    expect(spy.mock.calls[0][0]).toBe('^缓存探针.*命中')
+    spy.mockRestore()
+  })
 })
 
 describe('skill-router —— buildClassifyPrompt / parseClassifyReply', () => {

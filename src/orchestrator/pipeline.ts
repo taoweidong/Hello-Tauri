@@ -512,8 +512,17 @@ export function createPipeline(options: PipelineOptions): Pipeline {
       scheduleRetry()
       return false
     }
-    // 前置检查恒为 ready（要点3）
-    if (job.status !== 'ready') return false
+    // 前置检查恒为 ready（要点3）。
+    //
+    // 这里是 `manualOverride` 唯一没被回收的出口：`sendNow` 已把 jobPk 放进该 Set 并入队，
+    // 若在调度到本函数之前状态被别的路径改掉（并发的启动恢复、重复 `sendNow` 后第一次
+    // 已置 sending、人工编辑触发的 `updateDraft`），就会在这里提前返回 —— 条目**永不删除**。
+    // 单次泄漏极小，但它是长跑集合里唯一没有回收兜底的一个（`promptOwners` 有 finally 兜底、
+    // `generateRetries` 有终态集合收口），长跑下会缓慢累积。
+    if (job.status !== 'ready') {
+      manualOverride.delete(jobPk)
+      return false
+    }
 
     // manual 模式：不自动外发，停 ready + hold_reason（计入 reviewCount O7）
     if (job.sendModeUsed === 'manual' && !manualOverride.has(jobPk)) {

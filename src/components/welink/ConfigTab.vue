@@ -348,9 +348,16 @@ onMounted(load)
       <el-button size="small" text @click="selected = []">取消选择</el-button>
     </div>
 
+    <!--
+      row-key：`type="selection"` 的勾选态默认按行下标锚定。本表每次开关动作后都会
+      全量重拉（防「界面开了、库里没开」的静默失效），若返回顺序有变，勾选态会漂到
+      别的行上。行对象本身带的 convId 不会错（批量操作读的是对象字段），但用户看到的
+      勾选位置会错 —— 足以让人误以为勾了别的会话。
+    -->
     <el-table
       v-loading="loading"
       :data="pagedRows"
+      row-key="pk"
       size="small"
       class="conf__table"
       empty-text="尚无会话配置，点「同步会话」从数据源导入"

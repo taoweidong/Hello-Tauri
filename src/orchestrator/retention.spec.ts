@@ -15,7 +15,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  * 时间与仓储都替换成可控假件，测试不依赖真实计时器与真实数据库。
  */
 const logger = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
-vi.mock('@/utils/logger', () => ({ logger }))
+vi.mock('@/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/logger')>()
+  return { ...actual, logger }
+})
 
 vi.mock('@/infra/db', () => ({
   welink: () => {
@@ -30,6 +33,7 @@ import { createRetention, PURGE_MAX_ROUNDS, type RetentionReport } from '@/orche
 import {
   AGENT_LOG_KEEP_DAYS,
   ANNOUNCEMENT_KEEP_DAYS,
+  JOB_KEEP_DAYS,
   PURGE_BATCH_SIZE,
   RETENTION_KEEP_DAYS,
   SEDIMENT_LOG_KEEP_DAYS,
@@ -83,6 +87,17 @@ function createScheduler(): Scheduler {
 
 interface RepoHarness {
   repo: WelinkRepository
+  /** job 清理的调用记录与预置批序（第七轮新增的第五条链） */
+  jobCalls: Array<[string, number]>
+  jobBatches: number[]
+  /**
+   * **所有**清理链的调用时序（共享一根序列）。
+   *
+   * ❗顺序断言只能用这一根序列，不能用「各自调用记录的拼接」——
+   * `[...jobCalls, ...messageCalls][0] === jobCalls[0]` 是**恒真**的，
+   * 改了实现也不会变红（本轮第一版就写成了这个，反证时抓出来的）。
+   */
+  callOrder: string[]
   /** 每次 purge 调用的 [cutoff, batch]，用来断言「截止时刻按保留天数算」 */
   messageCalls: Array<[string, number]>
   logCalls: Array<[string, number]>
@@ -99,10 +114,13 @@ interface RepoHarness {
 }
 
 function createRepo(): RepoHarness {
+  const jobCalls: Array<[string, number]> = []
+  const callOrder: string[] = []
   const messageCalls: Array<[string, number]> = []
   const logCalls: Array<[string, number]> = []
   const sedimentCalls: Array<[string, number]> = []
   const announcementCalls: Array<[string, number]> = []
+  let jobBatches: number[] = []
   let messageBatches: number[] = []
   let logBatches: number[] = []
   let sedimentBatches: number[] = []
@@ -113,6 +131,7 @@ function createRepo(): RepoHarness {
   const repo = {
     async purgeMessagesBefore(cutoff: string, batch: number) {
       messageCalls.push([cutoff, batch])
+      callOrder.push('messages')
       if (failures > 0) {
         failures -= 1
         throw new Error(failureMessage)
@@ -121,17 +140,27 @@ function createRepo(): RepoHarness {
     },
     async purgeAgentLogsBefore(cutoff: string, batch: number) {
       logCalls.push([cutoff, batch])
+      callOrder.push('agentLogs')
       return logBatches.shift() ?? 0
+    },
+    // 第七轮：回复任务进清理链（保留期见 `ports.JOB_KEEP_DAYS`）。
+    // 注意它在链里**排在消息之前**（先清 job 才能解放被引用的过期消息）。
+    async purgeJobsBefore(cutoff: string, batch: number) {
+      jobCalls.push([cutoff, batch])
+      callOrder.push('jobs')
+      return jobBatches.shift() ?? 0
     },
   } as unknown as WelinkRepository
 
   const sedimentRepo = {
     async purgeSedimentLogsBefore(cutoff: string, batch: number) {
       sedimentCalls.push([cutoff, batch])
+      callOrder.push('sedimentLogs')
       return sedimentBatches.shift() ?? 0
     },
     async purgeAnnouncementsBefore(cutoff: string, batch: number) {
       announcementCalls.push([cutoff, batch])
+      callOrder.push('announcements')
       return announcementBatches.shift() ?? 0
     },
   } as unknown as SedimentRepository
@@ -139,10 +168,18 @@ function createRepo(): RepoHarness {
   return {
     repo,
     sedimentRepo,
+    jobCalls,
+    callOrder,
     messageCalls,
     logCalls,
     sedimentCalls,
     announcementCalls,
+    get jobBatches() {
+      return jobBatches
+    },
+    set jobBatches(value: number[]) {
+      jobBatches = value
+    },
     get messageBatches() {
       return messageBatches
     },
@@ -218,6 +255,52 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
     expect(harness.logCalls[0][1]).toBe(PURGE_BATCH_SIZE)
     expect(RETENTION_KEEP_DAYS).toBe(180)
     expect(AGENT_LOG_KEEP_DAYS).toBe(90)
+  })
+
+  it('回复任务按 JOB_KEEP_DAYS 清理，且**排在消息之前**（先清 job 才能解放被引用消息）', async () => {
+    harness.messageBatches = [0]
+    harness.logBatches = [0]
+    const retention = build()
+
+    const report = await retention.runOnce()
+
+    // 2026-09-28 10:00:00 减 180 天 = 2026-04-01 10:00:00
+    expect(harness.jobCalls[0][0]).toBe('2026-04-01 10:00:00')
+    expect(harness.jobCalls[0][1]).toBe(PURGE_BATCH_SIZE)
+    expect(JOB_KEEP_DAYS).toBe(180)
+    expect(report.jobs).toBe(0)
+
+    // 顺序断言：job 链的调用必须早于消息链。
+    // 反证：把 doRun 里 jobs 那一路挪到 messages 之后，这条会红。
+    // 为什么必须是这个顺序：`purgeMessagesBefore` 的 `NOT EXISTS` 会跳过仍被 job 引用的
+    // 消息 —— job 不清，那批消息就永远清不掉（多等一整天也不行）。
+    expect(harness.jobCalls).toHaveLength(1)
+    expect(harness.messageCalls).toHaveLength(1)
+    expect(harness.callOrder.indexOf('jobs')).toBeLessThan(harness.callOrder.indexOf('messages'))
+  })
+
+  it('清理链串行推进：同一时刻只有一路在删（不叠加成并发删除）', async () => {
+    // 反证：把 doRun 改回 `Promise.all`，这条立刻红。
+    // 文件头约束 1 写的就是「避免慢库上叠加成并发删除」—— 四条链并发会同时抢宿主的
+    // SQLite 全局连接锁。清理是后台动作，慢一点无所谓，把前台查询拖住才是问题。
+    harness.messageBatches = [0]
+    harness.logBatches = [0]
+    let inFlight = 0
+    let maxConcurrent = 0
+    const probe = async (): Promise<number> => {
+      inFlight += 1
+      maxConcurrent = Math.max(maxConcurrent, inFlight)
+      await Promise.resolve()
+      inFlight -= 1
+      return 0
+    }
+    harness.repo.purgeJobsBefore = probe
+    harness.repo.purgeMessagesBefore = probe
+    const retention = build()
+
+    await retention.runOnce()
+
+    expect(maxConcurrent).toBe(1)
   })
 
   it('删满一批就继续删，直到某一批少于批量为止（删一批就收工 = 永远追不上增长）', async () => {
@@ -323,6 +406,10 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
     })
     let purgeCalls = 0
     const slowRepo = {
+      // 挂在消息链上（job 链排在它之前且瞬时返回，不影响本用例的时序）
+      async purgeJobsBefore() {
+        return 0
+      },
       async purgeMessagesBefore() {
         purgeCalls += 1
         await gate
@@ -426,6 +513,7 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
     const report = await retention.runOnce()
     expect(report satisfies RetentionReport).toBe(retention.lastReport())
     expect(retention.lastReport()).toEqual({
+      jobs: 0,
       messages: 5,
       agentLogs: 2,
       sedimentLogs: 0,

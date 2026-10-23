@@ -16,9 +16,16 @@ vi.stubGlobal('localStorage', {
   clear: () => storage.clear(),
 })
 
-vi.mock('@/utils/logger', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}))
+// 只替换 `logger`（收集告警用），**保留其余导出**：
+// `repos/sediment.ts` 落库前要调 `maskSecrets`，全量替换会让它在 spec 里直接报
+// “No maskSecrets export is defined on the mock”。同款坑见 `sediment-contract.spec.ts`。
+vi.mock('@/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/logger')>()
+  return {
+    ...actual,
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  }
+})
 
 import { memorySedimentRepository, resetSedimentMemory } from '@/infra/db/repos/sediment-memory'
 import { memoryWelinkRepository, resetWelinkMemory } from '@/infra/db/repos/welink-memory'

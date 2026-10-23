@@ -14,6 +14,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  */
 vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), warning: vi.fn(), error: vi.fn() },
+  // 删除技能要走 `confirmDanger`（全项目统一的确认出口），这里给它一个**默认放行**的桩；
+  // 需要验证「取消」语义的用例自己改 `mockResolvedValueOnce` 让它 reject。
+  ElMessageBox: { confirm: vi.fn(async () => undefined) },
 }))
 
 // 知识文档多选的数据源来自 knowledge store：这里给最小假件（列表为空即可，
@@ -22,7 +25,7 @@ vi.mock('@/stores/welink/knowledge', () => ({
   useKnowledgeStore: () => ({ docs: [], loadDocs: async () => undefined }),
 }))
 
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   DEFAULT_WELINK_SETTINGS,
   MAX_WELINK_SKILLS,
@@ -144,17 +147,29 @@ describe('welink/settings/SkillsSection（回复技能分区）', () => {
     expect(skills[0]).toMatchObject({ id: 'a', name: '故障排查', keywords: ['报错', '/异常/'] })
   })
 
-  it('启停与删除：整字段替换，其余技能保持不动', () => {
+  it('启停与删除：整字段替换，其余技能保持不动', async () => {
     const h = mountSection([baseSkill(), baseSkill({ id: 'b', name: '进度查询' })])
-    const vm = h.wrapper.vm as unknown as Record<string, (...args: unknown[]) => void>
+    const vm = h.wrapper.vm as unknown as Record<string, (...args: unknown[]) => unknown>
     vm.setEnabled('a', false)
     let skills = h.current().skills
     expect(skills.find((skill) => skill.id === 'a')?.enabled).toBe(false)
     expect(skills.find((skill) => skill.id === 'b')?.enabled).toBe(true)
 
-    vm.removeSkill('a')
+    // 删除是不可逆动作（父级 deep watch 直接落盘），必须先确认
+    await vm.removeSkill('a')
     skills = h.current().skills
     expect(skills.map((skill) => skill.id)).toEqual(['b'])
+  })
+
+  it('删除技能：确认框被取消则一个都不删（不可逆动作不许「点了就生效」）', async () => {
+    // 反证：把这个用例的 reject 换成 resolve，下面「还剩 2 个」会立刻变红
+    vi.mocked(ElMessageBox.confirm).mockRejectedValueOnce(new Error('cancel'))
+    const h = mountSection([baseSkill(), baseSkill({ id: 'b', name: '进度查询' })])
+    const vm = h.wrapper.vm as unknown as Record<string, (...args: unknown[]) => unknown>
+    await vm.removeSkill('a')
+    expect(h.current().skills.map((skill) => skill.id)).toEqual(['a', 'b'])
+    // 取消不是错误：不该弹任何失败提示
+    expect(ElMessage.error).not.toHaveBeenCalled()
   })
 
   it('上移/下移调整匹配优先级（数组顺序 = 规则命中顺序）', async () => {

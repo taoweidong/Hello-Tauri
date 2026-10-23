@@ -76,6 +76,8 @@ interface Harness {
 
 function harness(seed: {
   unfinished?: WelinkJob[]
+  /** 库里终态失败任务的总数（走 `countFailedJobs`，不占恢复工作集名额） */
+  failedCount?: number
   receipts?: number[]
   watching?: Array<{ convId: string }>
   migrateFails?: boolean
@@ -90,6 +92,9 @@ function harness(seed: {
   else db.migrateAll.mockResolvedValue([2])
 
   const repo = {
+    // failed 已移出 `listUnfinishedJobs`（它只被统计、从不入队，却永不离场，
+    // 会占满「最老的 N 条」这个恢复工作集）—— 计数改走这里。
+    countFailedJobs: vi.fn(async () => seed.failedCount ?? 0),
     listUnfinishedJobs: vi.fn(async () => {
       if (seed.listFails) throw new Error('读取失败')
       return seed.unfinished ?? []
@@ -209,13 +214,34 @@ describe('orchestrator/bootstrap —— 崩溃恢复三分支（§6.3）', () =>
   })
 
   it('failed → **保留原状**，只统计并告知 UI（自动重投失败内容 = 滥发风险）', async () => {
-    const h = harness({ unfinished: [job({ pk: 6, status: 'failed', attempts: 3 })] })
+    // failed 已移出 `listUnfinishedJobs`：它只被统计、从不入队，却永不离场 —— 留在这个
+    // 「取最老的 2000 条」的工作集里会把在途任务挤出去（重启后不生成不外发，且无告警）。
+    // 这里同时塞两条路径：① 计数走 `countFailedJobs`；② 万一工作集里混进 failed
+    // （接口语义被改回），也要继续跳过而不是重投。
+    const h = harness({
+      unfinished: [job({ pk: 6, status: 'failed', attempts: 3 })],
+      failedCount: 1,
+    })
     const report = await build(h).run()
 
     expect(report.failed).toBe(1)
     expect(report.enqueued).toBe(0)
     expect(h.enqueued.flat()).not.toContain(6)
     expect(h.statusWrites).toHaveLength(0)
+  })
+
+  it('failed 不占恢复工作集名额：2000 条历史失败任务不能挤掉在途任务', async () => {
+    // 反证：把 `listUnfinishedJobs` 的 SQL 改回含 failed、并把计数改回遍历累加，
+    // 这条用例（与生产故障同构）就无从表达 —— 契约本身即防护。
+    const h = harness({
+      unfinished: [job({ pk: 20, status: 'ready' })],
+      failedCount: 2000,
+    })
+    const report = await build(h).run()
+
+    expect(report.failed).toBe(2000)
+    // 关键：在途任务照样入队，不被失败任务挤掉
+    expect(h.enqueued.flat()).toEqual([20])
   })
 
   it('ready + hold_reason（待审）→ 不进自动外发队列', async () => {
@@ -235,9 +261,9 @@ describe('orchestrator/bootstrap —— 崩溃恢复三分支（§6.3）', () =>
         job({ pk: 11, status: 'sending' }),
         job({ pk: 12, status: 'discussing' }),
         job({ pk: 13, status: 'ready', holdReason: 'blacklist' }),
-        job({ pk: 14, status: 'failed' }),
       ],
       receipts: [10],
+      failedCount: 1,
     })
     const report = await build(h).run()
 

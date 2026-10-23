@@ -993,3 +993,77 @@ describe('welink_agent_logs 保留期清理（内存实现：分批 / 上限 / �
     expect(await repo.countMessages(1)).toBe(1)
   })
 })
+
+describe('welink_reply_jobs 保留期清理（内存实现：只清终态 / 分批 / 不越界）', () => {
+  /** 造一条 job（借 applyPollResult 走真实入库路径，避免手工拼状态机） */
+  async function makeJob(repo: WelinkRepository, convId: string, content: string) {
+    await repo.upsertConversation({ convType: 'group', convId, title: convId, watching: true })
+    await repo.applyPollResult(convId, messagesFor(convId, [{ content }]), `${convId}-c`, {
+      triggers: { 'uid-1': 'group_at_me' },
+      sendMode: 'auto',
+    })
+    return (await repo.listJobs({ limit: 10, offset: 0 }))[0]
+  }
+
+  it('在途任务一律不删（保留期误删待办比表增长严重得多，且同样静默）', async () => {
+    resetWelinkMemory()
+    storage.clear()
+    const repo = memoryWelinkRepository
+    const job = await makeJob(repo, 'G-inflight', '@我 看下')
+    expect(job.status).toBe('pending')
+
+    // 两道护栏（终态白名单 + finished_at 非空）是**纵深**关系：在途任务两道都过不了。
+    // 能区分二者的是 SQLite 侧那条用例（`welink-sqlite-integration.spec.ts` 里手工给了
+    // 在途任务一个 finished_at）—— 那里的反证去掉白名单就会红；这里只保证「不删」。
+    expect(await repo.purgeJobsBefore('2999-01-01 00:00:00', 500)).toBe(0)
+    expect(await repo.listJobs({ limit: 10, offset: 0 })).toHaveLength(1)
+  })
+
+  /**
+   * 走 `markSent` 而不是 `markStatus(pk, 'sent')`：后者**不写 finished_at**
+   * （`finished_at` 只在 `markSent` 与 `recordAttemptFailure` 里落），
+   * 用它造出来的「已发送」job 会被 `purgeJobsBefore` 正确地跳过。
+   */
+  async function sendJob(repo: WelinkRepository, jobPk: number, sentAt = '2999-06-01 00:00:00') {
+    await repo.markStatus(jobPk, 'sending', 'pending')
+    await repo.markSent(jobPk, { msgUid: 'out-1', convPk: 1, content: '已回复', sentAt })
+  }
+
+  it('终态 job 按 finished_at 清理，且级联带走它的语料留痕', async () => {
+    resetWelinkMemory()
+    storage.clear()
+    const repo = memoryWelinkRepository
+    const job = await makeJob(repo, 'G-done', '@我 看下')
+    await sendJob(repo, job.pk) // finished_at 默认 2999-06-01
+    await repo.insertAgentLog({ jobPk: job.pk, prompt: 'p', response: 'r', status: 'ok', latencyMs: 5, error: '' })
+
+    expect(await repo.purgeJobsBefore('2999-12-01 00:00:00', 500)).toBe(1)
+    expect(await repo.listJobs({ limit: 10, offset: 0 })).toHaveLength(0)
+    expect(await repo.listAgentLogs(job.pk)).toHaveLength(0)
+  })
+
+  it('截止时刻之前才删（按 finished_at 字符串比较），删干净后返回 0 供调度器收敛', async () => {
+    resetWelinkMemory()
+    storage.clear()
+    const repo = memoryWelinkRepository
+    const job = await makeJob(repo, 'G-cutoff', '@我 看下')
+    // finished_at = 2999-06-01：早于它的不删、晚于它的删
+    await sendJob(repo, job.pk, '2999-06-01 00:00:00')
+
+    expect(await repo.purgeJobsBefore('2999-01-01 00:00:00', 500)).toBe(0)
+    expect(await repo.purgeJobsBefore('2999-12-01 00:00:00', 500)).toBe(1)
+    expect(await repo.purgeJobsBefore('2999-12-01 00:00:00', 500)).toBe(0)
+  })
+
+  it('countFailedJobs 只数 failed，且 failed 不占 listUnfinishedJobs 的恢复名额', async () => {
+    resetWelinkMemory()
+    storage.clear()
+    const repo = memoryWelinkRepository
+    const job = await makeJob(repo, 'G-failed', '@我 看下')
+    await repo.markStatus(job.pk, 'failed', 'pending')
+
+    expect(await repo.countFailedJobs()).toBe(1)
+    // 关键：failed 不该出现在恢复工作集里（否则攒够 2000 条就把在途任务全挤出去）
+    expect(await repo.listUnfinishedJobs()).toHaveLength(0)
+  })
+})

@@ -106,6 +106,25 @@ async function load() {
   }
 }
 
+/**
+ * 同一 tick 内的多次加载请求**合并成一次**。
+ *
+ * 为什么需要：本页有三个加载触发源（翻页 / 筛选变更 / 外部预设），而筛选与预设都会
+ * 先写 `page.value = 1` 再自己调一次 `load()` —— Vue 把 `watch(page)` 排进 pre-flush
+ * 队列，于是「改一次筛选 = 3 个 DB 查询 × 2 次（预设路径 ×3）」，而且两次结果谁后到
+ * 谁生效，顺序不保证。合并后每个入口的语义不变（都保证会加载），只是同一轮里的重复
+ * 请求被吃掉。
+ */
+let loadQueued = false
+function requestLoad(): void {
+  if (loadQueued) return
+  loadQueued = true
+  void Promise.resolve().then(() => {
+    loadQueued = false
+    void load()
+  })
+}
+
 function resetFilters() {
   filter.status = []
   filter.triggerType = []
@@ -116,10 +135,10 @@ function resetFilters() {
   filter.from = ''
   filter.to = ''
   page.value = 1
-  void load()
+  requestLoad()
 }
 
-watch(page, () => void load())
+watch(page, () => requestLoad())
 
 watch(
   () => [
@@ -133,8 +152,9 @@ watch(
     filter.to,
   ],
   () => {
+    // 只重置页码：真正的加载交给 `requestLoad`（与 page watcher 合并为一次）
     page.value = 1
-    void load()
+    requestLoad()
   },
   { deep: true },
 )
@@ -160,8 +180,9 @@ watch(
       filter.targetId = presetValue.targetId
       filter.onlyHolding = false
     }
+    // 同上：这里只是改筛选条件，加载由 `requestLoad` 与 filter watcher 的请求合并为一次
     page.value = 1
-    void load()
+    requestLoad()
     emit('preset-consumed')
   },
   { immediate: true, deep: true },
@@ -171,6 +192,9 @@ onMounted(load)
 
 // ---------------- 行操作 ----------------
 
+/** 重发的繁忙态：它把任务重新送进外发队列，连点会重复排队 */
+const retrying = ref(false)
+
 async function retry(job: WelinkJob) {
   // 注意区分两层「失败」：抛错=请求都没成（必须提示）；返回 false=业务拒绝（有明确语义）。
   // 旧实现只判了后者，前置的抛错会变成 unhandled rejection——界面上按钮点了没反应。
@@ -179,7 +203,7 @@ async function retry(job: WelinkJob) {
     async () => {
       accepted = await store.retryJob(job.pk)
     },
-    { fail: '重发失败' },
+    { fail: '重发失败', busy: retrying },
   )
   if (!ok) return
   if (!accepted) {
@@ -407,7 +431,15 @@ function latency(job: WelinkJob): string {
     </div>
 
     <!-- 表格 -->
-    <el-table v-loading="loading" :data="rows" size="small" class="hist__table" empty-text="没有符合条件的任务">
+    <!-- row-key：行内展开态（草稿全文）按主键锚定，否则删行后会错位到邻行 -->
+    <el-table
+      v-loading="loading"
+      :data="rows"
+      row-key="pk"
+      size="small"
+      class="hist__table"
+      empty-text="没有符合条件的任务"
+    >
       <el-table-column label="时间" width="130">
         <template #default="{ row }">
           <div class="cell-time">{{ timeLabel(jobOf(row).createdAt) }}</div>
@@ -453,11 +485,22 @@ function latency(job: WelinkJob): string {
 
       <el-table-column label="草稿" min-width="220">
         <template #default="{ row }">
+          <!--
+            可点击的 div 不在 Tab 序列里，键盘用户根本进不来（同项目 `InboxTab` 的命中行
+            已按此口径改成 `<button>`）。这里补 role/tabindex/aria-label 而不是改标签：
+            它是 `-webkit-line-clamp` 的两行截断块，改成 button 会牵动一整套按钮样式重置。
+          -->
           <div
             v-if="row.draft"
             class="cell-draft"
             :class="{ 'is-open': expandedDraft.includes(row.pk) }"
+            role="button"
+            tabindex="0"
+            :aria-expanded="expandedDraft.includes(row.pk)"
+            aria-label="展开或收起回复草稿全文"
             @click="toggleDraft(row.pk)"
+            @keydown.enter.prevent="toggleDraft(row.pk)"
+            @keydown.space.prevent="toggleDraft(row.pk)"
           >
             {{ row.draft }}
           </div>
@@ -521,6 +564,7 @@ function latency(job: WelinkJob): string {
             size="small"
             text
             type="primary"
+            :loading="retrying"
             @click="retry(jobOf(row))"
           >
             重发

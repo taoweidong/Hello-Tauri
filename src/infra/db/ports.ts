@@ -158,6 +158,28 @@ export { CONVERSATION_PAGE_LIMIT } from '@/types/welink'
 export const RETENTION_KEEP_DAYS = 180
 
 /**
+ * 回复任务（`welink_reply_jobs`）保留期（天）。
+ *
+ * 本表是**唯一一张「只增不减」的持续写入表**（第七轮实测）：消息 / 语料 / 沉淀留痕 /
+ * 公告四张表都早已接进 `retention` 清理链，唯独 job 没有 —— 而它恰恰是写入最频繁的一张
+ * （每条命中触发的消息都落一条）。三个连锁后果：
+ *
+ *  1. `listUnfinishedJobs` 取「最老的 `UNFINISHED_HARD_LIMIT`(2000) 条」，而 `failed`
+ *     永不离开该集合（启动恢复刻意不重投 failed：重试失败的内容再发 = 滥发风险）。
+ *     积累 2000 条 failed 后，名额被最老的失败任务占满，**新的 pending/ready 一条都进不了
+ *     恢复集** —— 重启后助手不生成不外发，且 `bootstrap.warnings` 为空、界面无任何异常。
+ *  2. `purgeMessagesBefore` 的 `NOT EXISTS` 会跳过「仍被 job 引用」的消息，job 不清理
+ *     ⇒ 这些消息永不过期 ⇒ 消息保留期对它们永久失效（文件头「被引用消息数量级等于历史
+ *     job 数（有界）」的前提，在本表无清理时不成立）。
+ *  3. `jobStats` 是无 `WHERE` 的全表聚合，随 job 无界增长线性变慢。
+ *
+ * 取 180 天（与消息同档）：job 是回复历史的主体，「某天回复了多少条」这类统计要能回看
+ * 半年。清理只按 `finished_at` 判过期，且**只清终态**（sent/failed/skipped）——
+ * 在途任务（pending/discussing/ready/sending）绝不可碰，否则会静默吞掉待办。
+ */
+export const JOB_KEEP_DAYS = 180
+
+/**
  * Agent 语料保留期（天）。
  *
  * 为什么比消息短：`welink_agent_logs` 存的是**完整提示词**（含最近对话原文）
@@ -265,6 +287,13 @@ export interface WelinkRepository {
   /**
    * 启动恢复：全部未终态 job（§6.3）。
    *
+   * **不含 `failed`**：失败任务不自动重投（重试失败的内容再发 = 滥发风险），
+   * 交人工处理 —— 所以它从来就只是被**统计**、从不入队。但它在库里永不离场，
+   * 而 `ORDER BY created_at ASC LIMIT 2000` 取的是**最老的** 2000 条：一旦历史
+   * failed 攒够 2000，名额会被它们占满，真正的在途任务一条都进不了恢复集
+   * （重启后不生成、不外发，且无任何告警）。故这里把 failed 摘出去，
+   * 计数改走 `countFailedJobs()`。
+   *
    * **P7 的受控例外**，理由同 `listWatching`：这是启动恢复的**工作集**，
    * 不是展示列表。正常运行时未终态任务会被当场消费掉，积压量取决于崩溃前
    * 的在途任务数（远小于总量）；SQL 带 `UNFINISHED_HARD_LIMIT` 兜底防呆，
@@ -364,6 +393,23 @@ export interface WelinkRepository {
    * 附件 —— 把 job 一起删会让「某天回复了多少条」这类统计凭空缩水。
    */
   purgeAgentLogsBefore(cutoff: string, batch: number): Promise<number>
+  /**
+   * 保留期清理：按批次删除过期**终态**回复任务（与消息同构，按 `finished_at` 过期）。
+   *
+   * 语义边界三条：
+   *  - **只删终态**（`sent`/`failed`/`skipped`）。在途任务绝不可碰 —— 删了就是静默吞待办。
+   *  - `finished_at` 为空的行不删（在途任务的该列本就为空，双重保险）。
+   *  - 级联影响只有一条：`welink_agent_logs.job_pk → welink_reply_jobs(id) ON DELETE
+   *    CASCADE`，删 job 会带走它的语料留痕。但语料保留期（90 天）短于 job（180 天），
+   *    到 job 过期时语料早已清完，实际不会额外丢失。
+   *
+   * 删 job **不会**动消息（外键是 `jobs.trigger_msg_pk → messages`，删子不删父），
+   * 且反过来解放了消息清理：job 走后其引用消息才满足 `NOT EXISTS`。
+   * 因此清理链里 job 必须排在消息之前。
+   */
+  purgeJobsBefore(cutoff: string, batch: number): Promise<number>
+  /** 终态失败任务的总数（启动恢复报告用；不入恢复集，不占硬上限名额） */
+  countFailedJobs(): Promise<number>
   /** 该会话是否存在历史消息（删除会话时二次确认的依据） */
   countMessages(convPk: number): Promise<number>
   /** 未回复计数（收件箱筛选辅助） */

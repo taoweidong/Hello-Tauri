@@ -386,10 +386,16 @@ export const memoryWelinkRepository: WelinkRepository = {
   },
 
   async listUnfinishedJobs() {
+    // 与 SQLite 实现同口径：不含 `failed`（它只被统计、从不入队，却永不离场，
+    // 会占满「最老的 N 条」这个工作集名额）。
     return state.jobs
-      .filter((job) => ['pending', 'discussing', 'ready', 'sending', 'failed'].includes(job.status))
+      .filter((job) => ['pending', 'discussing', 'ready', 'sending'].includes(job.status))
       .sort((a, b) => (a.createdAt === b.createdAt ? a.pk - b.pk : a.createdAt < b.createdAt ? -1 : 1))
       .map((item) => ({ ...item }))
+  },
+
+  async countFailedJobs() {
+    return state.jobs.filter((job) => job.status === 'failed').length
   },
 
   async listJobs(query: JobQuery) {
@@ -590,7 +596,9 @@ export const memoryWelinkRepository: WelinkRepository = {
       response: log.response,
       status: log.status,
       latencyMs: log.latencyMs,
-      error: log.error,
+      // 与 SQLite 实现同一口径：落库前遮蔽（`utils/logger.maskSecrets`）；
+      // `agent-http` 会把响应体前 200 字拼进 `AgentError`，网关 4xx 可能回显鉴权头。
+      error: maskSecrets(log.error ?? ''),
       createdAt: nowStamp(),
     }
     state.logs.push(row)
@@ -644,6 +652,24 @@ export const memoryWelinkRepository: WelinkRepository = {
       .slice(0, batch)
       .map((log) => log.pk)
     state.logs = state.logs.filter((log) => !doomed.includes(log.pk))
+    flush()
+    return doomed.length
+  },
+
+  async purgeJobsBefore(cutoff, batch) {
+    // 与 SQLite 侧同口径：**只清终态**且 `finishedAt` 非空（在途任务绝不可碰）。
+    // 删 job 会带走级联的 agent_logs（外键 ON DELETE CASCADE），与 SQLite 的行为一致。
+    const doomed = state.jobs
+      .filter((job) => ['sent', 'failed', 'skipped'].includes(job.status))
+      .map((job) => ({ job, finishedAt: job.finishedAt ?? '' }))
+      .filter((entry) => entry.finishedAt !== '' && entry.finishedAt < cutoff)
+      .sort((a, b) => (a.finishedAt === b.finishedAt ? a.job.pk - b.job.pk : a.finishedAt < b.finishedAt ? -1 : 1))
+      .slice(0, batch)
+      .map((entry) => entry.job.pk)
+    if (!doomed.length) return 0
+    const doomedSet = new Set(doomed)
+    state.jobs = state.jobs.filter((job) => !doomedSet.has(job.pk))
+    state.logs = state.logs.filter((log) => !doomedSet.has(log.jobPk))
     flush()
     return doomed.length
   },
