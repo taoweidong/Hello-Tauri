@@ -9,6 +9,8 @@
 import { computed, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 
+import { confirmDanger } from '@/utils/ui-action'
+
 import { applySafetyPreset, DEFAULT_WELINK_SETTINGS, SAFETY_PRESETS, type WelinkSettings } from '@/types/welink'
 
 const safety = defineModel<WelinkSettings['safety']>({ required: true })
@@ -49,13 +51,12 @@ const DEFAULT_SAFETY = DEFAULT_WELINK_SETTINGS.safety
 async function guardCapChange(field: 'perConvHourlyCap' | 'globalHourlyCap', value: number) {
   const limit = DEFAULT_SAFETY[field] * 2
   if (value <= limit) return true
-  const { ElMessageBox } = await import('element-plus')
-  const confirmed = await ElMessageBox.confirm(
+  const confirmed = await confirmDanger(
     `该值（${value}）已超过默认值（${DEFAULT_SAFETY[field]}）的 2 倍。放宽防滥发上限会真实提高「刷屏」风险，确认继续？`,
     '确认放宽配额',
-    { type: 'warning', confirmButtonText: '确认放宽', cancelButtonText: '改回去' },
-  ).catch(() => false)
-  if (confirmed === false) {
+    { verb: '确认放宽', cancel: '改回去' },
+  )
+  if (!confirmed) {
     safety.value = { ...safety.value, [field]: DEFAULT_SAFETY[field] }
     return false
   }

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { ref } from 'vue'
 
 /**
@@ -16,13 +16,17 @@ import { ref } from 'vue'
  */
 vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
+  ElMessageBox: { confirm: vi.fn() },
 }))
 
-import { ElMessage } from 'element-plus'
-import { errorText, runUiAction } from './ui-action'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { confirmDanger, errorText, runUiAction } from './ui-action'
 
 const errorSpy = () => vi.mocked(ElMessage.error)
 const successSpy = () => vi.mocked(ElMessage.success)
+// `ElMessageBox.confirm` 的 `MessageBoxData` 是联合类型且带内部字段，
+// 这里只关心「resolve / reject」两种结局，故弱化成裸 Mock 使用。
+const confirmSpy = () => ElMessageBox.confirm as unknown as Mock
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -153,5 +157,58 @@ describe('runUiAction', () => {
 
     await runUiAction(async () => false, { fail: '装载失败', error: inline, failOnFalse: true })
     expect(inline.value).toBe('装载失败')
+  })
+})
+
+describe('confirmDanger', () => {
+  /**
+   * 四条契约：
+   *  ① 用户确认 → true；
+   *  ② 取消/关闭（`ElMessageBox` 以 **reject** 表达）→ false，且不冒泡成未处理拒绝；
+   *  ③ `dangerouslyUseHTMLString` **恒为 false** —— 会话标题、群名等外部数据会拼进
+   *     文案，开 HTML 就是一个 XSS 口子，这条是本工具存在的首要理由；
+   *  ④ 只有 `danger: true` 才挂红色按钮样式。
+   *
+   * 反证（改实现后请重做）：把 `dangerouslyUseHTMLString` 改成 `true` →
+   * 「恒不启用 HTML」变红；去掉 `catch` → 「取消返回 false」直接抛错变红。
+   */
+  it('用户确认返回 true', async () => {
+    confirmSpy().mockResolvedValueOnce('confirm')
+    expect(await confirmDanger('确认删除？', '删除记录', { verb: '删除' })).toBe(true)
+  })
+
+  it('取消（ElMessageBox reject）折叠为 false，不冒泡成未处理拒绝', async () => {
+    confirmSpy().mockRejectedValueOnce(new Error('cancel'))
+    await expect(confirmDanger('确认？', '标题', { verb: '删除' })).resolves.toBe(false)
+  })
+
+  it('恒不启用 HTML 字符串（外部数据拼进文案，开 HTML 即 XSS 口子）', async () => {
+    confirmSpy().mockResolvedValueOnce('confirm')
+    await confirmDanger('删除「<img onerror=alert(1)>」？', '删除', { verb: '删除' })
+    const options = confirmSpy().mock.calls.at(-1)?.[2] as Record<string, unknown>
+    expect(options.dangerouslyUseHTMLString).toBe(false)
+  })
+
+  it('verb / cancel / tone 原样透传，仅 danger 挂红色按钮', async () => {
+    confirmSpy().mockResolvedValueOnce('confirm')
+    await confirmDanger('放宽？', '确认放宽配额', { verb: '确认放宽', cancel: '改回去', tone: 'info' })
+    const first = confirmSpy().mock.calls.at(-1)?.[2] as Record<string, unknown>
+    expect(first.confirmButtonText).toBe('确认放宽')
+    expect(first.cancelButtonText).toBe('改回去')
+    expect(first.type).toBe('info')
+    expect(first.confirmButtonClass).toBeUndefined()
+
+    confirmSpy().mockResolvedValueOnce('confirm')
+    await confirmDanger('删除？', '删除记录', { verb: '删除', danger: true })
+    const second = confirmSpy().mock.calls.at(-1)?.[2] as Record<string, unknown>
+    expect(second.confirmButtonClass).toBe('el-button--danger')
+  })
+
+  it('默认语气 warning、取消文案「取消」', async () => {
+    confirmSpy().mockResolvedValueOnce('confirm')
+    await confirmDanger('确认？', '标题', { verb: '确定' })
+    const options = confirmSpy().mock.calls.at(-1)?.[2] as Record<string, unknown>
+    expect(options.type).toBe('warning')
+    expect(options.cancelButtonText).toBe('取消')
   })
 })

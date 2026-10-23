@@ -151,6 +151,19 @@ export interface SedimentRepository {
    */
   purgeSedimentLogsBefore(cutoff: string, batch: number): Promise<number>
 
+  /**
+   * 保留期清理：删除 `created_at` 早于 `cutoff` 的群公告，**最多 `batch` 条**。
+   *
+   * 与 `purgeSedimentLogsBefore` 完全同构（依赖 migration v12 的
+   * `idx_wan_created_at`；此前本表只有 `(conv_pk, published_at)` 复合索引，
+   * 对「按时间清理」的谓词用不上 —— 最左前缀不匹配）。
+   *
+   * 语义边界：**清理公告不动会话、也不动已沉淀的知识条目**。公告只是原料，
+   * 提取产物在 `knowledge_drafts` 与 `knowledge/*.md` 里 —— 删原料不减产物，
+   * 这与「删消息不删 job」是同一条口径（删的是可再生的存档，不是成果）。
+   */
+  purgeAnnouncementsBefore(cutoff: string, batch: number): Promise<number>
+
   // —— 原料扫描（对 welink 表**只读**；P7：恒带 limit） ——
   /** 白名单群会话的入方向消息增量（pk 严格大于 afterPk，升序返回；白名单为空返回空） */
   listInMessagesSince(afterPk: number, convIds: string[], limit: number): Promise<WelinkMessage[]>

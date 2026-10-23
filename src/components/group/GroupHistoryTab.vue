@@ -7,9 +7,10 @@
  * 成员清单与错误详情放展开行 —— 列表保持一屏可扫，细节按需查看。
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 
 import { IconRefresh } from '@/components/icons'
+import { confirmDanger, runUiAction } from '@/utils/ui-action'
 import { useAppStore } from '@/stores/app'
 import { useGroupStore } from '@/stores/group'
 import { GROUP_JOB_STATUS_LABEL, GROUP_JOB_STATUS_TONE, isLocalGroupId } from '@/types/welink'
@@ -89,20 +90,22 @@ watch(
   () => void load(),
 )
 
+/** 删除建群记录是不可逆动作：按钮必须 `:loading` 防重复提交 */
+const removing = ref(false)
+
 async function remove(row: unknown) {
   const job = jobOf(row)
-  const confirmed = await ElMessageBox.confirm(
+  const confirmed = await confirmDanger(
     `删除「${job.groupName}」的这条建群记录？只删留痕，不影响已建成的群。`,
     '删除记录',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
-  ).catch(() => false)
-  if (confirmed === false) return
-  try {
-    await store.removeJob(job.pk)
-    ElMessage.success('已删除记录')
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '删除记录失败')
-  }
+    { verb: '删除', danger: true },
+  )
+  if (!confirmed) return
+  await runUiAction(() => store.removeJob(job.pk), {
+    fail: '删除记录失败',
+    ok: '已删除记录',
+    busy: removing,
+  })
 }
 
 onMounted(() => {
@@ -208,7 +211,7 @@ onMounted(() => {
 
       <el-table-column label="操作" width="80" fixed="right">
         <template #default="{ row }">
-          <el-button text type="danger" size="small" @click="remove(row)">删除</el-button>
+          <el-button text type="danger" size="small" :loading="removing" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>

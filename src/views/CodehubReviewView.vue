@@ -14,6 +14,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { createGo } from '@/utils/nav'
 
 import { IconAlert, IconGitBranch, IconPlus, IconRefresh, IconTrash } from '@/components/icons'
 import MrDetailPanel from '@/components/codehub/MrDetailPanel.vue'
@@ -248,9 +249,7 @@ async function load() {
 }
 
 /** 模板内裸 `router.push` 在重复导航时会 reject（未处理的 Promise 拒绝） */
-function go(path: string) {
-  void router.push(path).catch(() => undefined)
-}
+const go = createGo(router)
 
 onMounted(load)
 </script>

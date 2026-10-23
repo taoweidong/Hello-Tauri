@@ -122,7 +122,12 @@ export const useAppStore = defineStore('app', () => {
     () => {
       applyTheme()
       if (ready.value && settings.value.autoSave) {
-        void save()
+        // 自动保存的失败必须留痕：旧写法 `void save()` 既不 catch 也不看返回值，
+        // 写盘失败（磁盘满 / 安全软件拦截跨卷写）时用户零感知 —— 表现为
+        // 「明明改了配置，重启后它自己变回去了」。
+        void save().then((ok) => {
+          if (!ok) logger.warn('自动保存未生效：配置可能未被持久化')
+        })
       }
     },
     { deep: true },

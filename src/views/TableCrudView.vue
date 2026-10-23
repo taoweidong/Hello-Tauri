@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { IconSearch, IconPlus, IconTrash, IconRestore, IconX, IconDownload } from '@/components/icons'
 
@@ -8,7 +8,7 @@ import { CATEGORIES, useTableStore } from '@/stores/table'
 import { useAppStore } from '@/stores/app'
 import type { TableRow, TableRowDraft } from '@/types'
 import { rowOf } from '@/utils/table'
-import { errorText, runUiAction } from '@/utils/ui-action'
+import { confirmDanger, errorText, runUiAction } from '@/utils/ui-action'
 
 const appStore = useAppStore()
 const tableStore = useTableStore()
@@ -113,13 +113,11 @@ async function submit() {
 }
 
 async function removeOne(row: TableRow) {
-  const confirmed = await ElMessageBox.confirm(`「${row.name}」将被删除，此操作不可撤销。`, '删除记录', {
-    type: 'warning',
-    confirmButtonText: '删除',
-    cancelButtonText: '取消',
-    confirmButtonClass: 'el-button--danger',
-  }).catch(() => false)
-  if (confirmed === false) return
+  const confirmed = await confirmDanger(`「${row.name}」将被删除，此操作不可撤销。`, '删除记录', {
+    verb: '删除',
+    danger: true,
+  })
+  if (!confirmed) return
   await runUiAction(() => tableStore.remove([row.id]), { fail: '删除失败', ok: '已删除', busy: removing })
 }
 
@@ -128,17 +126,12 @@ async function removeSelected() {
     ElMessage.warning('请先勾选要删除的记录')
     return
   }
-  const confirmed = await ElMessageBox.confirm(
+  const confirmed = await confirmDanger(
     `已选 ${selectedRows.value.length} 条记录，删除后不可撤销。`,
     '批量删除',
-    {
-      type: 'warning',
-      confirmButtonText: `删除 ${selectedRows.value.length} 条`,
-      cancelButtonText: '取消',
-      confirmButtonClass: 'el-button--danger',
-    },
-  ).catch(() => false)
-  if (confirmed === false) return
+    { verb: `删除 ${selectedRows.value.length} 条`, danger: true },
+  )
+  if (!confirmed) return
   await runUiAction(
     async () => {
       await tableStore.remove(selectedRows.value.map((row) => row.id))
@@ -150,12 +143,10 @@ async function removeSelected() {
 }
 
 async function resetData() {
-  const confirmed = await ElMessageBox.confirm('将恢复为初始示例数据，当前修改会全部丢失。', '恢复示例数据', {
-    type: 'warning',
-    confirmButtonText: '恢复',
-    cancelButtonText: '取消',
-  }).catch(() => false)
-  if (confirmed === false) return
+  const confirmed = await confirmDanger('将恢复为初始示例数据，当前修改会全部丢失。', '恢复示例数据', {
+    verb: '恢复',
+  })
+  if (!confirmed) return
   const ok = await runUiAction(() => tableStore.resetSeed(), { fail: '恢复示例数据失败', busy: resetting })
   if (!ok) return
   selectedRows.value = []

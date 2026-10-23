@@ -29,6 +29,7 @@ vi.mock('@/infra/db', () => ({
 import { createRetention, PURGE_MAX_ROUNDS, type RetentionReport } from '@/orchestrator/retention'
 import {
   AGENT_LOG_KEEP_DAYS,
+  ANNOUNCEMENT_KEEP_DAYS,
   PURGE_BATCH_SIZE,
   RETENTION_KEEP_DAYS,
   SEDIMENT_LOG_KEEP_DAYS,
@@ -86,11 +87,13 @@ interface RepoHarness {
   messageCalls: Array<[string, number]>
   logCalls: Array<[string, number]>
   sedimentCalls: Array<[string, number]>
+  announcementCalls: Array<[string, number]>
   /** 预置每批返回的行数序列（用完后返回 0 = 已清空） */
   messageBatches: number[]
   logBatches: number[]
   sedimentBatches: number[]
-  /** 沉淀仓储替身（v11：留痕也要进清理链） */
+  announcementBatches: number[]
+  /** 沉淀仓储替身（v11：留痕进清理链；v12：公告同轮清理） */
   sedimentRepo: SedimentRepository
   failNextMessages(times: number, message: string): void
 }
@@ -99,9 +102,11 @@ function createRepo(): RepoHarness {
   const messageCalls: Array<[string, number]> = []
   const logCalls: Array<[string, number]> = []
   const sedimentCalls: Array<[string, number]> = []
+  const announcementCalls: Array<[string, number]> = []
   let messageBatches: number[] = []
   let logBatches: number[] = []
   let sedimentBatches: number[] = []
+  let announcementBatches: number[] = []
   let failures = 0
   let failureMessage = ''
 
@@ -125,6 +130,10 @@ function createRepo(): RepoHarness {
       sedimentCalls.push([cutoff, batch])
       return sedimentBatches.shift() ?? 0
     },
+    async purgeAnnouncementsBefore(cutoff: string, batch: number) {
+      announcementCalls.push([cutoff, batch])
+      return announcementBatches.shift() ?? 0
+    },
   } as unknown as SedimentRepository
 
   return {
@@ -133,6 +142,7 @@ function createRepo(): RepoHarness {
     messageCalls,
     logCalls,
     sedimentCalls,
+    announcementCalls,
     get messageBatches() {
       return messageBatches
     },
@@ -150,6 +160,12 @@ function createRepo(): RepoHarness {
     },
     set sedimentBatches(value: number[]) {
       sedimentBatches = value
+    },
+    get announcementBatches() {
+      return announcementBatches
+    },
+    set announcementBatches(value: number[]) {
+      announcementBatches = value
     },
     failNextMessages(times, message) {
       failures = times
@@ -409,7 +425,13 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
     expect(retention.lastReport()).toBeNull()
     const report = await retention.runOnce()
     expect(report satisfies RetentionReport).toBe(retention.lastReport())
-    expect(retention.lastReport()).toEqual({ messages: 5, agentLogs: 2, sedimentLogs: 0, capped: false })
+    expect(retention.lastReport()).toEqual({
+      messages: 5,
+      agentLogs: 2,
+      sedimentLogs: 0,
+      announcements: 0,
+      capped: false,
+    })
   })
 
   it('keepDays 可覆盖（测试/定制保留期），截止时刻随之变化', async () => {
@@ -455,13 +477,16 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
       expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('沉淀留痕 -509 条'))
     })
 
-    it('留痕清理抛错不拖垮整轮（三路并行，但失败会冒泡成单轮失败并照常续排）', async () => {
+    it('留痕清理抛错不拖垮整轮（四路并行，但失败会冒泡成单轮失败并照常续排）', async () => {
       harness.messageBatches = [3]
       harness.logBatches = [0]
       // 没有预置 sedimentBatches 时假件返回 0；这里改成抛错验证「不中断链条」
       harness.sedimentRepo = {
         async purgeSedimentLogsBefore() {
           throw new Error('留痕库抖了')
+        },
+        async purgeAnnouncementsBefore() {
+          return 0
         },
       } as unknown as SedimentRepository
       const failing = createRetention({
@@ -478,6 +503,52 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
       expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('留痕库抖了'))
       // 失败后仍排着下一轮（与消息清理同一条「不能永久停摆」的纪律）
       expect(scheduler.queued).toBe(1)
+    })
+  })
+
+  // —— 第六轮：群公告是沉淀域里唯一一张「既无保留期、又持续写入」的表 ——
+  describe('群公告（v12）', () => {
+    it('公告与消息/语料/留痕同轮清理，保留期独立（默认 90 天）', async () => {
+      harness.messageBatches = [0]
+      harness.logBatches = [0]
+      harness.sedimentBatches = [0]
+      harness.announcementBatches = [0]
+      const retention = build()
+
+      await retention.runOnce()
+
+      // 2026-09-28 10:00:00 减 90 天 = 2026-06-30 10:00:00
+      expect(harness.announcementCalls[0][0]).toBe('2026-06-30 10:00:00')
+      expect(harness.announcementCalls[0][1]).toBe(PURGE_BATCH_SIZE)
+      expect(ANNOUNCEMENT_KEEP_DAYS).toBe(90)
+    })
+
+    it('公告删到收敛，计数进报告与日志', async () => {
+      harness.messageBatches = [0]
+      harness.logBatches = [0]
+      harness.announcementBatches = [PURGE_BATCH_SIZE, 4]
+      const retention = build()
+
+      const report = await retention.runOnce()
+
+      expect(report.announcements).toBe(PURGE_BATCH_SIZE + 4)
+      expect(harness.announcementCalls).toHaveLength(2)
+      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('公告 -504 条'))
+    })
+
+    it('公告保留期可被 keepDays 单独覆盖（与其它三档互不影响）', async () => {
+      harness.messageBatches = [0]
+      harness.logBatches = [0]
+      harness.announcementBatches = [0]
+      const retention = build({ keepDays: { messages: 180, agentLogs: 90, announcements: 7 } })
+
+      await retention.runOnce()
+
+      // 2026-09-28 减 7 天 = 2026-09-21 10:00:00
+      expect(harness.announcementCalls[0][0]).toBe('2026-09-21 10:00:00')
+      // 消息/语料仍走各自的档位，没有被公告的覆盖带偏
+      expect(harness.messageCalls[0][0]).toBe('2026-04-01 10:00:00')
+      expect(harness.logCalls[0][0]).toBe('2026-06-30 10:00:00')
     })
   })
 })

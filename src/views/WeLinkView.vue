@@ -12,8 +12,9 @@
  */
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { runUiAction } from '@/utils/ui-action'
+import { ElMessage } from 'element-plus'
+import { confirmDanger, runUiAction } from '@/utils/ui-action'
+import { createGo } from '@/utils/nav'
 
 import { IconActivity } from '@/components/icons'
 import { useAppStore } from '@/stores/app'
@@ -58,10 +59,11 @@ function openTrace(jobPk: number) {
   activeTab.value = 'trace'
 }
 
-async function goSettings() {
+const go = createGo(router)
+
+function goSettings() {
   wizardOpen.value = false
-  // 裸 `await router.push` 在重复导航（已在目标路由）时会 reject → 未处理的 Promise 拒绝
-  await router.push('/settings').catch(() => undefined)
+  go('/settings')
 }
 
 /**
@@ -136,12 +138,12 @@ async function toggleEnabled(value: boolean) {
 
 async function onPanicStop() {
   if (store.status === 'panic') {
-    const confirmed = await ElMessageBox.confirm(
+    const confirmed = await confirmDanger(
       '解除后自动回复将默认降为「人工确认」模式缓冲，避免积压任务瞬间涌出。确认解除？',
       '解除一键全停',
-      { type: 'warning', confirmButtonText: '解除', cancelButtonText: '取消' },
-    ).catch(() => false)
-    if (confirmed === false) return
+      { verb: '解除' },
+    )
+    if (!confirmed) return
     const lifted = await runUiAction(() => store.liftPanic(), { fail: '解除一键全停失败', busy: actionBusy })
     if (!lifted) return
     // 解除后的降级必须写回配置，否则下次启动又回到 auto；急停标记一并复位。

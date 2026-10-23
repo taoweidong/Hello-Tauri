@@ -10,10 +10,11 @@
  *  * **失败保留表单**：外呼失败不清空输入，错误就地展示，改完可直接重试。
  */
 import { computed, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
 import { IconUsers } from '@/components/icons'
+import { confirmDanger } from '@/utils/ui-action'
 // 经 stores/group 转出：UI 层不直触 orchestrator（分层闸门）
 import { GroupGateError, useGroupStore, validateGroupDraft } from '@/stores/group'
 import { useAppStore } from '@/stores/app'
@@ -86,12 +87,12 @@ async function submit() {
   }
 
   const source = realCli.value ? '将调用 welink-cli 真实建群' : '当前为模拟数据源，不会真正建群'
-  const confirmed = await ElMessageBox.confirm(
+  const confirmed = await confirmDanger(
     `将创建群「${jobDraft.groupName}」并邀请 ${jobDraft.members.length} 名成员。${source}，确认创建？`,
     '确认建群',
-    { type: 'warning', confirmButtonText: '创建', cancelButtonText: '取消' },
-  ).catch(() => false)
-  if (confirmed === false) return
+    { verb: '创建' },
+  )
+  if (!confirmed) return
 
   try {
     const job = await store.createGroup(jobDraft)

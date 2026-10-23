@@ -7,7 +7,7 @@
  * 口径 —— 两处各写一套解析必然漂移。
  */
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
 import { IconPlus, IconTrash } from '@/components/icons'
@@ -15,7 +15,7 @@ import { useGroupStore } from '@/stores/group'
 import { normalizeMemberIds } from '@/types/welink'
 import type { GroupTemplate } from '@/types/welink'
 import { rowOf } from '@/utils/table'
-import { runUiAction } from '@/utils/ui-action'
+import { confirmDanger, runUiAction } from '@/utils/ui-action'
 import { shortStamp } from '@/utils/welink-display'
 
 const store = useGroupStore()
@@ -109,15 +109,22 @@ async function submit() {
   void loadTemplates()
 }
 
+/** 删除模板是不可逆动作：按钮必须 `:loading` 防重复提交 */
+const removing = ref(false)
+
 async function remove(row: unknown) {
   const template = templateOf(row)
-  const confirmed = await ElMessageBox.confirm(
+  const confirmed = await confirmDanger(
     `删除模板「${template.name}」？已有的建群历史不受影响（历史保存的是当时的快照）。`,
     '删除模板',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
-  ).catch(() => false)
-  if (confirmed === false) return
-  const ok = await runUiAction(() => store.removeTemplate(template.pk), { fail: '删除模板失败', ok: '已删除模板' })
+    { verb: '删除', danger: true },
+  )
+  if (!confirmed) return
+  const ok = await runUiAction(() => store.removeTemplate(template.pk), {
+    fail: '删除模板失败',
+    ok: '已删除模板',
+    busy: removing,
+  })
   if (ok) void loadTemplates()
 }
 
@@ -166,7 +173,7 @@ onMounted(() => {
       <el-table-column label="操作" width="130" fixed="right">
         <template #default="{ row }">
           <el-button text type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-          <el-button text type="danger" size="small" :icon="IconTrash" @click="remove(row)">删除</el-button>
+          <el-button text type="danger" size="small" :icon="IconTrash" :loading="removing" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>

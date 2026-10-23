@@ -239,21 +239,36 @@ export function createUpdater(deps: UpdaterDeps): Updater {
     setStatus({ state: 'failed', error: { step: outcome.step ?? 'apply', reason: outcome.reason ?? '自替换失败' } })
   }
 
+  /** 异常文案：浮动 Promise 的 catch 里只写日志，不重抛（此处没有更可靠的落点） */
+  const errText = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
   const updater: Updater = {
     init() {
       if (inited || disposed) return
       inited = true
       // restore 先于启动检查：lastCheckAt 恢复后节流才可信（否则每次重启都会多查一次）
-      void restore().then(() => {
-        if (disposed) return
-        startupTimer = timers.set(() => {
-          // 启动检查（在线）完成后扫一次摆渡目录：串行避免双检查竞态；
-          // 在线检查命中时 install/auto 流转会让 inbox 检查被 busy 闸跳过。
-          void updater.checkNow('startup').then(() => updater.scanInbox())
-        }, startupDelayMs)
-      })
+      //
+      // 下面三处都是**浮动 Promise**，必须各自挂 catch：`checkNow` reject 时若无人接，
+      // 就是一个未处理拒绝 —— 更新链路整体静默停摆，而界面「最后检查时间」还停在
+      // 上一次，用户以为「没有新版本」，实际是这一轮检查根本没跑成功过。
+      // restore 失败也照样排启动检查：少一次节流恢复，好过整条链停摆。
+      void restore()
+        .catch((error: unknown) => logger.warn(`更新状态恢复失败（继续启动检查）：${errText(error)}`))
+        .then(() => {
+          if (disposed) return
+          startupTimer = timers.set(() => {
+            // 启动检查（在线）完成后扫一次摆渡目录：串行避免双检查竞态；
+            // 在线检查命中时 install/auto 流转会让 inbox 检查被 busy 闸跳过。
+            void updater
+              .checkNow('startup')
+              .then(() => updater.scanInbox())
+              .catch((error: unknown) => logger.warn(`启动更新检查失败：${errText(error)}`))
+          }, startupDelayMs)
+        })
       periodicTimer = timers.set(function tick() {
-        void updater.checkNow('schedule')
+        void updater
+          .checkNow('schedule')
+          .catch((error: unknown) => logger.warn(`周期更新检查失败：${errText(error)}`))
         periodicTimer = timers.set(tick, periodicIntervalMs)
       }, periodicIntervalMs)
     },

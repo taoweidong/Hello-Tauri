@@ -18,7 +18,7 @@
  *  - 只用于 UI 层的**离散用户动作**；`infra` / `orchestrator` 层的错误照旧向上抛
  *    （分层约定：infra 抛、api 折叠、orchestrator 返回报告）。
  */
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { Ref } from 'vue'
 
 /**
@@ -31,6 +31,55 @@ export function errorText(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) return error.message
   if (typeof error === 'string' && error.trim()) return error
   return fallback
+}
+
+export interface ConfirmOptions {
+  /** 确认按钮文案（必填：本项目的确认按钮一向是具体动词，不是「确定」） */
+  verb: string
+  /** 取消按钮文案（默认「取消」；有一处是「改回去」，语义不同故可覆盖） */
+  cancel?: string
+  /** 语气：`warning`（默认，破坏性动作）/ `info`（中性批量操作） */
+  tone?: 'warning' | 'info'
+  /** 确认按钮套 `el-button--danger` 红样式（不可逆删除类动作开） */
+  danger?: boolean
+}
+
+/**
+ * 危险动作确认框的统一出口。
+ *
+ * @returns `true` = 用户确认；`false` = 取消或关闭弹窗（**已吞掉 reject**）。
+ *
+ * 为什么收口：全库 16 处 `ElMessageBox.confirm` 是同一段样板抄了 16 遍——
+ * `type/confirmButtonText/cancelButtonText` 三件套 + `.catch(() => false)` +
+ * `if (confirmed === false) return`，另有 2 处写成 `try/catch { return }`。
+ * 抄写型重复的代价不是行数，是**任何一条约束想改都得改 16 处**：
+ *
+ *  - `dangerouslyUseHTMLString` 默认 false，但只要有一处手抖开成 true，
+ *    会话标题（外部数据）进弹窗就是一个 XSS 口子 —— 现在它在这一处显式关死；
+ *  - 「取消 = reject」这个反直觉语义需要在**唯一**一处转成布尔，
+ *    否则每处都得记得挂 `.catch`，漏一处就是未处理拒绝。
+ *
+ * 语义边界（与 `runUiAction` 一致）：**取消不算错误**，只返回 false，
+ * 由调用方决定是 `return` 还是回滚字段值（如配额放宽被拒时改回默认值）。
+ */
+export async function confirmDanger(message: string, title: string, options: ConfirmOptions): Promise<boolean> {
+  const { verb, cancel = '取消', tone = 'warning', danger = false } = options
+  try {
+    await ElMessageBox.confirm(message, title, {
+      type: tone,
+      confirmButtonText: verb,
+      cancelButtonText: cancel,
+      // 显式关死：会话标题、群名等外部数据会拼进 message，开 HTML 等于开口子。
+      // （有反证用例钉住：把它改成 true，`ui-action.spec.ts` 的「恒不启用 HTML」会变红）
+      dangerouslyUseHTMLString: false,
+      ...(danger ? { confirmButtonClass: 'el-button--danger' } : {}),
+    })
+    return true
+  } catch {
+    // ElMessageBox 用 reject 表达「取消/关闭」，这里统一折叠成 false，
+    // 避免调用方漏挂 catch 产生未处理拒绝。
+    return false
+  }
 }
 
 export interface UiActionOptions {

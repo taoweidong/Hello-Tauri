@@ -176,6 +176,18 @@ export const AGENT_LOG_KEEP_DAYS = 90
  */
 export const SEDIMENT_LOG_KEEP_DAYS = 30
 
+/**
+ * 群公告保留期（天）。
+ *
+ * 公告是沉淀域的**原料**：提取出的问答对已落 `knowledge_drafts` 与知识库，
+ * 公告原文本身只剩「回看当时群里发了什么」的追溯价值。取 90 天（与语料同档）
+ * 覆盖一个季度的追溯需求，再久就纯粹是体积。
+ *
+ * 这是本表自 v6 建表起**首次**有清理策略 —— 此前它既无保留期也无清理接口，
+ * 是五个版本里唯一一张「只增不减」的持续写入表（见 migration v12）。
+ */
+export const ANNOUNCEMENT_KEEP_DAYS = 90
+
 /** 保留期清理的批大小（设计 §5-P1：大事务分批 ≤500 行，由调用方循环） */
 export const PURGE_BATCH_SIZE = 500
 

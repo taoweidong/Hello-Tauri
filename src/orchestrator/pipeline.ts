@@ -36,7 +36,7 @@ import type { KnowledgePort } from '@/infra/knowledge'
 import type { RagClient, RagChunk } from '@/infra/rag'
 import type { WelinkPort } from '@/infra/welink'
 import type { WelinkRepository } from '@/infra/db'
-import type { WelinkJob, WelinkRagSettings, WelinkSettings, WelinkSkill } from '@/types/welink'
+import type { JobStatus, WelinkJob, WelinkRagSettings, WelinkSettings, WelinkSkill } from '@/types/welink'
 import { FALLBACK_SKILL_ID } from '@/types/welink'
 import { logger } from '@/utils/logger'
 import { nowStamp } from '@/utils/time'
@@ -53,6 +53,16 @@ export const GENERATE_RETRY_MS = 1500
 export const GENERATE_CONCURRENCY = 2
 /** 外发段失败的重试上限（超过转 failed 交人工） */
 export const MAX_SEND_ATTEMPTS = 3
+
+/**
+ * 终态：job 进入这些状态后不再重试。
+ *
+ * 为什么要有这个集合：`generateRetries` 这类「按 jobPk 的运行时计数」只在 job
+ * 还会被重试时才有意义，终态之后留在 Map 里就是纯泄漏（每个曾失败过的 job 永久
+ * 占一条）。收口在 `emitStatus` 一处，不必在每个终态分支各写一次 delete ——
+ * 漏一个就是泄漏，这正是散写最容易出的错。
+ */
+const TERMINAL_JOB_STATUS = new Set<JobStatus>(['sent', 'failed', 'skipped'])
 
 export interface PipelineOptions {
   repo: WelinkRepository
@@ -141,6 +151,30 @@ export function createPipeline(options: PipelineOptions): Pipeline {
    */
   const promptOwners: Array<{ prompt: string; jobPk: number; claimed: boolean }> = []
 
+  /**
+   * 生成段的槽位登记簿（按 jobPk 索引）——**回收必须发生在 `generateOne` 之外**。
+   *
+   * 槽位在**技能路由**（`routeSkill` → `onClassifyPrompt`）时就已登记，而此前
+   * `generateOne` 里的 `finally` 只包住 `agent.complete` 那一步：路由 / 取会话上下文 /
+   * 读知识文档 / 渲染 prompt **任何一步抛错**，槽位都永久留在 `promptOwners` 里。
+   * 桌面应用是 7×24 长跑，每次生成失败至少残留一条，这个数组单调增长。
+   *
+   * 登记簿提到这一层、由**驱动方**（`flush`）在 `finally` 里统一回收，才能覆盖
+   * 包括「异常 → `abortGenerate` 兜底」在内的所有退出路径。
+   */
+  const slotOwners = new Map<number, Array<{ prompt: string; jobPk: number; claimed: boolean }>>()
+
+  /** 回收某 job 登记的全部槽位（幂等：重复调用无副作用） */
+  function releaseSlots(jobPk: number): void {
+    const slots = slotOwners.get(jobPk)
+    if (!slots) return
+    slotOwners.delete(jobPk)
+    for (const slot of slots) {
+      const at = promptOwners.indexOf(slot)
+      if (at >= 0) promptOwners.splice(at, 1)
+    }
+  }
+
   options.agent.onCall((record: AgentCallRecord) => {
     const owner = promptOwners.find((item) => !item.claimed && item.prompt === record.prompt)
     if (!owner) return
@@ -171,6 +205,8 @@ export function createPipeline(options: PipelineOptions): Pipeline {
     holdReason = '',
   ) {
     options.emit({ type: 'jobStatusChanged', jobPk, from, to, reason, holdReason })
+    // 终态即回收运行时计数（见 `TERMINAL_JOB_STATUS`）：不再重试的 job 没必要继续占位
+    if (TERMINAL_JOB_STATUS.has(to)) generateRetries.delete(jobPk)
   }
 
   // ---------------------------------------------------------------- 生成段
@@ -235,6 +271,8 @@ export function createPipeline(options: PipelineOptions): Pipeline {
       knowledgeDocs: [],
     }
     const ownedSlots: Array<{ prompt: string; jobPk: number; claimed: boolean }> = []
+    // 登记到簿上：慢路径（本段任何一步抛错）由 `flush` 的 finally 回收
+    slotOwners.set(jobPk, ownedSlots)
     const registerSlot = (slotPrompt: string) => {
       const slot = { prompt: slotPrompt, jobPk, claimed: false }
       ownedSlots.push(slot)
@@ -328,11 +366,10 @@ export function createPipeline(options: PipelineOptions): Pipeline {
     } catch (error) {
       failure = error instanceof AgentError ? `${error.kind}：${error.message}` : String(error)
     } finally {
-      // 记录已由 onCall 异步落库；这里只回收归属槽（分类 + 生成两个），避免数组无限增长
-      for (const slot of ownedSlots) {
-        const at = promptOwners.indexOf(slot)
-        if (at >= 0) promptOwners.splice(at, 1)
-      }
+      // 记录已由 onCall 异步落库；这里只回收归属槽（分类 + 生成两个），避免数组无限增长。
+      // 走登记簿回收（幂等）：快路径在这里、慢路径由 `flush` 的 finally 兜底，
+      // 两条路径都跑到也无害。
+      releaseSlots(jobPk)
     }
 
     if (failure) {
@@ -670,7 +707,11 @@ export function createPipeline(options: PipelineOptions): Pipeline {
         handled += 1
         // 异常必须落回状态机：生成段任何一步抛错都要走与「生成失败」同一套
         // 预算与终态，否则 job 会永远停在 `discussing`（见 `abortGenerate`）。
-        const task = generateOne(jobPk).catch((error) => abortGenerate(jobPk, error))
+        // 槽位回收挂在 `finally`：`generateOne` 的任何退出路径（含 `abortGenerate`
+        // 兜底）都不该把归属槽留在 `promptOwners` 里（见 `slotOwners` 声明处注释）。
+        const task = generateOne(jobPk)
+          .catch((error) => abortGenerate(jobPk, error))
+          .finally(() => releaseSlots(jobPk))
         inflightGenerate.add(task)
         void task.finally(() => {
           inflightGenerate.delete(task)

@@ -1116,3 +1116,38 @@ describe('safety-gate —— checkGroupAction（建群闸门，S-02）', () => {
     expect(gate.checkGroupAction({ groupName: 'x' }).reason).toBe('quiet')
   })
 })
+
+describe('SafetyGate —— 会话配额状态的容量（第六轮）', () => {
+  /**
+   * `convStates` 此前**只增不删**：`stateOf()` 为每个首次出现的 convId 建条目，
+   * `invalidateConversation()` 只清 `convCache`、碰都不碰它 —— 被 check 过的会话
+   * 永久驻留。桌面应用 7×24 长跑，条目数随「历史会话数」单调增长。
+   *
+   * 修法用 LRU 上限，而不是顺手在 `invalidateConversation` 里一起删：后者是
+   * **upsert 会话时**调用的，在那里清配额 = 每次改配置就把小时计数清零
+   * —— 一个**限流绕过口子**。
+   *
+   * 反证：删掉 `stateOf` 里的淘汰分支 → 用例一变红（size 会等于 2100）。
+   */
+  it('会话数远超上限时按 LRU 淘汰，不随历史会话数单调增长', () => {
+    const { gate } = setup()
+    for (let index = 0; index < 2100; index += 1) {
+      gate.primeConversation(`c-${index}`, 0, null)
+    }
+    const counts = gate.snapshot().convCounts
+    expect(Object.keys(counts).length).toBeLessThanOrEqual(2048)
+    // 淘汰的是最久未用者：最近的会话一定还在，最早的已被挤掉
+    expect(counts['c-2099']).toBe(0)
+    expect(counts['c-0']).toBeUndefined()
+  })
+
+  it('LRU：被反复命中的活跃会话不会被淘汰', () => {
+    const { gate } = setup()
+    const hot = 'c-hot'
+    for (let index = 0; index < 2100; index += 1) {
+      gate.primeConversation(hot, 0, null) // 每次命中都刷新 LRU 位置
+      gate.primeConversation(`cold-${index}`, 0, null)
+    }
+    expect(gate.snapshot().convCounts[hot]).toBe(0)
+  })
+})

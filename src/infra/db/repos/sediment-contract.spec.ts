@@ -409,6 +409,24 @@ describe('sediment 仓储双实现契约（SQL vs memory）', () => {
     out.logListAfterClear = await repo.listSedimentLogs(10)
     expect(log.pk).toBeGreaterThan(0)
 
+    // —— 群公告保留期（v12）：与留痕同构的三档语义，双侧必须一致 ——
+    // 先补足条目：seed 只留了 1 条公告，「batch=1 只删一条」的分批语义无从体现
+    await repo.applyAnnouncements([
+      { annUid: 'p1', convId: 'g-door', title: 'p1', content: 'p1', publishedAt: '2026-10-07 08:00:00' },
+      { annUid: 'p2', convId: 'g-door', title: 'p2', content: 'p2', publishedAt: '2026-10-07 08:01:00' },
+      { annUid: 'p3', convId: 'g-door', title: 'p3', content: 'p3', publishedAt: '2026-10-07 08:02:00' },
+    ])
+    out.annCountBeforePurge = (await repo.listAnnouncements(100, 0)).length
+    //  ① cutoff 在遥远的过去 → 一条都不该删（别把「没过期」当成「清空」）
+    out.annPurgedNone = await repo.purgeAnnouncementsBefore('2000-01-01 00:00:00', 100)
+    out.annCountAfterNone = (await repo.listAnnouncements(100, 0)).length
+    //  ② cutoff 在未来、batch=1 → 只删一条（分批语义，retention 靠「< batch」判收敛）
+    out.annPurgedOne = await repo.purgeAnnouncementsBefore('2999-01-01 00:00:00', 1)
+    out.annCountAfterOne = (await repo.listAnnouncements(100, 0)).length
+    //  ③ 剩下的清干净
+    out.annCleared = await repo.purgeAnnouncementsBefore('2999-01-01 00:00:00', 100)
+    out.annCountAfterClear = (await repo.listAnnouncements(100, 0)).length
+
     // —— 原料扫描 ——
     out.msgScan = (await repo.listInMessagesSince(0, ['g-door'], 100)).map(normMsg)
     out.msgScanOtherConv = await repo.listInMessagesSince(0, ['g-other'], 100)
@@ -493,5 +511,13 @@ describe('sediment 仓储双实现契约（SQL vs memory）', () => {
     // 水位推进到「已消费的那一条」后增量扫描为空
     expect(out.msgScanAfterWatermark).toHaveLength(0)
     expect(out.qaScanAfterWatermark).toHaveLength(0)
+    // 公告保留期（v12）：过期才删 + batch 生效（这张表此前从未进过清理链）
+    expect(out.annCountBeforePurge).toBe(4) // seed 的 a1 + 补的 p1/p2/p3
+    expect(out.annPurgedNone).toBe(0)
+    expect(out.annCountAfterNone).toBe(4)
+    expect(out.annPurgedOne).toBe(1)
+    expect(out.annCountAfterOne).toBe(3)
+    expect(out.annCleared).toBe(3)
+    expect(out.annCountAfterClear).toBe(0)
   })
 })

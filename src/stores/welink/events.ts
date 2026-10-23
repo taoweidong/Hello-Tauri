@@ -7,6 +7,7 @@
  */
 import type { Ref, ShallowRef } from 'vue'
 
+import { logger } from '@/utils/logger'
 import { nowStamp } from '@/utils/time'
 import type { ConversationState, PollSummary, SafetySnapshot, WelinkEvent } from '@/orchestrator/events'
 import type { WelinkConversation, WelinkJob, WelinkMessage, WelinkSettings } from '@/types/welink'
@@ -136,7 +137,11 @@ export function createEventConsumer(deps: EventConsumerDeps): WelinkEventConsume
         break
       }
       case 'conversationsChanged': {
-        void loadConversations()
+        // 浮动 Promise 必须挂 catch：会话列表重载失败时事件循环里没人接，
+        // 就是一个未处理拒绝（界面停留在旧列表且无任何提示）。
+        void loadConversations().catch((error: unknown) =>
+          logger.warn(`会话列表重载失败：${error instanceof Error ? error.message : String(error)}`),
+        )
         break
       }
       case 'roundStarted': {

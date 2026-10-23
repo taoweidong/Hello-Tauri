@@ -12,14 +12,14 @@
  * 删除会话会级联删掉该会话的全部消息与任务，因此必须二次确认并如实告知条数。
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 
 import { IconCheck, IconFilter, IconPlus, IconRefresh } from '@/components/icons'
 import { useAppStore } from '@/stores/app'
 import { useWelinkStore } from '@/stores/welink'
 import type { WelinkConversation, WelinkConvType } from '@/types/welink'
 import { asBoolean, rowOf } from '@/utils/table'
-import { errorText, runUiAction } from '@/utils/ui-action'
+import { confirmDanger, errorText, runUiAction } from '@/utils/ui-action'
 import { isMuted as isConversationMuted, muteLabel as muteLabelOf } from '@/utils/welink-display'
 
 const store = useWelinkStore()
@@ -222,6 +222,9 @@ async function mute(conv: WelinkConversation, hours: number) {
   await load()
 }
 
+/** 删除会话是不可逆动作：按钮必须 `:loading` 防重复提交 */
+const removing = ref(false)
+
 async function remove(conv: WelinkConversation) {
   // 条数是删除确认文案的一部分：读不到就中止，不能带着「0 条」的假安心去删
   let messageCount: number
@@ -234,14 +237,16 @@ async function remove(conv: WelinkConversation) {
   const detail = messageCount
     ? `该会话有 ${messageCount} 条存档消息，删除将**级联删除**这些消息与全部回复任务，不可恢复。`
     : '该会话暂无存档消息，删除后仅移除配置。'
-  const confirmed = await ElMessageBox.confirm(detail, `删除会话「${conv.title || conv.convId}」`, {
-    type: 'warning',
-    confirmButtonText: '确认删除',
-    cancelButtonText: '取消',
-    dangerouslyUseHTMLString: false,
-  }).catch(() => false)
-  if (confirmed === false) return
-  const ok = await runUiAction(() => store.removeConversation(conv.convId), { fail: '删除会话失败', ok: '已删除' })
+  const confirmed = await confirmDanger(detail, `删除会话「${conv.title || conv.convId}」`, {
+    verb: '确认删除',
+    danger: true,
+  })
+  if (!confirmed) return
+  const ok = await runUiAction(() => store.removeConversation(conv.convId), {
+    fail: '删除会话失败',
+    ok: '已删除',
+    busy: removing,
+  })
   if (ok) await load()
 }
 
@@ -251,15 +256,15 @@ async function batchAutoReply(enabled: boolean) {
   if (!selected.value.length) return
   const affected = selected.value.length
   const remainder = Math.max(0, store.settings.safety.globalHourlyCap - store.safety.globalCount)
-  const confirmed = await ElMessageBox.confirm(
+  const confirmed = await confirmDanger(
     `将把 ${affected} 个会话的自动回复设为「${enabled ? '开' : '关'}」。\n` +
       (enabled
         ? `注意：开启后这些会话的消息会被自动回复，本小时全局配额还剩 ${remainder} 条。`
         : '关闭后这些会话只存档、不外发，未完成任务会停留在待审。'),
     enabled ? '批量开启自动回复' : '批量关闭自动回复',
-    { type: enabled ? 'warning' : 'info', confirmButtonText: '确认', cancelButtonText: '取消' },
-  ).catch(() => false)
-  if (confirmed === false) return
+    { verb: '确认', tone: enabled ? 'warning' : 'info' },
+  )
+  if (!confirmed) return
   // 只对监控中的会话生效：未监控的会话开启 autoReply 无意义（Gate 会拦）
   const targets = selected.value.filter((conv) => enabled === false || conv.watching).map((conv) => conv.convId)
   let changed = 0
@@ -416,7 +421,7 @@ onMounted(load)
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <el-button size="small" text type="danger" @click="remove(convOf(row))">删除</el-button>
+          <el-button size="small" text type="danger" :loading="removing" @click="remove(convOf(row))">删除</el-button>
         </template>
       </el-table-column>
     </el-table>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { createGo } from '@/utils/nav'
 import { IconSun, IconMoon, IconPanelLeft } from '@/components/icons'
 import { DEFAULT_NAV_GROUP, navGroups } from '@/router'
 
@@ -71,9 +72,7 @@ function toggleTheme() {
   appStore.settings.theme = appStore.settings.theme === 'dark' ? 'light' : 'dark'
 }
 
-function go(path: string) {
-  if (path !== route.path) void router.push(path)
-}
+const go = createGo(router, { current: () => route.path })
 </script>
 
 <template>

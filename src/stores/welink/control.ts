@@ -233,7 +233,11 @@ export function createRuntimeControl(deps: RuntimeControlDeps): RuntimeControl {
   function resetFuse(scope?: string) {
     runtimeHolder.current?.gate.resetFuse(scope)
     fuseBanner.value = null
-    void refreshSafety()
+    // 浮动 Promise 必须挂 catch：否则刷新失败就是一个未处理拒绝，
+    // 界面上的熔断横幅已清、配额面板却还停在旧值（静默不一致）。
+    void refreshSafety().catch((error: unknown) =>
+      logger.warn(`解除熔断后刷新安全面板失败：${error instanceof Error ? error.message : String(error)}`),
+    )
     pushLog('info', scope ? `已解除「${scope}」熔断` : '已解除全部熔断')
   }
 

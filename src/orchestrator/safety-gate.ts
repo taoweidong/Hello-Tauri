@@ -215,7 +215,23 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
   let enabled = settings.enabled
   /** 会话开关缓存（O5）：upsert 时失效，避免每次 check 查库 */
   const convCache = new Map<string, { autoReply: boolean; muteUntil: string | null }>()
+  /**
+   * 会话级配额状态（S2/S4 的小时计数、最近发送时间、去重窗口）。
+   *
+   * ⚠️ 这个 Map **只增不删**是本文件的历史缺陷：`stateOf()` 为每个首次出现的
+   * convId 建条目，`invalidateConversation()` 只清 `convCache`、碰都不碰它 ——
+   * 于是被 `check` 过的会话永久驻留（哪怕会话早已从库里删掉）。桌面应用是 7×24
+   * 长跑，条目数随「历史会话数」单调增长。
+   *
+   * 为什么用 LRU 上限而不是顺手在 `invalidateConversation` 里一起删：后者是
+   * **upsert 会话时**调用的（开关/静音变了要让缓存失效），在那里删配额状态等于
+   * 每次改配置就把该会话的小时计数清零 —— 那是一个**限流绕过口子**。
+   * LRU 只淘汰「最久没被 check 过」的冷会话，活跃会话每次命中都会刷新位置，
+   * 不会被误伤。
+   */
   const convStates = new Map<string, ConvState>()
+  /** `convStates` 容量上限（超出即淘汰最久未用者；2048 远超单机会话规模） */
+  const CONV_STATE_LIMIT = 2048
   /** 全局计数 + 小时桶（S3） */
   let globalHourly = 0
   let globalBucket = bucketOf(now())
@@ -287,6 +303,16 @@ export function createSafetyGate(options: GateOptions): SafetyGate {
     let state = convStates.get(convId)
     if (!state) {
       state = { hourly: 0, bucket: globalBucket, lastSentAt: null, recentSender: '', recentAt: 0 }
+      convStates.set(convId, state)
+      // 超限即淘汰最久未用者（Map 保持插入顺序，队首即最老）。
+      // 只淘汰一条、下一条进来再淘汰：渐进收缩，不在这里做 O(n) 扫描。
+      if (convStates.size > CONV_STATE_LIMIT) {
+        const oldest = convStates.keys().next().value
+        if (oldest !== undefined && oldest !== convId) convStates.delete(oldest)
+      }
+    } else {
+      // 命中即刷新 LRU 位置（delete + set = 移到末尾），活跃会话不会被淘汰
+      convStates.delete(convId)
       convStates.set(convId, state)
     }
     if (state.bucket !== globalBucket) {

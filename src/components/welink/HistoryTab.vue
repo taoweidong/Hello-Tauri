@@ -14,7 +14,7 @@
  * 评价（O10）：sent 行加 👍/👎，差评对就是改进语料。
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 
 import { bridge } from '@/api'
 import { IconRefresh } from '@/components/icons'
@@ -23,7 +23,7 @@ import { useWelinkStore } from '@/stores/welink'
 import { JOB_STATUS_LABEL, JOB_STATUS_TONE, skillSourceLabelOf } from '@/types/welink'
 import type { JobStatus, WelinkJob } from '@/types/welink'
 import { rowOf } from '@/utils/table'
-import { runUiAction } from '@/utils/ui-action'
+import { confirmDanger, runUiAction } from '@/utils/ui-action'
 import { shortStamp } from '@/utils/welink-display'
 
 const props = defineProps<{ preset: { onlyHolding?: boolean; onlySkipped?: boolean; targetId?: string } | null }>()
@@ -243,14 +243,21 @@ async function confirmEdit() {
 }
 
 /** 仅删除任务记录（触发消息保留）—— 仓储提供的是显式语义方法，这里如实提示 */
+/** 删除任务记录是不可逆动作（审计轨迹不可恢复）：按钮必须 `:loading` 防重复提交 */
+const removing = ref(false)
+
 async function removeJob(job: WelinkJob) {
-  const confirmed = await ElMessageBox.confirm(
+  const confirmed = await confirmDanger(
     '仅删除这条回复任务记录（触发消息与存档会话保留）。删除后该任务的审计轨迹不可恢复。',
     '删除任务记录',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
-  ).catch(() => false)
-  if (confirmed === false) return
-  const ok = await runUiAction(() => store.removeJob(job.pk), { fail: '删除任务记录失败', ok: '已删除任务记录' })
+    { verb: '删除', danger: true },
+  )
+  if (!confirmed) return
+  const ok = await runUiAction(() => store.removeJob(job.pk), {
+    fail: '删除任务记录失败',
+    ok: '已删除任务记录',
+    busy: removing,
+  })
   if (ok) void load()
 }
 
@@ -521,7 +528,7 @@ function latency(job: WelinkJob): string {
           <el-button v-if="row.status === 'ready'" size="small" text type="primary" @click="openEdit(jobOf(row))"
             >编辑并发送</el-button
           >
-          <el-button size="small" text @click="removeJob(jobOf(row))">删除</el-button>
+          <el-button size="small" text :loading="removing" @click="removeJob(jobOf(row))">删除</el-button>
         </template>
       </el-table-column>
     </el-table>

@@ -15,12 +15,12 @@
  * 数据访问一律经 knowledgeStore（UI 禁触 @/infra/**，D4 闸门）。
  */
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 
 import { IconPlus, IconRefresh } from '@/components/icons'
 import { useKnowledgeStore } from '@/stores/welink/knowledge'
 import { toKnowledgeFileName, type KnowledgeDocSource } from '@/types/knowledge'
-import { errorText, runUiAction } from '@/utils/ui-action'
+import { confirmDanger, errorText, runUiAction } from '@/utils/ui-action'
 
 const knowledgeStore = useKnowledgeStore()
 const available = knowledgeStore.fsAvailable
@@ -124,15 +124,12 @@ async function saveEdit() {
 }
 
 async function offShelf(doc: { file: string; title: string }) {
-  try {
-    await ElMessageBox.confirm(
-      `下架「${doc.title}」？文件本身保留在数据根 knowledge/ 目录，仅停止在列表与检索供给中使用。`,
-      '下架确认',
-      { type: 'warning', confirmButtonText: '下架', cancelButtonText: '取消' },
-    )
-  } catch {
-    return
-  }
+  const confirmed = await confirmDanger(
+    `下架「${doc.title}」？文件本身保留在数据根 knowledge/ 目录，仅停止在列表与检索供给中使用。`,
+    '下架确认',
+    { verb: '下架' },
+  )
+  if (!confirmed) return
   await runUiAction(() => knowledgeStore.offShelf(doc.file), {
     fail: '下架失败',
     ok: '已下架（文件已保留在 knowledge/ 目录）',
@@ -214,15 +211,12 @@ async function approveDraft() {
 }
 
 async function rejectDraft(draft: { pk: number; title: string }) {
-  try {
-    await ElMessageBox.confirm(`拒绝「${draft.title}」？该条目将退出待评审队列，知识库不变。`, '拒绝确认', {
-      type: 'warning',
-      confirmButtonText: '拒绝',
-      cancelButtonText: '取消',
-    })
-  } catch {
-    return
-  }
+  const confirmed = await confirmDanger(
+    `拒绝「${draft.title}」？该条目将退出待评审队列，知识库不变。`,
+    '拒绝确认',
+    { verb: '拒绝' },
+  )
+  if (!confirmed) return
   let accepted = false
   const ok = await runUiAction(
     async () => {

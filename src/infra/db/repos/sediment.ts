@@ -299,6 +299,17 @@ export const sqlSedimentRepository: SedimentRepository = {
     return result.changes
   },
 
+  async purgeAnnouncementsBefore(cutoff, batch) {
+    // 与上面完全同构：依赖 migration v12 的 `idx_wan_created_at`，同样**不写
+    // ORDER BY id**（否则 SQLite 放弃索引、改走 rowid 全表扫描）。
+    const result = await bridge.dbExecute(
+      `DELETE FROM welink_announcements WHERE id IN (
+         SELECT id FROM welink_announcements WHERE created_at < ?1 LIMIT ?2)`,
+      [cutoff, batch],
+    )
+    return result.changes
+  },
+
   // ---------------- 原料扫描（只读） ----------------
 
   async listInMessagesSince(afterPk, convIds, limit) {

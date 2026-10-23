@@ -7,7 +7,7 @@ import { bridge, platform } from '@/api'
 import { navRoutes } from '@/router'
 import { useAppStore } from '@/stores/app'
 import { useCodehubStore } from '@/stores/codehub'
-import { runUiAction } from '@/utils/ui-action'
+import { confirmDanger, runUiAction } from '@/utils/ui-action'
 import { logger } from '@/utils/logger'
 import type { AppSettings } from '@/types'
 import type { WelinkSettings } from '@/types/welink'
@@ -94,12 +94,8 @@ async function save() {
 }
 
 async function restore() {
-  const confirmed = await ElMessageBox.confirm('确认恢复默认配置？', '恢复默认', {
-    type: 'warning',
-    confirmButtonText: '恢复',
-    cancelButtonText: '取消',
-  }).catch(() => false)
-  if (confirmed === false) return
+  const confirmed = await confirmDanger('确认恢复默认配置？', '恢复默认', { verb: '恢复' })
+  if (!confirmed) return
   appStore.reset()
   Object.assign(form, appStore.settings)
   ElMessage({ message: '已恢复默认配置', type: 'success' })
@@ -149,12 +145,12 @@ async function migrateDir() {
   }
   if (input === false || !input) return
 
-  const confirmed = await ElMessageBox.confirm(
+  const confirmed = await confirmDanger(
     `将把配置、数据与日志复制到「${input}」，原目录保留不删除。迁移后需重启应用生效。`,
     '确认迁移',
-    { type: 'warning', confirmButtonText: '确认迁移', cancelButtonText: '取消' },
-  ).catch(() => false)
-  if (confirmed === false) return
+    { verb: '确认迁移' },
+  )
+  if (!confirmed) return
 
   migrating.value = true
   try {

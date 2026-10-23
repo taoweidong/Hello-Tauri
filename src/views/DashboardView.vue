@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { createGo } from '@/utils/nav'
 import { ElMessage } from 'element-plus'
 import { IconActivity, IconUsers, IconGitBranch, IconRefresh, IconArrowRight, IconCheck } from '@/components/icons'
 
@@ -34,9 +35,7 @@ function fmt(n: number) {
  * 时会 reject —— 那是一个未被处理的 Promise 拒绝，控制台报警但界面毫无反馈。
  * 工作台的入口全是「点同一个面板头」这种很容易重复触发的形态，所以统一收口。
  */
-function go(path: string) {
-  void router.push(path).catch(() => undefined)
-}
+const go = createGo(router)
 
 const platformLabel = computed(() => (platform === 'tauri' ? '桌面' : 'Web'))
 

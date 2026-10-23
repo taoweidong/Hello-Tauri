@@ -249,7 +249,11 @@ export const sqlCodehubRepository: CodeHubRepository = {
   // ---------------- 同步状态 ----------------
 
   async listSyncStates() {
-    const rows = await bridge.dbSelect('SELECT repo_id, last_synced_at, last_error FROM codehub_sync_state')
+    // P7：任何 SELECT 都要有界。该表行数受 `REPO_HARD_LIMIT`（100，见 codehub-sync）间接
+    // 封顶，这里取 10 倍余量 —— 上限的意义是「万一封顶逻辑失效也不会退化成全表扫描」。
+    const rows = await bridge.dbSelect(
+      'SELECT repo_id, last_synced_at, last_error FROM codehub_sync_state LIMIT 1000',
+    )
     return rows.map((row): CodeHubSyncState => ({
       repoId: str(row.repo_id),
       lastSyncedAt: row.last_synced_at === null || row.last_synced_at === undefined ? null : str(row.last_synced_at),

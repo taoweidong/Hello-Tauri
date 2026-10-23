@@ -11,13 +11,13 @@
  *  * 「清理回溯记录」（只删留痕，任务与消息保留）
  */
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 
 import { bridge } from '@/api'
 import { IconDownload, IconRefresh, IconTrash } from '@/components/icons'
 import { useWelinkStore } from '@/stores/welink'
 import type { AgentLogStatus, WelinkAgentLog, WelinkJob } from '@/types/welink'
-import { runUiAction } from '@/utils/ui-action'
+import { confirmDanger, runUiAction } from '@/utils/ui-action'
 import { shortStamp } from '@/utils/welink-display'
 
 const props = defineProps<{ focusJobPk?: number | null }>()
@@ -168,12 +168,12 @@ async function exportJob() {
 async function clearLogs() {
   const job = selectedJob.value
   if (!job) return
-  const confirmed = await ElMessageBox.confirm(
+  const confirmed = await confirmDanger(
     `将删除 job ${job.pk} 的全部 ${logs.value.length} 条模型调用记录（提示词与回复原文）。任务本身与消息存档保留，但该次调用无法再复现。`,
     '清理回溯记录',
-    { type: 'warning', confirmButtonText: '清理', cancelButtonText: '取消' },
-  ).catch(() => false)
-  if (confirmed === false) return
+    { verb: '清理', danger: true },
+  )
+  if (!confirmed) return
   // 不可逆删除：抛错必须可见，且**只有真的删成功才报成功**。
   // 旧写法先 `await clearAgentLogs` 再无条件 `loadJobs + success`，删没删掉都说「已清理」。
   let removed = 0

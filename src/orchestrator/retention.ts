@@ -34,6 +34,7 @@ import { sediment, welink } from '@/infra/db'
 import type { SedimentRepository } from '@/infra/db/sediment-ports'
 import {
   AGENT_LOG_KEEP_DAYS,
+  ANNOUNCEMENT_KEEP_DAYS,
   PURGE_BATCH_SIZE,
   RETENTION_KEEP_DAYS,
   SEDIMENT_LOG_KEEP_DAYS,
@@ -61,13 +62,15 @@ export interface RetentionReport {
   agentLogs: number
   /** 删除的沉淀提取留痕条数 */
   sedimentLogs: number
+  /** 删除的群公告条数 */
+  announcements: number
   /** 是否触到轮次上限（说明还有剩余，等下一轮） */
   capped: boolean
 }
 
 export interface RetentionOptions {
   repo?: WelinkRepository
-  /** 沉淀仓储（留痕清理用）；缺省取全局工厂，测试可注入 */
+  /** 沉淀仓储（留痕与公告清理用）；缺省取全局工厂，测试可注入 */
   sedimentRepo?: SedimentRepository
   timers?: TimerApi
   now?: () => Date
@@ -75,8 +78,11 @@ export interface RetentionOptions {
   firstDelayMs?: number
   /** 两轮清理之间的间隔（测试传小值） */
   intervalMs?: number
-  /** 保留天数覆盖（测试用；生产用仓储层常量）。`sedimentLogs` 可省，缺省 30 天 */
-  keepDays?: { messages: number; agentLogs: number; sedimentLogs?: number }
+  /**
+   * 保留天数覆盖（测试用；生产用仓储层常量）。
+   * `sedimentLogs` / `announcements` 可省，缺省 30 / 90 天。
+   */
+  keepDays?: { messages: number; agentLogs: number; sedimentLogs?: number; announcements?: number }
 }
 
 export interface Retention {
@@ -106,6 +112,7 @@ export function createRetention(options: RetentionOptions): Retention {
   const intervalMs = options.intervalMs ?? RETENTION_INTERVAL_MS
   const keep = options.keepDays ?? { messages: RETENTION_KEEP_DAYS, agentLogs: AGENT_LOG_KEEP_DAYS }
   const sedimentKeepDays = options.keepDays?.sedimentLogs ?? SEDIMENT_LOG_KEEP_DAYS
+  const announcementKeepDays = options.keepDays?.announcements ?? ANNOUNCEMENT_KEEP_DAYS
 
   let timer: unknown = null
   let disposed = false
@@ -154,23 +161,29 @@ export function createRetention(options: RetentionOptions): Retention {
     // 而它单条可达 10 KB（prompt + response），是三张表里**单位体积最大**的一张 ——
     // 长跑下最先失控的反而是它。这里与消息/语料同轮清理（依赖 migration v11 索引）。
     const sedimentCutoff = cutoffBefore(sedimentKeepDays)
-    const [messages, agentLogs, sedimentLogs] = await Promise.all([
+    // 公告此前**从未进过清理链**：v6 建表至今既无保留期也无清理接口，是沉淀域里
+    // 唯一一张「只增不减」的持续写入表（依赖 migration v12 的 created_at 索引）。
+    const announcementCutoff = cutoffBefore(announcementKeepDays)
+    const [messages, agentLogs, sedimentLogs, announcements] = await Promise.all([
       purgeAll((cutoff, batch) => repo.purgeMessagesBefore(cutoff, batch), messageCutoff),
       purgeAll((cutoff, batch) => repo.purgeAgentLogsBefore(cutoff, batch), logCutoff),
       purgeAll((cutoff, batch) => sedimentRepo.purgeSedimentLogsBefore(cutoff, batch), sedimentCutoff),
+      purgeAll((cutoff, batch) => sedimentRepo.purgeAnnouncementsBefore(cutoff, batch), announcementCutoff),
     ])
     const result: RetentionReport = {
       messages: messages.removed,
       agentLogs: agentLogs.removed,
       sedimentLogs: sedimentLogs.removed,
-      capped: messages.capped || agentLogs.capped || sedimentLogs.capped,
+      announcements: announcements.removed,
+      capped: messages.capped || agentLogs.capped || sedimentLogs.capped || announcements.capped,
     }
     report = result
-    if (result.messages || result.agentLogs || result.sedimentLogs) {
+    if (result.messages || result.agentLogs || result.sedimentLogs || result.announcements) {
       logger.info(
         `WeLink：保留期清理完成（消息 -${result.messages} 条 / 语料 -${result.agentLogs} 条 / ` +
-          `沉淀留痕 -${result.sedimentLogs} 条；保留消息 ${keep.messages} 天、语料 ${keep.agentLogs} 天、` +
-          `留痕 ${sedimentKeepDays} 天）` + (result.capped ? '，本轮触上限，剩余留待下次' : ''),
+          `沉淀留痕 -${result.sedimentLogs} 条 / 公告 -${result.announcements} 条；保留消息 ` +
+          `${keep.messages} 天、语料 ${keep.agentLogs} 天、留痕 ${sedimentKeepDays} 天、` +
+          `公告 ${announcementKeepDays} 天）` + (result.capped ? '，本轮触上限，剩余留待下次' : ''),
       )
     }
     return result
