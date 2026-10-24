@@ -32,7 +32,7 @@
 | `ragService` | 知识检索服务（RAG）                    | external-system    | current | **low**    | `src/infra/rag/rag-http.ts:6,105`、`port.ts:11-25`（6 处 `[RAG-ASSUME]` 未核实）    |
 | `knowledge`  | 数据根 `knowledge/*.md` + `index.json` | data-store         | current | high       | `src/components/welink/KnowledgeCard.vue:4-26,48-133`                               |
 | `windowsOs`  | Windows 系统能力                       | external-system    | current | high       | `src/infra/windows/registry.ts:39-111`、`sysinfo.rs`、`shell.rs`                    |
-| `appDb`      | data/app.db（SQLite WAL）              | data-store         | current | high       | `src/infra/db/index.ts:35`、`src/infra/db/migrations/*.ts`                          |
+| `appDb`      | data/app.db（SQLite WAL）              | data-store         | current | high       | `src/infra/db/index.ts:45`、`src/infra/db/migrations/*.ts`                          |
 
 ## 2. 关系（Edge）
 
@@ -60,17 +60,17 @@
 
 ## 3. 关键不变量（有证据，非推测）
 
-| 不变量                                                                                                          | 证据                                                                                       |
-| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| 草稿必须与 `status='ready'` 同一条 UPDATE 落库（`commitDraft`）后才允许外发                                     | `src/orchestrator/pipeline.ts:284-295`、`AGENTS.md:115-117`                                |
-| 外发前必过 `safety-gate.check()`，且 `sending` 由乐观锁 `markStatus(pk,'sending','ready')` 抢占                 | `pipeline.ts:383,416`                                                                      |
-| 建群外呼前先落 `pending`，终态以 `WHERE status='pending'` 原子回写，且无传输层重试                              | `src/orchestrator/group.ts:47,52,61`、`AGENTS.md:118-119`                                  |
-| CodeHub 纯只读、不接 safety-gate、无外发；token 经 `registerSecret` 遮蔽                                        | `AGENTS.md:120-122`、`openspec/specs/codehub-review/spec.md`                               |
-| 表结构归 TS：`MIGRATIONS` 注册表 v1–v5，Rust 侧 `db.rs` 不感知表                                                | `src/infra/db/index.ts:35`、`db/migrations/{records,welink,group,codehub,welink-skill}.ts` |
-| Windows 命令双层闸：TS 注册表（只读诊断）+ Rust `ALLOWED_STEMS`                                                 | `src/infra/windows/registry.ts:39-111`、`cli.rs:36-56`                                     |
-| 运行时零外部请求（图标内联 SVG、系统字体栈）                                                                    | `src/components/icons.ts`、`AGENTS.md:79-80`                                               |
-| RAG 检索只产草稿上下文，不构成第二个外发出口：片段进 prompt 后仍走同一条 `gate.check()` → `send`                | `src/orchestrator/pipeline.ts:242-268,383`                                                 |
-| 知识清单真源是数据根 `knowledge/index.json`（`fs_read`/`fs_write`），**不进 SQLite**（`MIGRATIONS` 仍为 v1–v5） | `src/components/welink/KnowledgeCard.vue:26,48,58`、`src/infra/db/index.ts:35`             |
+| 不变量                                                                                                           | 证据                                                                           |
+| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 草稿必须与 `status='ready'` 同一条 UPDATE 落库（`commitDraft`）后才允许外发                                      | `src/orchestrator/pipeline.ts:284-295`、`AGENTS.md:115-117`                    |
+| 外发前必过 `safety-gate.check()`，且 `sending` 由乐观锁 `markStatus(pk,'sending','ready')` 抢占                  | `pipeline.ts:383,416`                                                          |
+| 建群外呼前先落 `pending`，终态以 `WHERE status='pending'` 原子回写，且无传输层重试                               | `src/orchestrator/group.ts:47,52,61`、`AGENTS.md:118-119`                      |
+| CodeHub 纯只读、不接 safety-gate、无外发；token 经 `registerSecret` 遮蔽                                         | `AGENTS.md:120-122`、`openspec/specs/codehub-review/spec.md`                   |
+| 表结构归 TS：`MIGRATIONS` 注册表 v1–v12，Rust 侧 `db.rs` 不感知表                                                | `src/infra/db/index.ts:45`、`db/migrations/*.ts（12 个迁移文件）`              |
+| Windows 命令双层闸：TS 注册表（只读诊断）+ Rust `ALLOWED_STEMS`                                                  | `src/infra/windows/registry.ts:39-111`、`cli.rs:36-56`                         |
+| 运行时零外部请求（图标内联 SVG、系统字体栈）                                                                     | `src/components/icons.ts`、`AGENTS.md:79-80`                                   |
+| RAG 检索只产草稿上下文，不构成第二个外发出口：片段进 prompt 后仍走同一条 `gate.check()` → `send`                 | `src/orchestrator/pipeline.ts:242-268,383`                                     |
+| 知识清单真源是数据根 `knowledge/index.json`（`fs_read`/`fs_write`），**不进 SQLite**（`MIGRATIONS` 现为 v1–v12） | `src/components/welink/KnowledgeCard.vue:26,48,58`、`src/infra/db/index.ts:45` |
 
 ## 4. 未知项 / 待核实（本轮不当作既成事实）
 

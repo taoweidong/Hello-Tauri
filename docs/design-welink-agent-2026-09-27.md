@@ -616,7 +616,17 @@ stateDiagram-v2
 ```
 
 监控清单（R1）是**数据**，存 `welink_conversations` 表，不进 config。
-`retention.keepDays`（默认 180）为仓储层常量，每日一批 ≤500 行分批清理（§5-P1）。
+保留期清理由仓储层常量驱动（§5-P1：每日一批 ≤500 行分批删除），共**五条链、串行执行**
+（避免慢库上叠加并发删除；job 必须排在消息之前——`purgeMessagesBefore` 会跳过仍被
+job 引用的消息，先清 job 才能让消息保留期真正生效）：
+
+| 清理链                         | 常量                     | 保留期 | 边界                                                               |
+| ------------------------------ | ------------------------ | ------ | ------------------------------------------------------------------ |
+| 回复任务 `welink_reply_jobs`   | `JOB_KEEP_DAYS`          | 180 天 | 只清终态（sent/failed/skipped）且 `finished_at` 非空，在途任务不碰 |
+| 消息 `welink_messages`         | `RETENTION_KEEP_DAYS`    | 180 天 | `NOT EXISTS` 跳过仍被 job 引用的消息                               |
+| Agent 语料 `welink_agent_logs` | `AGENT_LOG_KEEP_DAYS`    | 90 天  |                                                                    |
+| 沉淀留痕 `sediment_logs`       | `SEDIMENT_LOG_KEEP_DAYS` | 30 天  |                                                                    |
+| 群公告 `welink_announcements`  | `ANNOUNCEMENT_KEEP_DAYS` | 90 天  |                                                                    |
 
 ---
 

@@ -99,7 +99,7 @@ export interface WelinkSkill {
   /** 技能说明：LLM 分类时模型选择技能的唯一依据，必须写清「什么问题该选它」 */
   description: string
   enabled: boolean
-  /** 规则匹配词条：普通文本 = 包含匹配；`/…/` 形式 = 正则（非法正则跳过并 warn） */
+  /** 规则匹配词条：普通文本 = 包含匹配；`/…/` 形式 = 正则（非法/过长/疑似灾难性回溯均跳过并 warn，见 §6） */
   keywords: string[]
   /** 技能专属模板：支持既有 4 占位符 + {{knowledge}}；空 = 回退兜底模板 */
   promptTemplate: string
@@ -149,7 +149,10 @@ export async function routeSkill(input: {
 
 - `matchSkillByRules(question, contextText, skills)`：按 skills 数组**配置顺序**取首个命中者
   （先配置先匹配，简单可预期；UI 支持排序）；词条匹配作用域 = 触发消息内容 + 最近上下文
-  拼接文本（不区分大小写的包含匹配）；`/…/` 形式按正则匹配，`new RegExp` 抛错则跳过该词条并 warn；
+  拼接文本（不区分大小写的包含匹配）；`/…/` 形式按正则匹配，三种情况跳过该词条并 warn（fail-safe：
+  宁可漏匹配，不可卡死）——`new RegExp` 抛错（非法）、模式长度 >200 字符（过长）、`looksCatastrophic()`
+  判定疑似灾难性回溯；编译结果带缓存（≤1024 条，溢出清空）。护栏与 safety-gate 黑名单正则同款
+  （2026-10-24 第七轮补齐，此前填 `/^(a+)+$/` 一类词条可卡死生成段主线程）。
   启用关键词的**兜底技能本身不参与规则匹配**（它就是「没匹配上」的归宿）。
 - `buildClassifyPrompt(candidates, question)`：分类 prompt 形状固定（可读、可留痕、可调优）：
 
@@ -271,14 +274,14 @@ ALTER TABLE welink_reply_jobs ADD COLUMN skill_source TEXT NOT NULL DEFAULT '';
 
 ## 14. 测试与验证计划
 
-| 测试                                            | 覆盖                                                                                                               |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `src/types/welink.spec.ts`                      | skills 归一化收敛（截断/去重/slug/回退）、`llmClassifyFallback` 兜底、老配置零迁移                                 |
-| `src/orchestrator/skill-router.spec.ts`         | 规则命中与配置顺序优先级、正则词条、非法正则跳过、LLM 分类成功/解析失败兜底/开关关闭直兜底、兜底技能不参与规则匹配 |
-| `src/orchestrator/pipeline.spec.ts`             | 分类接入后草稿生成主链路、reviewMode='manual' 转审不入外发队列、job 三列留痕、分类调用落 agent_logs                |
-| `src/infra/db/**`（迁移 + 契约测试）            | v5 列映射、老数据空串兼容、两套仓储一致                                                                            |
-| `src/components/welink/LlmSettingsCard.spec.ts` | 技能编辑区契约（增删改、防顶回、归一化透传）                                                                       |
-| 覆盖率基线                                      | `orchestrator/**` 92% lines、`infra/db/**` 72% lines 不回退                                                        |
+| 测试                                            | 覆盖                                                                                                                                             |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/types/welink.spec.ts`                      | skills 归一化收敛（截断/去重/slug/回退）、`llmClassifyFallback` 兜底、老配置零迁移                                                               |
+| `src/orchestrator/skill-router.spec.ts`         | 规则命中与配置顺序优先级、正则词条、非法/过长/疑似灾难性回溯正则跳过、编译缓存、LLM 分类成功/解析失败兜底/开关关闭直兜底、兜底技能不参与规则匹配 |
+| `src/orchestrator/pipeline.spec.ts`             | 分类接入后草稿生成主链路、reviewMode='manual' 转审不入外发队列、job 三列留痕、分类调用落 agent_logs                                              |
+| `src/infra/db/**`（迁移 + 契约测试）            | v5 列映射、老数据空串兼容、两套仓储一致                                                                                                          |
+| `src/components/welink/LlmSettingsCard.spec.ts` | 技能编辑区契约（增删改、防顶回、归一化透传）                                                                                                     |
+| 覆盖率基线                                      | `orchestrator/**` 92% lines、`infra/db/**` 72% lines 不回退                                                                                      |
 
 ## 15. 实施清单（对应 OpenSpec tasks 分解）
 

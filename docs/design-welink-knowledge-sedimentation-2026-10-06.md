@@ -36,13 +36,16 @@ WeLink 群会话每天都在产生核心业务信息（公告、接口人、值�
 ## 2. 数据模型（migration v6，`src/infra/db/migrations/welink-sediment.ts`）
 
 - `welink_announcements`：群公告存档（此前公告类正文在 normalize 阶段被占位符丢弃）；
-  `ann_uid` UNIQUE 幂等键，联会话表落 `conv_pk`。
+  `ann_uid` UNIQUE 幂等键，联会话表落 `conv_pk`。保留期 90 天（`ANNOUNCEMENT_KEEP_DAYS`，
+  经 retention 链分批清理，migration v12 补 `created_at` 索引）。
 - `knowledge_drafts`：待评审知识条目；`status(pending|approved|rejected)` 单向流转、
   `source_type(message|announcement|qa)`、`source_refs`（JSON 数组，回溯原料）、
   `content_hash`（指纹去重）。
 - `sediment_state`：kv 水位（消息 pk / 公告 pk / 问答 finished_at / 提取连续失败计数）——
   运行态不进 config.json（配置归一化会误伤）。
 - `sediment_logs`：沉淀提取的大模型调用留痕（与 `welink_agent_logs` 同形、独立分表，见 §3 K-D）。
+  保留期 30 天（`SEDIMENT_LOG_KEEP_DAYS`，经 retention 链分批清理，migration v11 补
+  `created_at` 索引）。
 
 ## 3. 设计决策（K-A ~ K-J）
 

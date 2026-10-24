@@ -463,7 +463,7 @@
 <title>iDb</title>
 <path fill="#e1d5e7" stroke="black" d="M1163.29,-591.1C1163.29,-591.1 956.71,-591.1 956.71,-591.1 950.71,-591.1 944.71,-585.1 944.71,-579.1 944.71,-579.1 944.71,-567.1 944.71,-567.1 944.71,-561.1 950.71,-555.1 956.71,-555.1 956.71,-555.1 1163.29,-555.1 1163.29,-555.1 1169.29,-555.1 1175.29,-561.1 1175.29,-567.1 1175.29,-567.1 1175.29,-579.1 1175.29,-579.1 1175.29,-585.1 1169.29,-591.1 1163.29,-591.1"/>
 <text xml:space="preserve" text-anchor="middle" x="1060" y="-576.4" font-family="Segoe UI" font-size="11.00">infra/db</text>
-<text xml:space="preserve" text-anchor="middle" x="1060" y="-563.2" font-family="Segoe UI" font-size="11.00">MIGRATIONS v1–v5 + 6 个仓储(SQL/memory)</text>
+<text xml:space="preserve" text-anchor="middle" x="1060" y="-563.2" font-family="Segoe UI" font-size="11.00">MIGRATIONS v1–v12 + 6 个仓储(SQL/memory)</text>
 </g>
 <!-- oPipeline&#45;&gt;iDb -->
 <g id="edge25" class="edge">

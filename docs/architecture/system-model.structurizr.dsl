@@ -112,10 +112,10 @@ workspace "Hello-Tauri" "Tauri 2 + Vue 3 单文件离线桌面应用的当前态
         }
       }
 
-      dataRoot = container "本机数据根" "默认 D:\\TangYuan；由 %APPDATA%\\com.taowd.hello-tauri\\bootstrap.json 固定引导，可在配置页整体迁移。内容：config/config.json、data/app.db（SQLite WAL，migration v1–v5）、data/table.json、logs/app-*.log（留 30 天）、knowledge/*.md + knowledge/index.json（RAG 知识源与清单真源，走 fs_read/fs_write，不入 SQLite）" {
+      dataRoot = container "本机数据根" "默认 D:\\TangYuan；由 %APPDATA%\\com.taowd.hello-tauri\\bootstrap.json 固定引导，可在配置页整体迁移。内容：config/config.json、data/app.db（SQLite WAL，migration v1–v12）、data/table.json、logs/app-*.log（留 30 天）、knowledge/*.md + knowledge/index.json（RAG 知识源与清单真源，走 fs_read/fs_write，不入 SQLite）" {
         tags "Storage"
         "confidence" "high"
-        "sourceRefs" "src-tauri/src/storage.rs:13-17, src-tauri/src/storage.rs:78-127, src/infra/db/index.ts:35, AGENTS.md:82-86"
+        "sourceRefs" "src-tauri/src/storage.rs:13-17, src-tauri/src/storage.rs:78-127, src/infra/db/index.ts:45, AGENTS.md:82-86"
       }
     }
 
@@ -172,7 +172,7 @@ workspace "Hello-Tauri" "Tauri 2 + Vue 3 单文件离线桌面应用的当前态
       "confidence" "high"
       "sourceRefs" "src/repositories/records.ts:170-229"
     }
-    bridgeL3 -> rustHost "invoke（25 个命令）" {
+    bridgeL3 -> rustHost "invoke（34 个命令）" {
       "type" "calls"
       "sync" "sync"
       "protocol" "Tauri IPC"

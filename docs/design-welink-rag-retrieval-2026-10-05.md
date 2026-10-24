@@ -39,7 +39,7 @@
 | 文件通道 `fsRead/fsWrite`（数据根内相对路径、拒 `..`、写自动建父目录）        | `src-tauri/src/fs.rs`、Bridge `fsRead/fsWrite`        | ✅ 知识库复用；**缺列目录能力**（见 §5 D-F） |
 | web 模式文件通道诚实抛错                                                      | `src/api/web.ts`                                      | ✅ 知识库卡据此降级                          |
 | 技能模型 `WelinkSkill`（关键词/模板/知识块/审核）                             | `src/types/welink.ts`                                 | ★ 增检索绑定字段                             |
-| 迁移注册表 v1–v5、R4 留痕 `welink_agent_logs` 1:N                             | `src/infra/db/index.ts`、repos                        | ✅ 本期零迁移                                |
+| 迁移注册表（设计时 v1–v5，现 v1–v12）、R4 留痕 `welink_agent_logs` 1:N        | `src/infra/db/index.ts`、repos                        | ✅ 本期零迁移                                |
 
 ## 3. 缺口分析（本次要补的）
 

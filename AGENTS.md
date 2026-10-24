@@ -58,7 +58,9 @@ welink-cli create-group → 全程留痕，migration v3）。CodeHub 域（内�
   （如 `envcheck.ts → createEnvChecks`、`table.ts → recordsBackend`、`group.ts → groupClient`、
   `stores/welink/knowledge.ts → knowledgePort/sediment`，浏览器内存实现的切换点），业务逻辑仍归
   orchestrator；UI 层（views/components）禁止
-  直触 `@/infra/**` 与 `@/repositories/**`（ESLint `no-restricted-imports` 闸门强制）。
+  直触 `@/infra/**`、`@/repositories/**` 与 `@/orchestrator/**`（ESLint `no-restricted-imports`
+  闸门强制；编排能力一律由对应 store 转出，如 `stores/group` 转出 validateGroupDraft。
+  spec 文件豁免该闸门，以便直接断言编排层契约）。
 - **Windows 基础设施闸门**（`src/infra/windows/`）：系统命令执行走「TS 命令注册表
   （registry.ts）+ Rust 白名单（cli.rs `ALLOWED_STEMS`）」双层闸，只登记只读诊断类
   System32 EXE，禁止任何 `cmd /c` 自由字符串通道；系统信息探测与 Shell 交互

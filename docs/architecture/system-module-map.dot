@@ -54,7 +54,7 @@ digraph HelloTauriModules {
     iWelink  [label="infra/welink\nport/adapter/commands/welink-cli/group-cli/mock", fillcolor="#e1d5e7"];
     iAgent   [label="infra/agent\nport/prompt/agent-http/mock", fillcolor="#e1d5e7"];
     iRag     [label="infra/rag\nport/rag-http/mock（检索服务，6 处 RAG-ASSUME）", fillcolor="#e1d5e7", style="rounded,filled,dashed"];
-    iDb      [label="infra/db\nMIGRATIONS v1–v5 + 6 个仓储(SQL/memory)", fillcolor="#e1d5e7"];
+    iDb      [label="infra/db\nMIGRATIONS v1–v12 + 6 个仓储(SQL/memory)", fillcolor="#e1d5e7"];
     iWin     [label="infra/windows\nregistry 命令注册表(上层闸)", fillcolor="#e1d5e7"];
     iCode    [label="infra/codehub\nport/codehub-cli/exec/mock", fillcolor="#e1d5e7"];
     iEnv     [label="infra/envcheck\nwelink doctor + python --version", fillcolor="#e1d5e7"];

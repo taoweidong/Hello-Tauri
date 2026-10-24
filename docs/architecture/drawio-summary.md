@@ -40,5 +40,5 @@
 1. 先改真源：DSL 结构、DOT 模块、`system-model.evidence.md` 表格（含 `file:line` 与置信度）。
 2. 再同步 `.drawio` 对应页签的节点/连线文字；**只调排版不动事实**时可以不改真源。
 3. 如果手工编辑 `.drawio` 时改动了架构事实（新增外部系统、改分层依赖、改命令数量），必须回写 DSL/DOT/证据索引，否则模型与代码漂移。
-4. 校验事实建议对照这三处机器可核清单：`src-tauri/src/lib.rs` 的 25 个命令、`src/infra/db/index.ts:35` 的 `MIGRATIONS`（v1–v5）、`eslint.config.mjs:112-155` 的两道闸门规则。
+4. 校验事实建议对照这三处机器可核清单：`src-tauri/src/lib.rs` 的 34 个命令、`src/infra/db/index.ts:45` 的 `MIGRATIONS`（v1–v12）、`eslint.config.mjs:112-155` 的两道闸门规则。
 5. freshness 检查（图是否过期）请路由 `architecture-health`。
