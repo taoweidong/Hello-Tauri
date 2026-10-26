@@ -171,6 +171,12 @@ export const memoryWelinkRepository: WelinkRepository = {
     return { ...row }
   },
 
+  async upsertConversationsBatch(drafts) {
+    // 与单条版同语义（批量循环内部就是同一逻辑）；内存实现无 IPC 成本，
+    // 批量方法的存在意义是**契约一致**（调用方只面对一个接口）。
+    return Promise.all(drafts.map((draft) => this.upsertConversation(draft)))
+  },
+
   async updateConversation(convId, patch) {
     const row = byConvId(convId)
     if (!row) return

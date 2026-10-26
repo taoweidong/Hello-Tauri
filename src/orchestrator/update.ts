@@ -119,6 +119,15 @@ export function createUpdater(deps: UpdaterDeps): Updater {
   let disposed = false
   let startupTimer: unknown = null
   let periodicTimer: unknown = null
+  /**
+   * `applyNow` 宽限 sleep 的定时器在册表。
+   *
+   * 为什么单列一张表：apply 路径上进程随时可能被自替换掉（或测试/热重载走
+   * dispose），两处宽限 sleep（race 对手 + ok 后的重启宽限）若没人回收，
+   * 定时器会带着 `setStatus(failed)` 在 dispose 之后触发 —— 往一个已终态的
+   * 编排器上写状态。与 startup/periodic 两枚同级处置：dispose 一律清。
+   */
+  const graceSleeps = new Set<unknown>()
   let listeners: Array<(status: UpdateStatus) => void> = []
 
   function emit(): void {
@@ -161,7 +170,17 @@ export function createUpdater(deps: UpdaterDeps): Updater {
   }
 
   function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => timers.set(resolve, ms))
+    // 终态（dispose）之后不再放行任何宽限等待：新定时器无人回收，对应的
+    // await 挂起即「本路径到此为止」—— 与 flush 的 stop 语义同口径。
+    if (disposed) return new Promise<void>(() => {})
+    return new Promise((resolve) => {
+      // 回调执行时 id 必然已赋值（定时器异步触发），闭包捕获安全
+      const id = timers.set(() => {
+        graceSleeps.delete(id)
+        resolve()
+      }, ms)
+      graceSleeps.add(id)
+    })
   }
 
   async function restore(): Promise<void> {
@@ -400,6 +419,11 @@ export function createUpdater(deps: UpdaterDeps): Updater {
       disposed = true
       if (startupTimer !== null) timers.clear(startupTimer)
       if (periodicTimer !== null) timers.clear(periodicTimer)
+      // 宽限 sleep 一并回收：定时器被清后对应 Promise 永不 settle，applyNow
+      // 的 await 就此挂起 —— 这正是 dispose 的语义（终态后不再改状态），
+      // 好过 20ms 后往已终态的编排器上补写一个 failed。
+      for (const id of graceSleeps) timers.clear(id)
+      graceSleeps.clear()
       startupTimer = null
       periodicTimer = null
       listeners = []

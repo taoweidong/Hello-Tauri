@@ -524,7 +524,11 @@ async function runFunctional(client, sandboxRoot) {
 
   await check('页面标题为 Hello-Tauri', async () => {
     const title = await client.evaluate('document.title')
-    assertEqual(title, 'Hello-Tauri', 'title')
+    // 结构契约而非全等（D-11）：title 由「路由 meta.title · 应用名」拼成，
+    // 全等断言要求每次改路由名都回改脚本（本轮就撞上一次：实际已是
+    // 「工作台 · Hello-Tauri」）。改为断言「以应用名结尾 + 带页面前缀」。
+    assert(title.endsWith('Hello-Tauri'), `title 应以应用名结尾：实际 ${JSON.stringify(title)}`)
+    assert(title.length > 'Hello-Tauri'.length, `title 应带页面前缀：实际 ${JSON.stringify(title)}`)
     return title
   })
 

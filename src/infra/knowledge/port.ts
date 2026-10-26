@@ -110,6 +110,15 @@ export function serializeKnowledgeIndex(docs: KnowledgeDoc[]): string {
 /**
  * 共享核心：清单与文档的全部语义只在这里实现，fs / mock 两个适配器只提供
  * 「按相对路径读写文本」的 IO —— 双实现天然契约一致（对齐 infra/db 的端口夹具思路）。
+ *
+ * **写操作串行队列**（第八轮 P1）：清单的全部写路径都是「loadIndex → 改 →
+ * persistIndex」的读-改-写。UI 审批（`KnowledgeCard`/`SedimentCard`）与后台
+ * harvester 轮次是两条独立调用链，并发时各自 load、各自 persist，**后写者
+ * 覆盖先写者** —— 表现为「审批通过了，知识库里却找不到那条」。轮次间隔长时
+ * 窗口小，但 UI 可手动连点，窗口真实存在。这里用一条 Promise 链把所有写操作
+ * 串起来：链上任一操作失败都不阻断后续（失败只影响它自己）。
+ * 读操作（listDocs / readDoc / resolveDocs）不进链 —— 它们不改状态，
+ * 不该被写操作堵在队头。
  */
 export function createKnowledgeCore(io: {
   readFile(relative: string): Promise<string | null>
@@ -129,6 +138,18 @@ export function createKnowledgeCore(io: {
     await io.writeFile(KNOWLEDGE_INDEX_FILE, serializeKnowledgeIndex(docs))
   }
 
+  /** 写操作串行链：后到的操作排在上一操作之后（无论成败） */
+  let writeChain: Promise<unknown> = Promise.resolve()
+  function serializeWrite<T>(operation: () => Promise<T>): Promise<T> {
+    const next = writeChain.then(operation, operation)
+    // 链尾只负责「接住失败」，不影响调用方看到的那个 Promise
+    writeChain = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    return next
+  }
+
   const docPath = (file: string) => `knowledge/${file}`
 
   return {
@@ -141,52 +162,60 @@ export function createKnowledgeCore(io: {
     },
 
     async saveDoc(input) {
-      const file = assertSafeDocFile(input.file)
-      const docs = await loadIndex()
-      const existing = docs.find((item) => item.file === file)
-      if (existing && !input.overwrite) throw new KnowledgeError('exists', `同名文件已在清单中：${file}`)
-      const entry: KnowledgeDoc = {
-        file,
-        title: input.title.trim() || file,
-        updatedAt: nowStamp(),
-        source: input.source,
-      }
-      // 对账次序（K-G）：先写文件、后登记清单 —— 中断后重跑同一操作即可对账
-      await io.writeFile(docPath(file), input.content)
-      await persistIndex(existing ? docs.map((item) => (item.file === file ? entry : item)) : [...docs, entry])
-      return entry
+      return serializeWrite(async () => {
+        const file = assertSafeDocFile(input.file)
+        const docs = await loadIndex()
+        const existing = docs.find((item) => item.file === file)
+        if (existing && !input.overwrite) throw new KnowledgeError('exists', `同名文件已在清单中：${file}`)
+        const entry: KnowledgeDoc = {
+          file,
+          title: input.title.trim() || file,
+          updatedAt: nowStamp(),
+          source: input.source,
+        }
+        // 对账次序（K-G）：先写文件、后登记清单 —— 中断后重跑同一操作即可对账
+        await io.writeFile(docPath(file), input.content)
+        await persistIndex(existing ? docs.map((item) => (item.file === file ? entry : item)) : [...docs, entry])
+        return entry
+      })
     },
 
     async appendDoc({ file, content }) {
-      const docs = await loadIndex()
-      const existing = docs.find((item) => item.file === file)
-      if (!existing) throw new KnowledgeError('missing', `目标文档不在清单中：${file}`)
-      const old = await io.readFile(docPath(file))
-      if (old === null) throw new KnowledgeError('missing', `文件已被移走：${file}（可重新登记或下架该条目）`)
-      const merged = `${old.trimEnd()}\n\n${content.trim()}\n`
-      await io.writeFile(docPath(file), merged)
-      const entry: KnowledgeDoc = { ...existing, updatedAt: nowStamp() }
-      await persistIndex(docs.map((item) => (item.file === file ? entry : item)))
-      return entry
+      return serializeWrite(async () => {
+        const docs = await loadIndex()
+        const existing = docs.find((item) => item.file === file)
+        if (!existing) throw new KnowledgeError('missing', `目标文档不在清单中：${file}`)
+        const old = await io.readFile(docPath(file))
+        if (old === null) throw new KnowledgeError('missing', `文件已被移走：${file}（可重新登记或下架该条目）`)
+        const merged = `${old.trimEnd()}\n\n${content.trim()}\n`
+        await io.writeFile(docPath(file), merged)
+        const entry: KnowledgeDoc = { ...existing, updatedAt: nowStamp() }
+        await persistIndex(docs.map((item) => (item.file === file ? entry : item)))
+        return entry
+      })
     },
 
     async offShelf(file) {
-      const docs = await loadIndex()
-      const next = docs.filter((item) => item.file !== file)
-      if (next.length === docs.length) return false
-      await persistIndex(next)
-      return true
+      return serializeWrite(async () => {
+        const docs = await loadIndex()
+        const next = docs.filter((item) => item.file !== file)
+        if (next.length === docs.length) return false
+        await persistIndex(next)
+        return true
+      })
     },
 
     async registerDoc({ file: rawFile, title }) {
-      const file = assertSafeDocFile(rawFile)
-      const docs = await loadIndex()
-      if (docs.some((item) => item.file === file)) throw new KnowledgeError('exists', `该文件已在清单中：${file}`)
-      const content = await io.readFile(docPath(file))
-      if (content === null) throw new KnowledgeError('missing', `knowledge/ 目录下未找到 ${file}，请确认文件已放入`)
-      const entry: KnowledgeDoc = { file, title: title.trim() || file, updatedAt: nowStamp(), source: 'manual' }
-      await persistIndex([...docs, entry])
-      return entry
+      return serializeWrite(async () => {
+        const file = assertSafeDocFile(rawFile)
+        const docs = await loadIndex()
+        if (docs.some((item) => item.file === file)) throw new KnowledgeError('exists', `该文件已在清单中：${file}`)
+        const content = await io.readFile(docPath(file))
+        if (content === null) throw new KnowledgeError('missing', `knowledge/ 目录下未找到 ${file}，请确认文件已放入`)
+        const entry: KnowledgeDoc = { file, title: title.trim() || file, updatedAt: nowStamp(), source: 'manual' }
+        await persistIndex([...docs, entry])
+        return entry
+      })
     },
 
     async resolveDocs(files) {

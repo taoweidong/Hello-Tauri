@@ -7,10 +7,10 @@
  * 会话/时间线/待办的交互各自直达 store，本父级只持有跨面板的编排 ——
  * 外部跳转的自动选中（focusConvId）、右栏折叠、导航事件转发。
  */
-import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { onMounted, ref } from 'vue'
 
 import { useWelinkStore } from '@/stores/welink'
+import { runUiAction } from '@/utils/ui-action'
 import ConversationListPanel from './messages/ConversationListPanel.vue'
 import TimelinePanel from './messages/TimelinePanel.vue'
 import PendingJobsPanel from './messages/PendingJobsPanel.vue'
@@ -31,12 +31,13 @@ let lastFocus = ''
 function applyFocus() {
   if (props.focusConvId && props.focusConvId !== lastFocus) {
     lastFocus = props.focusConvId
-    void store.selectConversation(props.focusConvId).catch((error: unknown) => {
-      ElMessage.error(error instanceof Error ? error.message : '加载会话失败')
-    })
+    // 走 runUiAction 统一出口：失败必须可见（旧写法是裸 .catch + 手写文案，
+    // 与全库 62 处 runUiAction 并存两套风格）
+    void runUiAction(() => store.selectConversation(props.focusConvId), { fail: '加载会话失败' })
   }
 }
-applyFocus()
+// 移出 setup 同步段：失败提示若早于挂载完成，toast 会在组件就绪前触发
+onMounted(applyFocus)
 </script>
 
 <template>

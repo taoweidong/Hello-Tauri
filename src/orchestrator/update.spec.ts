@@ -7,6 +7,7 @@ import { describe, expect, it, vi, beforeEach, type Mock } from 'vitest'
  */
 import { createUpdater, emptyStatus, type UpdaterDeps, type UpdatePersistedState } from './update'
 import { UpdateError, type UpdateClient, type UpdateManifest } from '@/infra/update'
+import type { TimerApi } from './timers'
 
 const SHA = 'a'.repeat(64)
 const ENDPOINT = 'http://10.0.0.8/update/hello-tauri/latest.json'
@@ -40,7 +41,7 @@ interface Harness {
 }
 
 function createHarness(
-  options: { currentVersion?: string; now?: () => number; startupDelayMs?: number } = {},
+  options: { currentVersion?: string; now?: () => number; startupDelayMs?: number; timers?: TimerApi } = {},
 ): Harness {
   const settings = { enabled: true, mode: 'notify' as const, endpoint: ENDPOINT, checkIntervalHours: 24 }
   const client = {
@@ -74,6 +75,7 @@ function createHarness(
     startupDelayMs: options.startupDelayMs ?? 0,
     periodicIntervalMs: 10_000,
     applyGraceMs: 20,
+    timers: options.timers,
   }
   const updater = createUpdater(deps)
   updater.onStatus((next) => statuses.push({ ...next }))
@@ -443,6 +445,48 @@ describe('init：调度装配与跨重启提示', () => {
     h.updater.dispose()
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(h.client.fetchRemote).not.toHaveBeenCalled()
+  })
+
+  it('dispose 回收 applyNow 的宽限 sleep 定时器（自替换路径不留孤儿）', async () => {
+    /**
+     * 反证口径：去掉 dispose 里对 graceSleeps 的清理后，本条两个断言都会红 ——
+     * race 的宽限定时器会在 dispose 之后触发，把状态机从 applying 改写成
+     * failed（往终态编排器上补写状态），且定时器本身成为孤儿。
+     *
+     * 场景选「apply 宽限无响应」：apply 永不 settle， race 完全由宽限 sleep
+     * 决定胜负，是唯一能让宽限定时器**停留在册**的路径（ok 分支的 sleep 在
+     * apply resolve 之后才创建，抓不住 dispose 窗口）。
+     */
+    const pending = new Map<number, () => void>()
+    let seq = 0
+    const timers: TimerApi = {
+      set(handler: () => void, _ms: number) {
+        const id = ++seq
+        pending.set(id, handler)
+        return id
+      },
+      clear(id: number) {
+        pending.delete(id)
+      },
+    }
+    const h = createHarness({ timers })
+    h.setSettings({ mode: 'auto' })
+    h.client.apply.mockReturnValue(new Promise(() => {})) // 永不 resolve：宽限无响应
+    // auto 一条龙：available → 下载 → ready → applying（apply 无响应，race 挂起）。
+    // 浮动调用：applyNow 的 race 在宽限定时器被清后永不 settle，等它到底会超时。
+    void h.updater.checkNow('manual').catch(() => {})
+    await waitFor(h, (state) => state === 'applying')
+    // 此刻在册的正是 applyNow race 里的宽限 sleep（未 init，无调度定时器）
+    expect(pending.size).toBe(1)
+
+    h.updater.dispose()
+    expect(pending.size).toBe(0)
+
+    // 宽限已死：即便真实时间流过，也不再有任何状态迁移
+    const seen = h.statuses.length
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(h.statuses.length).toBe(seen)
+    expect(h.updater.getStatus().state).toBe('applying')
   })
 })
 

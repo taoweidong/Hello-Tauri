@@ -232,19 +232,19 @@ export function createConversationView(deps: ConversationViewDeps): Conversation
     const candidates = await active.port().listConversations()
     const known = new Set(conversations.value.map((item) => item.convId))
     const watchSet = new Set(watchIds)
-    let imported = 0
-    let watched = 0
-    for (const candidate of candidates) {
-      const allowWatch = watchSet.has(candidate.convId) && !known.has(candidate.convId)
-      await active.repo.upsertConversation({
+    // 批量 upsert（S9）：旧实现逐候选 await，每条 = INSERT + 读后回查 = 2 次跨进程
+    // IPC，N 个候选 2N 次首尾相接。批量后固定「1 次多值 INSERT + 1 次 IN 回查」。
+    await active.repo.upsertConversationsBatch(
+      candidates.map((candidate) => ({
         convType: candidate.convType,
         convId: candidate.convId,
         title: candidate.title,
-        watching: allowWatch,
-      })
-      if (!known.has(candidate.convId)) imported += 1
-      if (allowWatch) watched += 1
-    }
+        // 勾选监控只对「新会话」生效（§11.5：默认不监控、不回复，勾 watch 只省一次点击）
+        watching: watchSet.has(candidate.convId) && !known.has(candidate.convId),
+      })),
+    )
+    const imported = candidates.filter((candidate) => !known.has(candidate.convId)).length
+    const watched = candidates.filter((candidate) => watchSet.has(candidate.convId) && !known.has(candidate.convId)).length
     await loadConversations()
     runtimeHolder.current?.poller.refreshConversations()
     pushLog(

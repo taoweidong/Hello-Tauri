@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { createGo } from '@/utils/nav'
 import { ElMessage } from 'element-plus'
-import { IconActivity, IconUsers, IconGitBranch, IconRefresh, IconArrowRight, IconCheck } from '@/components/icons'
+import { IconActivity, IconUsers, IconGitBranch, IconRefresh, IconArrowRight, IconCheck, IconAlert } from '@/components/icons'
 
 import { platform } from '@/api'
 import type { CodeHubMrRecord } from '@/types/codehub'
@@ -13,6 +13,7 @@ import { useWelinkStore } from '@/stores/welink'
 import { useCodehubStore } from '@/stores/codehub'
 import { useGroupStore } from '@/stores/group'
 import { useUpdateStore } from '@/stores/update'
+import { runUiAction } from '@/utils/ui-action'
 import { logger } from '@/utils/logger'
 import { shortStamp } from '@/utils/welink-display'
 
@@ -53,17 +54,30 @@ const reviewQueue = ref<WelinkJob[]>([])
 
 const groupCount = ref(0)
 
+/**
+ * 三路摘要各自的装载失败态（P1：静默降级收口）。
+ *
+ * 旧实现四路 catch 只写 logger.warn：WeLink 失败时待审卡片落入「暂无待审」、
+ * 建群失败显示「历史建群 0 次」—— 与「真的没有」在界面上完全同形，用户无法
+ * 区分「没加载上」和「确实是空」。失败必须是**可见态**（与 WeLinkView /
+ * CodehubReviewView 的 initFailed 同款处置），并给一次重试入口。
+ * 对应的 `*Ready` 仍只在成功路径置真：没成功时数字一律不显示（宁可少说，不错说）。
+ */
+const codehubFailed = ref(false)
+const welinkFailed = ref(false)
+const groupFailed = ref(false)
+const codehubRetrying = ref(false)
+const welinkRetrying = ref(false)
+const groupRetrying = ref(false)
+
 async function loadReviewQueue() {
-  try {
-    reviewQueue.value = await welinkStore.listJobs({ onlyHolding: true, limit: PREVIEW_LIMIT, offset: 0 })
-  } catch (error) {
-    logger.warn('工作台装载待审预览失败', error)
-  }
+  reviewQueue.value = await welinkStore.listJobs({ onlyHolding: true, limit: PREVIEW_LIMIT, offset: 0 })
 }
 
-onMounted(async () => {
-  // CodeHub 摘要：迁移 + 装载（应用级装配幂等，App.vue 启动也会触发）；只读快照计数与列表
+async function loadCodehub() {
   try {
+    codehubFailed.value = false
+    // CodeHub 摘要：迁移 + 装载（应用级装配幂等，App.vue 启动也会触发）；只读快照计数与列表
     if (await codehubStore.init()) {
       const [count, records] = await Promise.all([
         codehubStore.countMrs({ state: 'open' }),
@@ -74,11 +88,15 @@ onMounted(async () => {
       codehubReady.value = true
     }
   } catch (error) {
+    codehubFailed.value = true
     logger.warn('工作台装载 CodeHub 摘要失败', error)
   }
+}
 
-  // WeLink 摘要：只读装载（不 start —— 轮询恢复只在助手页进行），待审/未读数字才可信
+async function loadWelink() {
   try {
+    welinkFailed.value = false
+    // WeLink 摘要：只读装载（不 start —— 轮询恢复只在助手页进行），待审/未读数字才可信
     const { panicRecovered } = await welinkStore.init(appStore.settings.weLink)
     welinkReady.value = true
     await loadReviewQueue()
@@ -88,24 +106,59 @@ onMounted(async () => {
       ElMessage.error('上次会话以「一键全停」结束：已降为人工确认模式，未自动恢复外发')
     }
   } catch (error) {
+    welinkFailed.value = true
     logger.warn('工作台装载 WeLink 摘要失败', error)
   }
+}
 
-  // 快速建群摘要：模板 + 历史计数（init 幂等，含启动清扫）
+async function loadGroup() {
   try {
+    groupFailed.value = false
+    // 快速建群摘要：模板 + 历史计数（init 幂等，含启动清扫）
     if (await groupStore.init()) {
       groupCount.value = await groupStore.countJobs({})
     }
   } catch (error) {
+    groupFailed.value = true
     logger.warn('工作台装载建群摘要失败', error)
   }
+}
+
+onMounted(async () => {
+  await loadCodehub()
+  await loadWelink()
+  await loadGroup()
 })
+
+/** 三路重试：用户显式触发，走 runUiAction 统一 busy / 失败口径 */
+async function retryCodehub() {
+  await runUiAction(() => loadCodehub(), { busy: codehubRetrying, fail: 'CodeHub 摘要重试失败' })
+}
+
+async function retryWelink() {
+  await runUiAction(() => loadWelink(), { busy: welinkRetrying, fail: 'WeLink 摘要重试失败' })
+}
+
+async function retryGroup() {
+  await runUiAction(() => loadGroup(), { busy: groupRetrying, fail: '建群摘要重试失败' })
+}
+
+/**
+ * 运行信息刷新：`appStore.load()` 内部吞错（只落日志、永不 reject）—— 模板里
+ * 裸调它，失败时用户点击毫无反馈。这里补上 busy 与可见失败提示。
+ */
+const runtimeBusy = ref(false)
+async function refreshRuntime() {
+  await runUiAction(() => appStore.load(), { busy: runtimeBusy, fail: '运行信息刷新失败' })
+}
 
 // 待审数量变化（轮询/页面操作）→ 队列预览跟随刷新
 watch(
   () => welinkStore.reviewCount,
   () => {
-    if (welinkReady.value) void loadReviewQueue()
+    if (welinkReady.value) {
+      void loadReviewQueue().catch((error: unknown) => logger.warn('工作台刷新待审预览失败', error))
+    }
   },
 )
 
@@ -191,11 +244,20 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
         </div>
 
         <div class="panel__foot">
-          <span class="status" :class="`status--${welinkTone}`">
+          <span v-if="welinkFailed" class="status status--danger">
+            <span class="status__dot" aria-hidden="true" />
+            助手摘要装载失败
+            <button class="link pressable" :disabled="welinkRetrying" aria-label="重试装载助手摘要" @click="retryWelink">重试</button>
+          </span>
+          <span v-else class="status" :class="`status--${welinkTone}`">
             <span class="status__dot" aria-hidden="true" />
             自动回复{{ welinkStore.statusText }}
           </span>
-          <span class="panel__extra num">历史建群 {{ fmt(groupCount) }} 次</span>
+          <span v-if="groupFailed" class="panel__extra panel__extra--fail">
+            建群摘要失败
+            <button class="link pressable" :disabled="groupRetrying" aria-label="重试装载建群摘要" @click="retryGroup">重试</button>
+          </span>
+          <span v-else class="panel__extra num">历史建群 {{ fmt(groupCount) }} 次</span>
         </div>
 
         <div class="panel__actions">
@@ -271,6 +333,11 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
             <span class="queue__time num">{{ shortStamp(job.createdAt) }}</span>
           </button>
         </div>
+        <div v-else-if="welinkFailed" class="empty">
+          <IconAlert class="empty__icon" />
+          <p>待审摘要装载失败</p>
+          <button class="link pressable" :disabled="welinkRetrying" aria-label="重试装载待审摘要" @click="retryWelink">重试</button>
+        </div>
         <div v-else class="empty">
           <IconCheck class="empty__icon" />
           <p>暂无待审</p>
@@ -303,6 +370,11 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
             <span class="queue__time num">{{ shortStamp(mr.summary.updatedAt) }}</span>
           </button>
         </div>
+        <div v-else-if="codehubFailed" class="empty">
+          <IconAlert class="empty__icon" />
+          <p>MR 快照装载失败</p>
+          <button class="link pressable" :disabled="codehubRetrying" @click="retryCodehub">重试</button>
+        </div>
         <div v-else class="empty">
           <IconGitBranch class="empty__icon" />
           <p>{{ codehubEmpty.title }}</p>
@@ -316,7 +388,14 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
       <header class="ht-card__head">
         <span>运行信息</span>
         <span class="spacer" />
-        <button class="icon-btn pressable" title="刷新" aria-label="刷新运行信息" @click="appStore.load()">
+        <button
+          class="icon-btn pressable"
+          :class="{ 'is-busy': runtimeBusy }"
+          title="刷新"
+          aria-label="刷新运行信息"
+          :disabled="runtimeBusy"
+          @click="refreshRuntime"
+        >
           <IconRefresh class="icon-btn__icon" />
         </button>
       </header>
@@ -529,6 +608,11 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
   white-space: nowrap;
 }
 
+/* 摘要装载失败：与「历史建群 0 次」必须可区分（静默降级收口） */
+.panel__extra--fail {
+  color: var(--ht-danger);
+}
+
 .panel__actions {
   display: flex;
   gap: 8px;
@@ -702,6 +786,22 @@ const storageInfo = computed(() => appStore.info?.storage ?? null)
 .icon-btn__icon {
   width: 14px;
   height: 14px;
+}
+
+/* 刷新中：图标旋转 + 禁用态（store.load() 吞错，busy 由本层补上） */
+.icon-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.icon-btn.is-busy .icon-btn__icon {
+  animation: dash-spin 0.8s linear infinite;
+}
+
+@keyframes dash-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* —— 运行信息横条 —— */

@@ -285,15 +285,23 @@ async function removeJob(job: WelinkJob) {
   if (ok) void load()
 }
 
+/** 评价进行中（赞/踩按钮禁用态，防连点重复请求；幂等 toggle 也经不起批量连点） */
+const ratingBusy = ref<'up' | 'down' | null>(null)
+
 async function rate(job: WelinkJob, rating: 'up' | 'down') {
   const next = job.rating === rating ? null : rating
-  const ok = await runUiAction(() => store.rateJob(job.pk, next), { fail: '评价失败' })
-  if (!ok) return
-  // 评价只改库里的 rating 字段，本页表格是 `load()` 拉出来的快照 —— 不重拉，
-  // 👍/👎 的高亮就不会变，用户会以为没点上（评价是改进闭环的输入，点了没反馈
-  // 等于这条语料白标）。
-  void runUiAction(() => load(), { fail: '刷新回复历史失败' })
-  if (next === 'down') ElMessage.info('已标记为差评：该输入输出对将出现在回溯页「只看差评」')
+  ratingBusy.value = rating
+  try {
+    const ok = await runUiAction(() => store.rateJob(job.pk, next), { fail: '评价失败' })
+    if (!ok) return
+    // 评价只改库里的 rating 字段，本页表格是 `load()` 拉出来的快照 —— 不重拉，
+    // 👍/👎 的高亮就不会变，用户会以为没点上（评价是改进闭环的输入，点了没反馈
+    // 等于这条语料白标）。
+    void runUiAction(() => load(), { fail: '刷新回复历史失败' })
+    if (next === 'down') ElMessage.info('已标记为差评：该输入输出对将出现在回溯页「只看差评」')
+  } finally {
+    ratingBusy.value = null
+  }
 }
 
 const expandedDraft = ref<number[]>([])
@@ -527,6 +535,7 @@ function latency(job: WelinkJob): string {
             class="rate pressable"
             :class="{ 'is-on': row.rating === 'up' }"
             title="回复可采纳"
+            :disabled="ratingBusy === 'up'"
             @click="rate(jobOf(row), 'up')"
           >
             👍
@@ -535,6 +544,7 @@ function latency(job: WelinkJob): string {
             class="rate pressable"
             :class="{ 'is-on': row.rating === 'down' }"
             title="回复需改进（差评对是改进语料）"
+            :disabled="ratingBusy === 'down'"
             @click="rate(jobOf(row), 'down')"
           >
             👎
@@ -781,6 +791,12 @@ function latency(job: WelinkJob): string {
   opacity: 1;
   border-color: var(--ht-line-strong);
   background: var(--ht-surface-2);
+}
+
+/* 评价进行中：禁用态与未选中态同形会看不出差别，压暗 + 禁光标 */
+.rate:disabled {
+  cursor: default;
+  opacity: 0.25;
 }
 
 .hist__pager {

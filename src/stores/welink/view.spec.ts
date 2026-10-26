@@ -36,7 +36,7 @@ interface Harness {
   deps: ConversationViewDeps
   repo: WelinkRepository
   runtime: WelinkRuntime
-  runtimeRepo: { upsertConversation: ReturnType<typeof vi.fn> }
+  runtimeRepo: { upsertConversation: ReturnType<typeof vi.fn>; upsertConversationsBatch: ReturnType<typeof vi.fn> }
   pushLog: ReturnType<typeof vi.fn>
   refreshSafety: ReturnType<typeof vi.fn>
   conversations: ReturnType<typeof ref<WelinkConversation[]>>
@@ -64,7 +64,10 @@ function makeHarness(): Harness {
     setAutoReply: vi.fn(async () => 1),
     removeConversation: vi.fn(async () => undefined),
   } as unknown as WelinkRepository
-  const runtimeRepo = { upsertConversation: vi.fn(async () => undefined) }
+  const runtimeRepo = {
+    upsertConversation: vi.fn(async () => undefined),
+    upsertConversationsBatch: vi.fn(async () => []),
+  }
   const runtime = {
     port: vi.fn(() => ({ listConversations: async () => [] as unknown[] })),
     repo: runtimeRepo,
@@ -277,9 +280,16 @@ describe('view：会话配置联动', () => {
     const result = await view.syncConversations(['new-1'])
     expect(result.imported).toBe(1)
     expect(result.watched).toBe(1)
-    // 导入走的是 runtime.repo（编排层运行时持有的仓储），不是视图的网关读取
-    const upsert = harness.runtimeRepo.upsertConversation.mock.calls[0][0]
-    expect(upsert).toEqual({ convType: 'group', convId: 'new-1', title: '新群', watching: true })
-    expect(upsert.autoReply).toBeUndefined()
+    // 导入走的是 runtime.repo（编排层运行时持有的仓储），不是视图的网关读取。
+    // S9 批量后是**一次批写**：断言钉在「单次调用 + 入参形状」上 —— 逐候选循环
+    // （旧实现）会让调用次数变成 2，本条会红。
+    expect(harness.runtimeRepo.upsertConversationsBatch).toHaveBeenCalledTimes(1)
+    const batch = harness.runtimeRepo.upsertConversationsBatch.mock.calls[0][0]
+    expect(batch).toEqual([
+      { convType: 'group', convId: 'new-1', title: '新群', watching: true },
+      // 已有会话：不覆盖 watching/auto_reply，勾选也不生效（只对新会话放行）
+      { convType: 'group', convId: 'G-1', title: '已有', watching: false },
+    ])
+    expect(batch[0].autoReply).toBeUndefined()
   })
 })

@@ -494,189 +494,206 @@ export function createPipeline(options: PipelineOptions): Pipeline {
    * 重试刚被挂起的任务（见 `flush()` 的 `deferredThisPass`）。
    */
   async function sendOne(jobPk: number): Promise<boolean> {
-    const settings = options.settings()
-    const job = await options.repo.getJob(jobPk)
-    if (!job) return false
-
-    // —— 崩溃恢复：库里残留 sending（§6.3 第二分支） ——
-    if (job.status === 'sending') {
-      if (await options.repo.hasOutgoingReceipt(jobPk)) {
-        await recoverAsSent(jobPk, '崩溃恢复：查到外发回执，补记已发送')
-        return true
-      }
-      await options.repo.suspendJob(jobPk)
-      emitStatus(jobPk, 'sending', 'ready', '崩溃恢复：无回执，回落 ready 待重发')
-      // 回落 ready 是**为了重发**，所以必须重新排队并留一根重试定时器；
-      // 只改状态不排队 = 这条草稿永远不会再被外发（重启后静默丢失）。
-      sendQueue.push(jobPk)
-      scheduleRetry()
-      return false
-    }
-    // 前置检查恒为 ready（要点3）。
-    //
-    // 这里是 `manualOverride` 唯一没被回收的出口：`sendNow` 已把 jobPk 放进该 Set 并入队，
-    // 若在调度到本函数之前状态被别的路径改掉（并发的启动恢复、重复 `sendNow` 后第一次
-    // 已置 sending、人工编辑触发的 `updateDraft`），就会在这里提前返回 —— 条目**永不删除**。
-    // 单次泄漏极小，但它是长跑集合里唯一没有回收兜底的一个（`promptOwners` 有 finally 兜底、
-    // `generateRetries` 有终态集合收口），长跑下会缓慢累积。
-    if (job.status !== 'ready') {
-      manualOverride.delete(jobPk)
-      return false
-    }
-
-    // manual 模式：不自动外发，停 ready + hold_reason（计入 reviewCount O7）
-    if (job.sendModeUsed === 'manual' && !manualOverride.has(jobPk)) {
-      await options.repo.holdJob(jobPk, 'manual_mode')
-      emitStatus(jobPk, 'ready', 'ready', '人工模式待确认', 'manual_mode')
-      options.emit({ type: 'safetyChanged', snapshot: options.gate.snapshot() })
-      return false
-    }
-    manualOverride.delete(jobPk)
-
-    const conv = await options.repo.getConversation(job.targetId)
     /**
-     * S5 需要触发消息的发送者工号：`senderId` 传空会让 Gate 的合并判定
-     * **永远短路**（它刻意不对未知发送者做合并），规则形同虚设。
-     * job 只存了 `trigger_msg_pk`，因此这里补一次主键查询 —— 单行读，
-     * 且只在「即将外发」这一条路径上发生（不在 check 的循环里）。
+     * 本 job 是否「还会重来」：四个 requeue 出口（sending 回落、defer 挂起、
+     * 触发消息读取重试、发送失败重试）都把 jobPk 推回 `sendQueue`，下一轮
+     * `sendOne` 会再跑一次。
      *
-     * 为什么不再写成 `.catch(() => null)`（第四轮 S4 修复）：它把「库里没有这条
-     * 消息」和「查询本身失败（IPC 断、库锁等待超时、磁盘 IO 错）」压成同一个
-     * null —— DB 一抖 senderId 就静默变空，Gate 的 S5 限流随即**在用户完全无感
-     * 的情况下失效**。这是典型的「兜底掩盖真实失败」，正是本项目最忌讳的缺陷形态。
+     * 它决定 `manualOverride` 条目的去留：
+     *  * 会重来 → **保留**。否则下一轮 manual 模式检查会把它误拦成
+     *    「人工模式待确认」——用户点了立即发送，却被 hold 住；
+     *  * 不再重来（终态）→ **删除**。否则长跑下该集合缓慢泄漏。
      *
-     * 三种口径必须分开：
-     *  * 查得到 → 用真实 senderId（限流正常生效）；
-     *  * 查得到但为 `null`（消息已被保留期清理）→ 发送者确实不可知，放行；
-     *  * **查询抛错** → 不放行：限流的输入不能靠猜，按一次发送失败计数并重试。
+     * 历史教训（第八轮勘察）：删除动作曾散落在两个出口上，其余出口靠
+     * 「记得加」——新增出口漏加即泄漏，且无任何测试能发现。现改为
+     * `finally` 单一兜底：默认删，只有显式标记 requeue 的出口保留。
      */
-    let triggerMsg: Awaited<ReturnType<WelinkRepository['getMessage']>> = null
-    if (conv) {
+    let requeuedForRetry = false
+    try {
+      const settings = options.settings()
+      const job = await options.repo.getJob(jobPk)
+      if (!job) return false
+
+      // —— 崩溃恢复：库里残留 sending（§6.3 第二分支） ——
+      if (job.status === 'sending') {
+        if (await options.repo.hasOutgoingReceipt(jobPk)) {
+          await recoverAsSent(jobPk, '崩溃恢复：查到外发回执，补记已发送')
+          return true
+        }
+        await options.repo.suspendJob(jobPk)
+        emitStatus(jobPk, 'sending', 'ready', '崩溃恢复：无回执，回落 ready 待重发')
+        // 回落 ready 是**为了重发**，所以必须重新排队并留一根重试定时器；
+        // 只改状态不排队 = 这条草稿永远不会再被外发（重启后静默丢失）。
+        requeuedForRetry = true
+        sendQueue.push(jobPk)
+        scheduleRetry()
+        return false
+      }
+      // 前置检查恒为 ready（要点3）。非 ready 直接退出即可 —— `manualOverride`
+      // 的回收由函数末尾的 `finally` 统一兜底，无需在此显式删除。
+      if (job.status !== 'ready') {
+        return false
+      }
+
+      // manual 模式：不自动外发，停 ready + hold_reason（计入 reviewCount O7）
+      if (job.sendModeUsed === 'manual' && !manualOverride.has(jobPk)) {
+        await options.repo.holdJob(jobPk, 'manual_mode')
+        emitStatus(jobPk, 'ready', 'ready', '人工模式待确认', 'manual_mode')
+        options.emit({ type: 'safetyChanged', snapshot: options.gate.snapshot() })
+        return false
+      }
+      // 越过 manual 模式检查即视为「立即发送」已消费 —— 条目的删除同样交给
+      // 末尾 `finally` 兜底（requeue 出口会显式保留）。
+      const conv = await options.repo.getConversation(job.targetId)
+      /**
+       * S5 需要触发消息的发送者工号：`senderId` 传空会让 Gate 的合并判定
+       * **永远短路**（它刻意不对未知发送者做合并），规则形同虚设。
+       * job 只存了 `trigger_msg_pk`，因此这里补一次主键查询 —— 单行读，
+       * 且只在「即将外发」这一条路径上发生（不在 check 的循环里）。
+       *
+       * 为什么不再写成 `.catch(() => null)`（第四轮 S4 修复）：它把「库里没有这条
+       * 消息」和「查询本身失败（IPC 断、库锁等待超时、磁盘 IO 错）」压成同一个
+       * null —— DB 一抖 senderId 就静默变空，Gate 的 S5 限流随即**在用户完全无感
+       * 的情况下失效**。这是典型的「兜底掩盖真实失败」，正是本项目最忌讳的缺陷形态。
+       *
+       * 三种口径必须分开：
+       *  * 查得到 → 用真实 senderId（限流正常生效）；
+       *  * 查得到但为 `null`（消息已被保留期清理）→ 发送者确实不可知，放行；
+       *  * **查询抛错** → 不放行：限流的输入不能靠猜，按一次发送失败计数并重试。
+       */
+      let triggerMsg: Awaited<ReturnType<WelinkRepository['getMessage']>> = null
+      if (conv) {
+        try {
+          triggerMsg = await options.repo.getMessage(job.triggerMsgPk)
+        } catch (error) {
+          const message = `读取触发消息失败：${error instanceof Error ? error.message : String(error)}`
+          const attempts = job.attempts + 1
+          if (attempts < MAX_SEND_ATTEMPTS) {
+            await options.repo.recordAttemptFailure(jobPk, 'ready', message)
+            emitStatus(jobPk, 'ready', 'ready', `触发消息读取失败，第 ${attempts} 次重试：${message}`)
+            requeuedForRetry = true
+            sendQueue.push(jobPk)
+            scheduleRetry(Math.min(60_000, attempts * 5000))
+          } else {
+            await options.repo.recordAttemptFailure(jobPk, 'failed', message)
+            emitStatus(jobPk, 'ready', 'failed', `触发消息读取重试 ${attempts} 次耗尽：${message}`)
+          }
+          logger.error(`触发消息读取失败，本次不放行（job ${jobPk}）：${message}`)
+          return false
+        }
+      }
+      const senderId = triggerMsg?.senderId ?? ''
+      const decision = options.gate.check({ job, senderId, conversation: conv })
+
+      if (decision.action !== 'send') {
+        switch (decision.action) {
+          case 'skip':
+            await options.repo.skipJob(jobPk, decision.reason)
+            emitStatus(jobPk, 'ready', 'skipped', decision.detail)
+            break
+          case 'hold':
+            await options.repo.holdJob(jobPk, decision.reason)
+            emitStatus(jobPk, 'ready', 'ready', decision.detail, String(decision.reason))
+            break
+          case 'defer':
+            // 挂起：回 ready（无 hold_reason），等下一轮重试。
+            //
+            // 为什么用**单列的 retryTimer** 而不是 `scheduleFlush(retryDelayMs)`：
+            // 0ms 的冲刷请求（新草稿就绪）会顶掉长延时排程，被挂起的任务就再也
+            // 等不到重试。`scheduleRetry()` 保证「只要还有任务在等，就恒有一根
+            // 重试定时器」，且多任务共用同一根。
+            //
+            // 短期挂起（静默时段/全局配额）值得重排；长期挂起（会话静音）等下次
+            // 入队更省，避免每个 tick 无意义刷库。
+            await options.repo.suspendJob(jobPk)
+            emitStatus(jobPk, 'ready', 'ready', decision.detail)
+            requeuedForRetry = true
+            sendQueue.push(jobPk)
+            if (!decision.terminal) scheduleRetry()
+            break
+        }
+        options.emit({ type: 'safetyChanged', snapshot: options.gate.snapshot() })
+        return false
+      }
+
+      // 乐观锁置 sending：并发/重复投递只有一个能拿到（D12 的核心保证）
+      const locked = await options.repo.markStatus(jobPk, 'sending', 'ready')
+      if (!locked) return false
+      emitStatus(jobPk, 'ready', 'sending', 'Gate 放行，开始外发')
+
+      const port = options.port(settings)
       try {
-        triggerMsg = await options.repo.getMessage(job.triggerMsgPk)
+        const receipt = await port.send({ convId: job.targetId, convType: job.targetType }, job.draft)
+        const sentAt = nowStamp(now())
+        const convPk = conv?.pk ?? 0
+        const recorded = await options.repo.markSent(jobPk, {
+          msgUid: receipt.msgUid,
+          sentAt,
+          convPk,
+          content: job.draft,
+        })
+        if (!recorded) {
+          // sending 锁已保证唯一，走到这里说明状态被外部改动（如人工删除任务）—— 不重复记账
+          logger.warn(`发送成功但记账未生效（job ${jobPk}），已跳过重复记账`)
+          return true
+        }
+        // 配额扣减**只在发送成功后**（否则失败会白吃配额）
+        options.gate.onSent(job.targetId, senderId)
+        emitStatus(jobPk, 'sending', 'sent', '已发送')
+        options.emit({ type: 'safetyChanged', snapshot: options.gate.snapshot() })
+        if (conv) {
+          // 让消息中心即时看到自己发出的那条（增量补丁，不整表刷新；pk 用负数占位）
+          options.emit({
+            type: 'messagesAppended',
+            convId: job.targetId,
+            messages: [
+              {
+                pk: -Date.now(),
+                convPk,
+                msgUid: receipt.msgUid,
+                convType: job.targetType,
+                convId: job.targetId,
+                direction: 'out',
+                senderId: '',
+                senderName: '我',
+                content: job.draft,
+                msgType: 'text',
+                atMe: false,
+                readFlag: true,
+                sentAt,
+              },
+            ],
+          })
+        }
+        logger.info(`已回复（job ${jobPk} → ${conv?.title || job.targetId}）`)
+        return true
       } catch (error) {
-        const message = `读取触发消息失败：${error instanceof Error ? error.message : String(error)}`
+        const message = error instanceof Error ? error.message : String(error)
+
+        // 重发前必须核对回执：上一次可能「发出去了但没记上」（§6.2 防双发）
+        if (await options.repo.hasOutgoingReceipt(jobPk)) {
+          await recoverAsSent(jobPk, '发送报错但查到外发回执，补记 sent 以防重复发送')
+          // 有回执 = 大概率真的发出去了 → 计入配额并刷新 S1 基线（防止紧接着再回一条）
+          options.gate.onSent(job.targetId, senderId)
+          logger.warn(`发送报错但存在回执（job ${jobPk}），补记 sent 以防重复发送`)
+          return true
+        }
+
         const attempts = job.attempts + 1
         if (attempts < MAX_SEND_ATTEMPTS) {
           await options.repo.recordAttemptFailure(jobPk, 'ready', message)
-          emitStatus(jobPk, 'ready', 'ready', `触发消息读取失败，第 ${attempts} 次重试：${message}`)
+          emitStatus(jobPk, 'sending', 'ready', `发送失败，第 ${attempts} 次重试：${message}`)
+          requeuedForRetry = true
           sendQueue.push(jobPk)
           scheduleRetry(Math.min(60_000, attempts * 5000))
         } else {
           await options.repo.recordAttemptFailure(jobPk, 'failed', message)
-          emitStatus(jobPk, 'ready', 'failed', `触发消息读取重试 ${attempts} 次耗尽：${message}`)
+          emitStatus(jobPk, 'sending', 'failed', `发送重试 ${attempts} 次耗尽：${message}`)
         }
-        logger.error(`触发消息读取失败，本次不放行（job ${jobPk}）：${message}`)
         return false
       }
-    }
-    const senderId = triggerMsg?.senderId ?? ''
-    const decision = options.gate.check({ job, senderId, conversation: conv })
-
-    if (decision.action !== 'send') {
-      switch (decision.action) {
-        case 'skip':
-          await options.repo.skipJob(jobPk, decision.reason)
-          emitStatus(jobPk, 'ready', 'skipped', decision.detail)
-          break
-        case 'hold':
-          await options.repo.holdJob(jobPk, decision.reason)
-          emitStatus(jobPk, 'ready', 'ready', decision.detail, String(decision.reason))
-          break
-        case 'defer':
-          // 挂起：回 ready（无 hold_reason），等下一轮重试。
-          //
-          // 为什么用**单列的 retryTimer** 而不是 `scheduleFlush(retryDelayMs)`：
-          // 0ms 的冲刷请求（新草稿就绪）会顶掉长延时排程，被挂起的任务就再也
-          // 等不到重试。`scheduleRetry()` 保证「只要还有任务在等，就恒有一根
-          // 重试定时器」，且多任务共用同一根。
-          //
-          // 短期挂起（静默时段/全局配额）值得重排；长期挂起（会话静音）等下次
-          // 入队更省，避免每个 tick 无意义刷库。
-          await options.repo.suspendJob(jobPk)
-          emitStatus(jobPk, 'ready', 'ready', decision.detail)
-          sendQueue.push(jobPk)
-          if (!decision.terminal) scheduleRetry()
-          break
-      }
-      options.emit({ type: 'safetyChanged', snapshot: options.gate.snapshot() })
-      return false
-    }
-
-    // 乐观锁置 sending：并发/重复投递只有一个能拿到（D12 的核心保证）
-    const locked = await options.repo.markStatus(jobPk, 'sending', 'ready')
-    if (!locked) return false
-    emitStatus(jobPk, 'ready', 'sending', 'Gate 放行，开始外发')
-
-    const port = options.port(settings)
-    try {
-      const receipt = await port.send({ convId: job.targetId, convType: job.targetType }, job.draft)
-      const sentAt = nowStamp(now())
-      const convPk = conv?.pk ?? 0
-      const recorded = await options.repo.markSent(jobPk, {
-        msgUid: receipt.msgUid,
-        sentAt,
-        convPk,
-        content: job.draft,
-      })
-      if (!recorded) {
-        // sending 锁已保证唯一，走到这里说明状态被外部改动（如人工删除任务）—— 不重复记账
-        logger.warn(`发送成功但记账未生效（job ${jobPk}），已跳过重复记账`)
-        return true
-      }
-      // 配额扣减**只在发送成功后**（否则失败会白吃配额）
-      options.gate.onSent(job.targetId, senderId)
-      emitStatus(jobPk, 'sending', 'sent', '已发送')
-      options.emit({ type: 'safetyChanged', snapshot: options.gate.snapshot() })
-      if (conv) {
-        // 让消息中心即时看到自己发出的那条（增量补丁，不整表刷新；pk 用负数占位）
-        options.emit({
-          type: 'messagesAppended',
-          convId: job.targetId,
-          messages: [
-            {
-              pk: -Date.now(),
-              convPk,
-              msgUid: receipt.msgUid,
-              convType: job.targetType,
-              convId: job.targetId,
-              direction: 'out',
-              senderId: '',
-              senderName: '我',
-              content: job.draft,
-              msgType: 'text',
-              atMe: false,
-              readFlag: true,
-              sentAt,
-            },
-          ],
-        })
-      }
-      logger.info(`已回复（job ${jobPk} → ${conv?.title || job.targetId}）`)
-      return true
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-
-      // 重发前必须核对回执：上一次可能「发出去了但没记上」（§6.2 防双发）
-      if (await options.repo.hasOutgoingReceipt(jobPk)) {
-        await recoverAsSent(jobPk, '发送报错但查到外发回执，补记 sent 以防重复发送')
-        // 有回执 = 大概率真的发出去了 → 计入配额并刷新 S1 基线（防止紧接着再回一条）
-        options.gate.onSent(job.targetId, senderId)
-        logger.warn(`发送报错但存在回执（job ${jobPk}），补记 sent 以防重复发送`)
-        return true
-      }
-
-      const attempts = job.attempts + 1
-      if (attempts < MAX_SEND_ATTEMPTS) {
-        await options.repo.recordAttemptFailure(jobPk, 'ready', message)
-        emitStatus(jobPk, 'sending', 'ready', `发送失败，第 ${attempts} 次重试：${message}`)
-        sendQueue.push(jobPk)
-        scheduleRetry(Math.min(60_000, attempts * 5000))
-      } else {
-        await options.repo.recordAttemptFailure(jobPk, 'failed', message)
-        emitStatus(jobPk, 'sending', 'failed', `发送重试 ${attempts} 次耗尽：${message}`)
-      }
-      return false
+    } finally {
+      if (!requeuedForRetry) manualOverride.delete(jobPk)
     }
   }
 

@@ -213,6 +213,18 @@ export const memorySedimentRepository: SedimentRepository = {
     return doomed.length
   },
 
+  async purgeKnowledgeDraftsBefore(cutoff, batch) {
+    // 与 SQLite 实现同构：只清已决状态、按 reviewedAt 分批删。
+    // pending 的 reviewedAt 为 null，天然不匹配 `< cutoff`（显式判空对齐 SQL 侧语义）。
+    const doomed = state.drafts
+      .filter((row) => row.status !== 'pending' && row.reviewedAt !== null && row.reviewedAt < cutoff)
+      .slice(0, batch)
+    if (!doomed.length) return 0
+    state.drafts = state.drafts.filter((row) => !doomed.includes(row))
+    flush()
+    return doomed.length
+  },
+
   // ---------------- 原料扫描（只读 welink 内存状态） ----------------
 
   async listInMessagesSince(afterPk, convIds, limit) {

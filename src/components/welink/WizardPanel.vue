@@ -128,7 +128,7 @@ onMounted(() => {
         </el-radio-group>
         <div v-if="form.source === 'cli'" class="wiz__field">
           <span class="wiz__label">cli 路径</span>
-          <el-input v-model="form.cliPath" placeholder="welink-cli.exe 或完整路径，如 D:\tools\welink-cli.exe" />
+          <el-input v-model="form.cliPath" aria-label="cli 路径" placeholder="welink-cli.exe 或完整路径，如 D:\tools\welink-cli.exe" />
         </div>
         <p v-else class="wiz__note">模拟数据内置演示群与剧本，无需任何外部程序即可跑通全流程。</p>
       </div>
@@ -137,7 +137,7 @@ onMounted(() => {
       <div v-else-if="step === 2" class="wiz__form">
         <div class="wiz__field">
           <span class="wiz__label">我的工号</span>
-          <el-input v-model="form.myUserId" placeholder="如 10086，需与 WeLink 中的工号一致" />
+          <el-input v-model="form.myUserId" aria-label="我的工号" placeholder="如 10086，需与 WeLink 中的工号一致" />
         </div>
         <p class="wiz__note">用于过滤你自己发出的消息 —— 不填会导致「自己回自己」，助手无法正常工作。</p>
       </div>

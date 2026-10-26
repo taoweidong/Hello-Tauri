@@ -358,6 +358,36 @@ describe('orchestrator/bootstrap —— SafetyGate 预热接线（O5）', () => 
     expect(h.gate?.primeConversation).toHaveBeenCalledWith('G-2', 0, null)
   })
 
+  it('预热计数查询跨会话一次铺开（不逐会话串行等 2N 次 IPC）', async () => {
+    const h = harness({ watching: [{ convId: 'G-1' }, { convId: 'G-2' }] })
+    const issued: string[] = []
+    let releaseFirst: () => void = () => {}
+    ;(h.repo.countSentSince as ReturnType<typeof vi.fn>).mockImplementation(async (convId: string) => {
+      issued.push(`count:${convId}`)
+      // 第一个会话的计数查询挂起：串行实现会被它堵住，G-2 的查询发不出去
+      if (convId === 'G-1') {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve
+        })
+      }
+      return 0
+    })
+    ;(h.repo.lastSentAt as ReturnType<typeof vi.fn>).mockImplementation(async (convId: string) => {
+      issued.push(`last:${convId}`)
+      return null
+    })
+
+    const running = build(h).run()
+    // 给 run() 足够的微任务/宏任务走到预热段（迁移与恢复都是立即 resolve 的桩）
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // 反证口径：逐会话串行时，G-1 的查询没返回前 G-2 的 countSentSince 不会被调用
+    expect(issued).toContain('count:G-2')
+
+    releaseFirst()
+    await running
+    expect(h.gate?.primeConversation).toHaveBeenCalledTimes(2)
+  })
+
   it('预热失败不阻断启动（计入 warnings，调度照常起，配额从 0 起算）', async () => {
     const h = harness({ watching: [{ convId: 'G-1' }] })
     ;(h.repo.countGlobalSentSince as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('库挂了'))

@@ -34,6 +34,7 @@ import {
   AGENT_LOG_KEEP_DAYS,
   ANNOUNCEMENT_KEEP_DAYS,
   JOB_KEEP_DAYS,
+  KNOWLEDGE_DRAFT_KEEP_DAYS,
   PURGE_BATCH_SIZE,
   RETENTION_KEEP_DAYS,
   SEDIMENT_LOG_KEEP_DAYS,
@@ -103,11 +104,13 @@ interface RepoHarness {
   logCalls: Array<[string, number]>
   sedimentCalls: Array<[string, number]>
   announcementCalls: Array<[string, number]>
+  draftCalls: Array<[string, number]>
   /** 预置每批返回的行数序列（用完后返回 0 = 已清空） */
   messageBatches: number[]
   logBatches: number[]
   sedimentBatches: number[]
   announcementBatches: number[]
+  draftBatches: number[]
   /** 沉淀仓储替身（v11：留痕进清理链；v12：公告同轮清理） */
   sedimentRepo: SedimentRepository
   failNextMessages(times: number, message: string): void
@@ -120,11 +123,13 @@ function createRepo(): RepoHarness {
   const logCalls: Array<[string, number]> = []
   const sedimentCalls: Array<[string, number]> = []
   const announcementCalls: Array<[string, number]> = []
+  const draftCalls: Array<[string, number]> = []
   let jobBatches: number[] = []
   let messageBatches: number[] = []
   let logBatches: number[] = []
   let sedimentBatches: number[] = []
   let announcementBatches: number[] = []
+  let draftBatches: number[] = []
   let failures = 0
   let failureMessage = ''
 
@@ -163,6 +168,12 @@ function createRepo(): RepoHarness {
       callOrder.push('announcements')
       return announcementBatches.shift() ?? 0
     },
+    // 第八轮：待评审知识条目进清理链（只清已决状态，实现侧显式限定）。
+    async purgeKnowledgeDraftsBefore(cutoff: string, batch: number) {
+      draftCalls.push([cutoff, batch])
+      callOrder.push('knowledgeDrafts')
+      return draftBatches.shift() ?? 0
+    },
   } as unknown as SedimentRepository
 
   return {
@@ -174,6 +185,7 @@ function createRepo(): RepoHarness {
     logCalls,
     sedimentCalls,
     announcementCalls,
+    draftCalls,
     get jobBatches() {
       return jobBatches
     },
@@ -203,6 +215,12 @@ function createRepo(): RepoHarness {
     },
     set announcementBatches(value: number[]) {
       announcementBatches = value
+    },
+    get draftBatches() {
+      return draftBatches
+    },
+    set draftBatches(value: number[]) {
+      draftBatches = value
     },
     failNextMessages(times, message) {
       failures = times
@@ -281,7 +299,7 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
 
   it('清理链串行推进：同一时刻只有一路在删（不叠加成并发删除）', async () => {
     // 反证：把 doRun 改回 `Promise.all`，这条立刻红。
-    // 文件头约束 1 写的就是「避免慢库上叠加成并发删除」—— 四条链并发会同时抢宿主的
+    // 文件头约束 1 写的就是「避免慢库上叠加成并发删除」—— 六条链并发会同时抢宿主的
     // SQLite 全局连接锁。清理是后台动作，慢一点无所谓，把前台查询拖住才是问题。
     harness.messageBatches = [0]
     harness.logBatches = [0]
@@ -296,6 +314,10 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
     }
     harness.repo.purgeJobsBefore = probe
     harness.repo.purgeMessagesBefore = probe
+    harness.repo.purgeAgentLogsBefore = probe
+    harness.sedimentRepo.purgeSedimentLogsBefore = probe
+    harness.sedimentRepo.purgeAnnouncementsBefore = probe
+    harness.sedimentRepo.purgeKnowledgeDraftsBefore = probe
     const retention = build()
 
     await retention.runOnce()
@@ -518,6 +540,7 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
       agentLogs: 2,
       sedimentLogs: 0,
       announcements: 0,
+      knowledgeDrafts: 0,
       capped: false,
     })
   })
@@ -565,7 +588,7 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
       expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('沉淀留痕 -509 条'))
     })
 
-    it('留痕清理抛错不拖垮整轮（四路并行，但失败会冒泡成单轮失败并照常续排）', async () => {
+    it('留痕清理抛错不拖垮整轮（各路串行，但失败会冒泡成单轮失败并照常续排）', async () => {
       harness.messageBatches = [3]
       harness.logBatches = [0]
       // 没有预置 sedimentBatches 时假件返回 0；这里改成抛错验证「不中断链条」
@@ -574,6 +597,9 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
           throw new Error('留痕库抖了')
         },
         async purgeAnnouncementsBefore() {
+          return 0
+        },
+        async purgeKnowledgeDraftsBefore() {
           return 0
         },
       } as unknown as SedimentRepository
@@ -637,6 +663,79 @@ describe('orchestrator/retention —— 保留期清理的调度与收敛', () =
       // 消息/语料仍走各自的档位，没有被公告的覆盖带偏
       expect(harness.messageCalls[0][0]).toBe('2026-04-01 10:00:00')
       expect(harness.logCalls[0][0]).toBe('2026-06-30 10:00:00')
+    })
+  })
+
+  // —— 第八轮：待评审知识条目是「只增不减」毛病在沉淀域的第三次复现 ——
+  describe('待评审知识条目（v13）', () => {
+    it('已决条目按 KNOWLEDGE_DRAFT_KEEP_DAYS 清理，截止时刻按 reviewed_at 档位算（默认 90 天）', async () => {
+      harness.messageBatches = [0]
+      harness.logBatches = [0]
+      harness.draftBatches = [0]
+      const retention = build()
+
+      await retention.runOnce()
+
+      // 2026-09-28 10:00:00 减 90 天 = 2026-06-30 10:00:00（与公告同档）
+      expect(harness.draftCalls[0][0]).toBe('2026-06-30 10:00:00')
+      expect(harness.draftCalls[0][1]).toBe(PURGE_BATCH_SIZE)
+      expect(KNOWLEDGE_DRAFT_KEEP_DAYS).toBe(90)
+    })
+
+    it('已决痕迹删到收敛，计数进报告与日志', async () => {
+      harness.messageBatches = [0]
+      harness.logBatches = [0]
+      harness.draftBatches = [PURGE_BATCH_SIZE, 4]
+      const retention = build()
+
+      const report = await retention.runOnce()
+
+      expect(report.knowledgeDrafts).toBe(PURGE_BATCH_SIZE + 4)
+      expect(harness.draftCalls).toHaveLength(2)
+      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('待评审痕迹 -504 条'))
+    })
+
+    it('保留期可被 keepDays 单独覆盖（与其它各档互不影响）', async () => {
+      harness.messageBatches = [0]
+      harness.logBatches = [0]
+      harness.draftBatches = [0]
+      const retention = build({ keepDays: { messages: 180, agentLogs: 90, knowledgeDrafts: 7 } })
+
+      await retention.runOnce()
+
+      // 2026-09-28 减 7 天 = 2026-09-21 10:00:00
+      expect(harness.draftCalls[0][0]).toBe('2026-09-21 10:00:00')
+      expect(harness.announcementCalls[0][0]).toBe('2026-06-30 10:00:00')
+    })
+
+    it('草稿清理抛错不拖垮整轮（与其它链同一条「不能永久停摆」纪律）', async () => {
+      harness.messageBatches = [3]
+      harness.logBatches = [0]
+      harness.sedimentRepo = {
+        async purgeSedimentLogsBefore() {
+          return 0
+        },
+        async purgeAnnouncementsBefore() {
+          return 0
+        },
+        async purgeKnowledgeDraftsBefore() {
+          throw new Error('草稿库抖了')
+        },
+      } as unknown as SedimentRepository
+      const failing = createRetention({
+        repo: harness.repo,
+        sedimentRepo: harness.sedimentRepo,
+        timers: scheduler.timers,
+        now: () => FIXED_NOW,
+        firstDelayMs: 100,
+        intervalMs: 1000,
+      })
+
+      failing.start()
+      await scheduler.advance(100)
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('草稿库抖了'))
+      // 失败后仍排着下一轮
+      expect(scheduler.queued).toBe(1)
     })
   })
 })

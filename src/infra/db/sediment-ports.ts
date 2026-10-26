@@ -164,6 +164,22 @@ export interface SedimentRepository {
    */
   purgeAnnouncementsBefore(cutoff: string, batch: number): Promise<number>
 
+  /**
+   * 保留期清理：删除**已决状态**（approved/rejected）且 `reviewed_at` 早于
+   * `cutoff` 的待评审条目，**最多 `batch` 条**。
+   *
+   * 与 `purgeAnnouncementsBefore` 完全同构（依赖 migration v13 的
+   * `idx_kd_reviewed_at`；此前该表只有 `(status, created_at)` 与 content_hash
+   * 索引，对「按评审时刻清理」的谓词用不上）。
+   *
+   * 语义边界：**只清已决条目，pending 永不被清** —— 评审队列是工作集，
+   * 清它等于悄悄丢掉用户的待办。pending 的 `reviewed_at` 为 NULL，天然不匹配
+   * `< cutoff`；status 显式限定是双保险，防将来出现 reviewed_at 非空的 pending 行。
+   * 与「删消息不删 job」同一条口径：删的是**评审痕迹**，不是评审产物
+   * （产物在 `knowledge/*.md` 里，删痕迹不减产物）。
+   */
+  purgeKnowledgeDraftsBefore(cutoff: string, batch: number): Promise<number>
+
   // —— 原料扫描（对 welink 表**只读**；P7：恒带 limit） ——
   /** 白名单群会话的入方向消息增量（pk 严格大于 afterPk，升序返回；白名单为空返回空） */
   listInMessagesSince(afterPk: number, convIds: string[], limit: number): Promise<WelinkMessage[]>

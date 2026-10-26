@@ -90,31 +90,37 @@ function execStatement(rawSql: string, params: DbParam[] = []): number {
   const sql = rawSql.replace(/\s+/g, ' ').trim()
 
   // —— 会话写入 ——
+  // 单条版（upsertConversation）与批量版（upsertConversationsBatch 的多值 INSERT）
+  // 同分支处理：VALUES 里每个 `(?..×7)` 元组一行、每行 7 参数。两套语义必须同源，
+  // 否则「批量导入」与「单条导入」会在仿真器里各测各的。
   if (sql.startsWith('INSERT INTO welink_conversations')) {
-    const [, convId, title, remark, watching, autoReply] = params
-    const existing = tables.conversations.find((row) => row.conv_id === convId)
-    if (existing) {
-      if (text(title)) existing.title = title
-      existing.updated_at = stamp()
-    } else {
-      tables.conversations.push({
-        id: (seq.conv += 1),
-        conv_type: arg(params, 1),
-        conv_id: convId,
-        title,
-        remark,
-        watching,
-        auto_reply: autoReply,
-        mute_until: null,
-        last_msg_at: '',
-        unread_count: 0,
-        mention_count: 0,
-        last_active: '',
-        last_cursor: '',
-        updated_at: stamp(),
-      })
+    const tuples = sql.match(/\(\?\d+(?:, \?\d+){6}\)/g) ?? ['(?1, ?2, ?3, ?4, ?5, ?6, ?7)']
+    for (let index = 0; index < tuples.length; index += 1) {
+      const [, convId, title, remark, watching, autoReply] = params.slice(index * 7, index * 7 + 7)
+      const existing = tables.conversations.find((row) => row.conv_id === convId)
+      if (existing) {
+        if (text(title)) existing.title = title
+        existing.updated_at = stamp()
+      } else {
+        tables.conversations.push({
+          id: (seq.conv += 1),
+          conv_type: arg(params, index * 7 + 1),
+          conv_id: convId,
+          title,
+          remark,
+          watching,
+          auto_reply: autoReply,
+          mute_until: null,
+          last_msg_at: '',
+          unread_count: 0,
+          mention_count: 0,
+          last_active: '',
+          last_cursor: '',
+          updated_at: stamp(),
+        })
+      }
     }
-    return 1
+    return tuples.length
   }
 
   if (sql.startsWith('UPDATE welink_conversations SET last_cursor')) {
@@ -579,6 +585,54 @@ describe('WelinkRepository 双实现契约（SQLite ⇄ 内存）', () => {
       expect(side.count).toBe(1)
       expect(side.conv).toMatchObject({ title: '新名', watching: true, remark: '备注' })
     }
+  })
+
+  it('upsertConversationsBatch 与单条版同语义（批量导入：入参序返回、不覆盖 watching/autoReply）', async () => {
+    const { sqlite, memory } = await runBoth(async (repo) => {
+      // 先铺一条已有会话：watching / autoReply / remark 都必须被保留
+      await repo.upsertConversation({
+        convType: 'group',
+        convId: 'G-1',
+        title: '旧名',
+        remark: '备注',
+        watching: true,
+        autoReply: true,
+      })
+      const saved = await repo.upsertConversationsBatch([
+        { convType: 'group', convId: 'G-1', title: '新名' },
+        { convType: 'group', convId: 'G-2', title: '新群', watching: true },
+        { convType: 'private', convId: 'P-1', title: '私聊' },
+      ])
+      return {
+        order: saved.map((item) => item.convId),
+        g1: await repo.getConversation('G-1'),
+        g2: await repo.getConversation('G-2'),
+        p1: await repo.getConversation('P-1'),
+        count: (await repo.listConversations(10, 0)).length,
+      }
+    })
+
+    for (const side of [sqlite, memory]) {
+      // 返回序与入参序一致（调用方按序对账，批内重复 convId 后者生效）
+      expect(side.order).toEqual(['G-1', 'G-2', 'P-1'])
+      // 已有项：title 更新，watching / autoReply / remark 不被覆盖（与单条版同口径）
+      expect(side.g1).toMatchObject({ title: '新名', watching: true, autoReply: true, remark: '备注' })
+      // 新条目照常落库，未勾选的 watching=false
+      expect(side.g2).toMatchObject({ title: '新群', watching: true })
+      expect(side.p1).toMatchObject({ title: '私聊', watching: false })
+      expect(side.count).toBe(3)
+    }
+  })
+
+  it('upsertConversationsBatch 空批零 IPC（不开启空事务、不下发无 VALUES 的语句）', async () => {
+    resetTables()
+    db.dbExecute.mockReset()
+    db.dbSelect.mockReset()
+    // 反证口径：少了 early return，空批也会下发一条畸形 SQL（仿真器会抛「未覆盖形态」）
+    expect(await sqlWelinkRepository.upsertConversationsBatch([])).toEqual([])
+    expect(db.dbExecute).not.toHaveBeenCalled()
+    expect(db.dbSelect).not.toHaveBeenCalled()
+    expect(await memoryWelinkRepository.upsertConversationsBatch([])).toEqual([])
   })
 
   it('新 job 的技能三列默认空串（老数据口径，展示层按「—」处理）', async () => {

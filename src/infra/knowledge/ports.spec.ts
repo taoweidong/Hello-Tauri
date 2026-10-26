@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  *  * 对账次序——写文件调用必须先于写清单调用（K-G「先文件后清单」）；
  *  * 通道故障——fsWrite 抛错向上透传为 KnowledgeError(fs)，不静默吞掉。
  */
-import { KnowledgeError, parseKnowledgeIndex, toKnowledgeFileName } from './port'
+import { KnowledgeError, createKnowledgeCore, parseKnowledgeIndex, toKnowledgeFileName } from './port'
 import { createFsKnowledgePort } from './knowledge-fs'
 import { createMockKnowledgePort, peekMockKnowledgeFile, resetMockKnowledge, seedMockKnowledgeFile } from './mock'
 import type { KnowledgePort } from './port'
@@ -186,6 +186,76 @@ describe('infra/knowledge —— 路径安全校验与子目录', () => {
         KnowledgeError,
       )
     }
+  })
+})
+
+describe('infra/knowledge —— 清单写操作串行队列（第八轮 P1：读-改-写竞态）', () => {
+  /**
+   * 可控延迟的内存盘：第一次读清单时挂起，把两个写操作的 loadIndex 真正交错开。
+   *
+   * 为什么必须可控延迟：两个 saveDoc 若都立刻 resolve，「并发」只是微观上的
+   * 先后执行，覆盖窗口不会出现，用例会恒绿（模块级/时序恒真陷阱的同款形态）。
+   */
+  function interleavingDisk() {
+    const files = new Map<string, string>()
+    let releaseFirst: () => void = () => {}
+    let firstRead = true
+    const io = {
+      async readFile(relative: string) {
+        if (relative === 'knowledge/index.json' && firstRead) {
+          firstRead = false
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve
+          })
+        }
+        return files.get(relative) ?? null
+      },
+      async writeFile(relative: string, content: string) {
+        files.set(relative, content)
+      },
+    }
+    return { files, io, release: () => releaseFirst() }
+  }
+
+  it('并发 saveDoc 不互相覆盖：两条都进清单（UI 审批 × harvester 轮次的竞态窗口）', async () => {
+    const disk = interleavingDisk()
+    const port = createKnowledgeCore(disk.io)
+
+    const first = port.saveDoc({ file: 'a.md', title: 'A', content: '甲', source: 'manual' })
+    const second = port.saveDoc({ file: 'b.md', title: 'B', content: '乙', source: 'manual' })
+    // 放行第一个操作挂起中的读清单：串行链保证第二个操作的 loadIndex 发生在
+    // 第一个操作 persistIndex 之后，看到的清单里已经有 a.md
+    await Promise.resolve()
+    disk.release()
+    await Promise.all([first, second])
+
+    const index = JSON.parse(disk.files.get('knowledge/index.json') ?? '{}') as { docs: Array<{ file: string }> }
+    expect(index.docs.map((item) => item.file)).toEqual(['a.md', 'b.md'])
+    // 反证口径：去掉串行队列，两个 loadIndex 都读到空清单，后写的覆盖先写的，
+    // 最终清单只剩 b.md（或只剩 a.md）—— 本条会红。
+  })
+
+  it('写操作失败不阻断链上后续写（失败只影响它自己，不毒化整条链）', async () => {
+    const files = new Map<string, string>()
+    const io = {
+      async readFile(relative: string) {
+        return files.get(relative) ?? null
+      },
+      async writeFile(relative: string, content: string) {
+        if (relative === 'knowledge/bad.md') throw new Error('disk full')
+        files.set(relative, content)
+      },
+    }
+    const port = createKnowledgeCore(io)
+
+    await expect(port.saveDoc({ file: 'bad.md', title: '坏', content: '', source: 'manual' })).rejects.toThrow('disk full')
+    // 反证口径：链尾若不用 `then(ok, ok)` 接住失败，第二个写会跟着 reject —— 本条会红。
+    const ok = await port.saveDoc({ file: 'good.md', title: '好', content: '正文', source: 'manual' })
+    expect(ok.file).toBe('good.md')
+
+    const index = JSON.parse(files.get('knowledge/index.json') ?? '{}') as { docs: Array<{ file: string }> }
+    // 失败的那次没写进清单（先文件后清单：文件写失败即整体失败）
+    expect(index.docs.map((item) => item.file)).toEqual(['good.md'])
   })
 })
 

@@ -38,7 +38,9 @@ vi.mock('@/stores/group', () => ({ useGroupStore: () => groupStore }))
 // 自动更新（design-auto-update）：工作台只读 status/hasUpdate 呈现小红点，mock 语义与
 // store 聚合口径一致（hasUpdate = enabled && (available|ready|hint)）
 vi.mock('@/stores/update', () => ({ useUpdateStore: () => updateStore }))
-vi.mock('@/api', () => ({ platform: 'web' }))
+// bridge 必须一起 mock：logger 的出口会访问 bridge.appendLog —— 摘要装载失败态
+// 的 logger.warn 一踩就到，缺了它 catch 块自身会抛，把「重试恢复」路径整条打挂。
+vi.mock('@/api', () => ({ platform: 'web', bridge: { appendLog: vi.fn(() => Promise.resolve()) } }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
 vi.mock('element-plus', () => ({ ElMessage: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }))
 
@@ -106,6 +108,7 @@ function mountView(
     codehub?: Record<string, unknown>
     storage?: Partial<StorageLayout>
     welink?: Record<string, unknown>
+    group?: Record<string, unknown>
   } = {},
 ) {
   codehubStore = reactive({
@@ -145,6 +148,7 @@ function mountView(
     templatesLoaded: true,
     init: vi.fn(async () => true),
     countJobs: vi.fn(async () => 5),
+    ...overrides.group,
   })
   return mount(DashboardView)
 }
@@ -263,6 +267,101 @@ describe('DashboardView', () => {
     await flushPromises()
     expect(groupStore.init).toHaveBeenCalled()
     expect(groupStore.countJobs).toHaveBeenCalledWith({})
+  })
+
+  // ——— 摘要装载失败必须是可见态（P1：静默降级收口）———
+  // 反证依据：失败态文案与重试按钮是本轮新增的模板分支，修复前这些断言
+  // 会因元素不存在而红（旧实现四路 catch 只写 logger.warn，界面落入
+  // 「暂无待审」/「历史建群 0 次」，与「真的没有」完全同形）。
+
+  it('WeLink 摘要装载失败：待审卡片显示失败态而不是「暂无待审」，重试后恢复', async () => {
+    let calls = 0
+    const wrapper = mountView({
+      welink: {
+        reviewCount: 0,
+        unreadTotal: 0,
+        settings: { sendMode: 'auto' },
+        init: vi.fn(async () => {
+          calls += 1
+          if (calls === 1) throw new Error('库锁等待超时')
+          return { panicRecovered: false }
+        }),
+        listJobs: vi.fn(async () => []),
+      },
+    })
+    await flushPromises()
+    const queue = wrapper.get('[aria-label="待审回复队列"]')
+    // 失败时不得显示「暂无待审」—— 那会把「没加载上」说成「确实是空」
+    expect(queue.text()).toContain('待审摘要装载失败')
+    expect(queue.text()).not.toContain('暂无待审')
+    expect(wrapper.get('[aria-label="WeLink 域概览"]').text()).toContain('助手摘要装载失败')
+
+    // 精确选中失败态里的「重试」钮：卡片头部还有一个同类 class 的「去处理」
+    // 导航钮，用 button.link 会命中它（点击走路由、不触发 init）——aria-label 区分
+    await queue.get('[aria-label="重试装载待审摘要"]').trigger('click')
+    await flushPromises()
+    expect(welinkStore.init).toHaveBeenCalledTimes(2)
+    expect(queue.text()).toContain('暂无待审')
+    expect(queue.text()).not.toContain('待审摘要装载失败')
+  })
+
+  it('CodeHub 摘要装载失败：MR 卡片显示失败态而不是「没有开启中的 MR」', async () => {
+    const wrapper = mountView({
+      codehub: {
+        init: vi.fn(async () => {
+          throw new Error('快照库不可用')
+        }),
+      },
+    })
+    await flushPromises()
+    const card = wrapper.get('[aria-label="开启中的 MR"]')
+    expect(card.text()).toContain('MR 快照装载失败')
+    expect(card.text()).not.toContain('没有开启中的 MR')
+  })
+
+  it('建群摘要装载失败：面板显示失败提示而不是「历史建群 0 次」', async () => {
+    const wrapper = mountView({
+      group: {
+        init: vi.fn(async () => {
+          throw new Error('建群库不可用')
+        }),
+        countJobs: vi.fn(async () => 5),
+      },
+    })
+    await flushPromises()
+    const panel = wrapper.get('[aria-label="WeLink 域概览"]')
+    expect(panel.text()).toContain('建群摘要失败')
+    expect(panel.text()).not.toContain('历史建群 5 次')
+  })
+
+  it('运行信息刷新：store.load() 吞错，本层补 busy 与可见失败提示', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    let release: () => void = () => {}
+    appStore.load = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+        }),
+    )
+    const button = wrapper.get('button[aria-label="刷新运行信息"]')
+    const clicked = button.trigger('click')
+    await flushPromises()
+    // 执行中：按钮禁用 + 旋转态（失败期间不可重复点击）
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.classes()).toContain('is-busy')
+    release()
+    await clicked
+    await flushPromises()
+    expect(button.attributes('disabled')).toBeUndefined()
+
+    // 失败可见：load 内部只落日志，提示由本层补
+    appStore.load = vi.fn(async () => {
+      throw new Error('配置读取失败')
+    })
+    await button.trigger('click')
+    await flushPromises()
+    expect(ElMessage.error).toHaveBeenCalledWith('配置读取失败')
   })
 
   it('存储状态：正常与降级都读得出来（内网迁移的第一手信息）', async () => {

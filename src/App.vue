@@ -66,7 +66,13 @@ onMounted(async () => {
 
   const target = appStore.settings.defaultRoute
   if (target && target !== '/' && route.path === '/') {
-    void router.replace(target)
+    // 启动期落点：用 replace 而不是 push（历史里不留「/ 这一跳」，返回键不会
+    // 回到刚被跳走的首页再触发一次重定向）—— 因此不走 createGo（那个包的是
+    // push）。replace 同样会 reject（导航守卫中断 / 路由不存在），必须挂 catch，
+    // 否则就是一个用户零感知的未处理拒绝。
+    void router.replace(target).catch((error: unknown) => {
+      logger.warn(`启动跳转默认路由失败（${target}）：${error instanceof Error ? error.message : String(error)}`)
+    })
   }
 
   // CodeHub 检视域的应用级装配：迁移 → 装载仓库清单 → 按配置起自动同步。

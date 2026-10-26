@@ -17,6 +17,10 @@
  * 写入最频繁，且**清理它才让消息保留期真正生效**（`purgeMessagesBefore` 会跳过仍被 job
  * 引用的消息，job 不清理 ⇒ 那些消息永不过期）。详见 `ports.JOB_KEEP_DAYS` 的注释。
  *
+ * 第八轮补的是**待评审知识条目**（`knowledge_drafts`，v13 补索引 +
+ * `purgeKnowledgeDraftsBefore`，保留期 90 天）—— approved/rejected 只标记不删除，
+ * 终态痕迹永久驻留。注意它**只清已决状态**：pending 是用户的评审待办，绝不可碰。
+ *
  * 三条设计约束：
  *
  *  1. **setTimeout 链，不用 setInterval**（与 poller 同一原则）：上一轮清理
@@ -42,6 +46,7 @@ import {
   AGENT_LOG_KEEP_DAYS,
   ANNOUNCEMENT_KEEP_DAYS,
   JOB_KEEP_DAYS,
+  KNOWLEDGE_DRAFT_KEEP_DAYS,
   PURGE_BATCH_SIZE,
   RETENTION_KEEP_DAYS,
   SEDIMENT_LOG_KEEP_DAYS,
@@ -73,6 +78,8 @@ export interface RetentionReport {
   sedimentLogs: number
   /** 删除的群公告条数 */
   announcements: number
+  /** 删除的已决待评审条目条数（只清 approved/rejected，见 `ports.KNOWLEDGE_DRAFT_KEEP_DAYS`） */
+  knowledgeDrafts: number
   /** 是否触到轮次上限（说明还有剩余，等下一轮） */
   capped: boolean
 }
@@ -97,6 +104,7 @@ export interface RetentionOptions {
     sedimentLogs?: number
     announcements?: number
     jobs?: number
+    knowledgeDrafts?: number
   }
 }
 
@@ -129,6 +137,7 @@ export function createRetention(options: RetentionOptions): Retention {
   const sedimentKeepDays = options.keepDays?.sedimentLogs ?? SEDIMENT_LOG_KEEP_DAYS
   const announcementKeepDays = options.keepDays?.announcements ?? ANNOUNCEMENT_KEEP_DAYS
   const jobKeepDays = options.keepDays?.jobs ?? JOB_KEEP_DAYS
+  const draftKeepDays = options.keepDays?.knowledgeDrafts ?? KNOWLEDGE_DRAFT_KEEP_DAYS
 
   let timer: unknown = null
   let disposed = false
@@ -181,9 +190,14 @@ export function createRetention(options: RetentionOptions): Retention {
     // 唯一一张「只增不减」的持续写入表（依赖 migration v12 的 created_at 索引）。
     const announcementCutoff = cutoffBefore(announcementKeepDays)
     const jobCutoff = cutoffBefore(jobKeepDays)
+    // 待评审条目同样只增不减（第八轮）：insertDrafts 持续写入，approved/rejected
+    // 只标记不删除。截止时刻按 reviewed_at（评审时刻）算 —— 与「删消息不删 job」
+    // 同一条口径：删的是评审痕迹，产物在 knowledge/*.md 里，删痕迹不减产物。
+    // 只清已决状态（purge 实现里显式限定），pending 永不被碰。
+    const draftCutoff = cutoffBefore(draftKeepDays)
     //
     // 为什么串行而不是 `Promise.all`：文件头约束 1 写的就是「避免慢库上叠加成并发删除」。
-    // 四条链各跑最多 20 轮 × 500 行，并发起来是四路写事务同时抢宿主的 SQLite 全局连接锁
+    // 六条链各跑最多 20 轮 × 500 行，并发起来是六路写事务同时抢宿主的 SQLite 全局连接锁
     // （`db.rs` 的连接是全局 Mutex）—— 清理是后台动作，慢一点无所谓，把前台查询拖住才是问题。
     //
     // 顺序有讲究：**job 必须排在消息之前**。`purgeMessagesBefore` 的 `NOT EXISTS` 会跳过
@@ -200,21 +214,33 @@ export function createRetention(options: RetentionOptions): Retention {
       (cutoff, batch) => sedimentRepo.purgeAnnouncementsBefore(cutoff, batch),
       announcementCutoff,
     )
+    const knowledgeDrafts = await purgeAll(
+      (cutoff, batch) => sedimentRepo.purgeKnowledgeDraftsBefore(cutoff, batch),
+      draftCutoff,
+    )
     const result: RetentionReport = {
       jobs: jobs.removed,
       messages: messages.removed,
       agentLogs: agentLogs.removed,
       sedimentLogs: sedimentLogs.removed,
       announcements: announcements.removed,
-      capped: jobs.capped || messages.capped || agentLogs.capped || sedimentLogs.capped || announcements.capped,
+      knowledgeDrafts: knowledgeDrafts.removed,
+      capped:
+        jobs.capped ||
+        messages.capped ||
+        agentLogs.capped ||
+        sedimentLogs.capped ||
+        announcements.capped ||
+        knowledgeDrafts.capped,
     }
     report = result
-    if (result.messages || result.agentLogs || result.sedimentLogs || result.announcements) {
+    if (result.messages || result.agentLogs || result.sedimentLogs || result.announcements || result.knowledgeDrafts) {
       logger.info(
         `WeLink：保留期清理完成（消息 -${result.messages} 条 / 语料 -${result.agentLogs} 条 / ` +
-          `沉淀留痕 -${result.sedimentLogs} 条 / 公告 -${result.announcements} 条；保留消息 ` +
+          `沉淀留痕 -${result.sedimentLogs} 条 / 公告 -${result.announcements} 条 / ` +
+          `待评审痕迹 -${result.knowledgeDrafts} 条；保留消息 ` +
           `${keep.messages} 天、语料 ${keep.agentLogs} 天、留痕 ${sedimentKeepDays} 天、` +
-          `公告 ${announcementKeepDays} 天）` +
+          `公告 ${announcementKeepDays} 天、待评审痕迹 ${draftKeepDays} 天）` +
           (result.capped ? '，本轮触上限，剩余留待下次' : ''),
       )
     }

@@ -148,6 +148,14 @@ export const WATCHING_HARD_LIMIT = 1000
 export const UNFINISHED_HARD_LIMIT = 2000
 
 /**
+ * 会话批量 upsert 的切片大小（S9：`syncConversations` 的 2N IPC → 3 次）。
+ *
+ * 与 `PURGE_BATCH_SIZE` 同口径的 500：多值 INSERT 每行 7 个参数，
+ * 500 行 = 3500 个变量，远离 SQLite 32766 的变量上限，单条语句体积也可控。
+ */
+export const UPSERT_BATCH_SIZE = 500
+
+/**
  * 会话管理页一次读取的条数（D-5）。真值已迁 `@/types/welink`（展示常量归
  * types 层，quality-hardening-2026-10 D2），此处 re-export 保持 infra 内部与
  * 既有引用方的兼容。
@@ -210,6 +218,20 @@ export const SEDIMENT_LOG_KEEP_DAYS = 30
  */
 export const ANNOUNCEMENT_KEEP_DAYS = 90
 
+/**
+ * 待评审知识条目（`knowledge_drafts`）保留期（天）。
+ *
+ * 本表由 `insertDrafts` 持续写入，approved/rejected **只标记不删除** —— 是
+ * 「只增不减」毛病在沉淀域的第三次复现（前两次：sediment_logs、公告）。
+ * 终态条目只是评审痕迹（内容已进知识库或被拒），取 90 天覆盖一个季度的
+ * 「当时为什么批/拒了这条」追溯需求。
+ *
+ * 语义边界：**只清已决状态**（approved/rejected），pending 永不被清 ——
+ * 评审队列是工作集，清它等于悄悄丢掉用户的待办。已决条目 `reviewed_at`
+ * 必非空（approve/reject 两条 UPDATE 都写它），pending 为 NULL 天然不匹配。
+ */
+export const KNOWLEDGE_DRAFT_KEEP_DAYS = 90
+
 /** 保留期清理的批大小（设计 §5-P1：大事务分批 ≤500 行，由调用方循环） */
 export const PURGE_BATCH_SIZE = 500
 
@@ -231,6 +253,15 @@ export interface WelinkRepository {
   getConversation(convId: string): Promise<WelinkConversation | null>
   /** 新增或按 convId 覆盖（CLI 同步导入用：已有项不覆盖 watching/auto_reply） */
   upsertConversation(draft: ConversationDraft): Promise<WelinkConversation>
+  /**
+   * `upsertConversation` 的批量版（S9：会话同步的 2N IPC → 3 次）。
+   *
+   * 语义与单条版完全一致（`ON CONFLICT(conv_id) DO UPDATE`，已有项同样不覆盖
+   * watching / auto_reply），省掉的是「每条一次 INSERT + 一次读后回查」的
+   * 跨进程往返。批内按 500 条切片（SQLite 变量上限 32766，7 参数/行），
+   * 回查合并为一条 `WHERE conv_id IN (...)`。返回**入参顺序**的落库行。
+   */
+  upsertConversationsBatch(drafts: ConversationDraft[]): Promise<WelinkConversation[]>
   updateConversation(
     convId: string,
     patch: Partial<Pick<WelinkConversation, 'title' | 'remark' | 'watching' | 'autoReply' | 'muteUntil'>>,

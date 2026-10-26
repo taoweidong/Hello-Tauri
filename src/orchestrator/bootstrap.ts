@@ -195,13 +195,19 @@ export function createBootstrap(options: BootstrapOptions): Bootstrap {
         // 会话级：只预热「本轮可能用到」的会话（watching + autoReply），避免 N 次查询
         const watching = await repo.listWatching()
         result.watching = watching.length
-        for (const conv of watching) {
-          const [hourly, lastSent] = await Promise.all([
-            repo.countSentSince(conv.convId, hourStart),
-            repo.lastSentAt(conv.convId),
-          ])
-          options.gate.primeConversation(conv.convId, hourly, lastSent)
-        }
+        // 各会话的两条计数查询用 Promise.all **跨会话一次铺开**：旧实现逐会话串行
+        // （2N 次 IPC 首尾相接），200 个监控会话时启动被堵在 400+ 次跨进程往返上。
+        // 并发只涉及**读**查询 —— 宿主 SQLite 连接是全局 Mutex，执行天然串行化，
+        // 省掉的是每次 await 的往返与桥接序列化开销；不写库，无写冲突。
+        await Promise.all(
+          watching.map(async (conv) => {
+            const [hourly, lastSent] = await Promise.all([
+              repo.countSentSince(conv.convId, hourStart),
+              repo.lastSentAt(conv.convId),
+            ])
+            options.gate.primeConversation(conv.convId, hourly, lastSent)
+          }),
+        )
         logger.info(`WeLink：安全闸口预热完成（本小时已发 ${globalCount} 条，监控会话 ${watching.length} 个）`)
       } catch (error) {
         result.warnings.push(`安全闸口预热失败：${String(error)}`)

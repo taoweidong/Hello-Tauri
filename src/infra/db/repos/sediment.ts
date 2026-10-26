@@ -319,6 +319,20 @@ export const sqlSedimentRepository: SedimentRepository = {
     return result.changes
   },
 
+  async purgeKnowledgeDraftsBefore(cutoff, batch) {
+    // 与上面完全同构：依赖 migration v13 的 `idx_kd_reviewed_at`，同样**不写
+    // ORDER BY id**（否则 SQLite 放弃索引、改走 rowid 全表扫描）。
+    // status IN ('approved','rejected') 是显式语义闸：pending 的 reviewed_at
+    // 为 NULL 本就不匹配 `< ?1`，写出条件防将来出现非空 reviewed_at 的 pending 行。
+    const result = await bridge.dbExecute(
+      `DELETE FROM knowledge_drafts WHERE id IN (
+         SELECT id FROM knowledge_drafts
+          WHERE status IN ('approved', 'rejected') AND reviewed_at < ?1 LIMIT ?2)`,
+      [cutoff, batch],
+    )
+    return result.changes
+  },
+
   // ---------------- 原料扫描（只读） ----------------
 
   async listInMessagesSince(afterPk, convIds, limit) {

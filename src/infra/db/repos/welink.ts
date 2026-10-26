@@ -39,7 +39,7 @@ import type {
   WelinkRepository,
 } from '../ports'
 import { escapeLike } from '../like'
-import { UNFINISHED_HARD_LIMIT, WATCHING_HARD_LIMIT } from '../ports'
+import { UNFINISHED_HARD_LIMIT, UPSERT_BATCH_SIZE, WATCHING_HARD_LIMIT } from '../ports'
 
 // ---------------------------------------------------------------- 行映射
 
@@ -311,6 +311,58 @@ export const sqlWelinkRepository: WelinkRepository = {
     const saved = await sqlWelinkRepository.getConversation(draft.convId)
     if (!saved) throw new Error(`会话写入后仍读取不到：${draft.convId}`)
     return saved
+  },
+
+  async upsertConversationsBatch(drafts) {
+    if (!drafts.length) return []
+    const now = nowStamp()
+    // 批量形态（S9，与 applyAnnouncements 同构）：旧 `syncConversations` 逐候选
+    // 「INSERT + 读后回查」，N 个候选 = 2N 次跨进程 IPC。这里压到固定 3 次量级：
+    // 每 500 条一次多值 INSERT（ON CONFLICT 语义与单条版逐字一致）+ 一次 IN 回查。
+    // 切片原因：7 参数/行 × 500 = 3500 个变量，远离 SQLite 32766 上限。
+    for (let start = 0; start < drafts.length; start += UPSERT_BATCH_SIZE) {
+      const slice = drafts.slice(start, start + UPSERT_BATCH_SIZE)
+      const values: string[] = []
+      const params: DbParam[] = []
+      slice.forEach((draft, index) => {
+        const base = index * 7 + 1
+        values.push(`(?${base}, ?${base + 1}, ?${base + 2}, ?${base + 3}, ?${base + 4}, ?${base + 5}, ?${base + 6})`)
+        params.push(
+          draft.convType,
+          draft.convId,
+          draft.title ?? '',
+          draft.remark ?? '',
+          bit(draft.watching ?? false),
+          bit(draft.autoReply ?? false),
+          now,
+        )
+      })
+      await bridge.dbExecute(
+        `INSERT INTO welink_conversations(conv_type, conv_id, title, remark, watching, auto_reply, updated_at)
+         VALUES ${values.join(', ')}
+         ON CONFLICT(conv_id) DO UPDATE SET
+           title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE welink_conversations.title END,
+           updated_at = excluded.updated_at`,
+        params,
+      )
+    }
+    // 回查：批内 conv_id 去重后一条 IN 查询；按**入参顺序**返回（跨批重复的
+    // conv_id 由后面的批次覆盖，与逐条 upsert 的最终态一致）
+    const convIds = [...new Set(drafts.map((draft) => draft.convId))]
+    const byId = new Map<string, WelinkConversation>()
+    for (let start = 0; start < convIds.length; start += UPSERT_BATCH_SIZE) {
+      const slice = convIds.slice(start, start + UPSERT_BATCH_SIZE)
+      const rows = await bridge.dbSelect(
+        `SELECT ${CONV_COLUMNS} FROM welink_conversations WHERE conv_id IN (${placeholders(slice.length)})`,
+        slice,
+      )
+      for (const row of rows) byId.set(str(row.conv_id), conversationFromRow(row))
+    }
+    return drafts.map((draft) => {
+      const row = byId.get(draft.convId)
+      if (!row) throw new Error(`会话写入后仍读取不到：${draft.convId}`)
+      return row
+    })
   },
 
   async updateConversation(convId, patch) {
@@ -757,7 +809,10 @@ export const sqlWelinkRepository: WelinkRepository = {
   },
 
   async removeJob(pk) {
-    // 单事务：先删留痕再删 job —— 反序会因 v1 表未声明 ON DELETE CASCADE 留下孤儿日志
+    // 单事务：先删留痕再删 job。`welink_agent_logs.job_pk` 自 v1 起即声明
+    // ON DELETE CASCADE（宿主 foreign_keys=ON 时删 job 会自动清留痕），这里
+    // 显式先删是双保险：内存降级库 / pragma 被关的环境没有级联，反序执行
+    // （先留痕后 job）保证任何环境下都不留孤儿日志。
     const changes = await bridge.dbTransaction([
       { sql: 'DELETE FROM welink_agent_logs WHERE job_pk = ?1', params: [pk] },
       { sql: 'DELETE FROM welink_reply_jobs WHERE id = ?1', params: [pk] },

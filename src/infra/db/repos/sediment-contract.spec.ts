@@ -434,6 +434,22 @@ describe('sediment 仓储双实现契约（SQL vs memory）', () => {
     out.annCleared = await repo.purgeAnnouncementsBefore('2999-01-01 00:00:00', 100)
     out.annCountAfterClear = (await repo.listAnnouncements(100, 0)).length
 
+    // —— 待评审条目保留期（v13）：与留痕/公告同构的三档语义，双侧必须一致 ——
+    // 此刻库里有 3 条草稿：h1 已批准、h2 已拒绝、h3 仍 pending。
+    //  ① cutoff 在遥远的过去 → 一条都不该删（别把「没过期」当成「清空」）
+    out.draftPurgedNone = await repo.purgeKnowledgeDraftsBefore('2000-01-01 00:00:00', 100)
+    out.draftCountAfterNone = await repo.countDrafts()
+    //  ② cutoff 在未来、batch=1 → 只删一条**已决**条目（分批语义，retention 靠「< batch」判收敛）
+    out.draftPurgedOne = await repo.purgeKnowledgeDraftsBefore('2999-01-01 00:00:00', 1)
+    out.draftCountAfterOne = await repo.countDrafts()
+    //  ③ 剩下的已决条目清干净
+    out.draftCleared = await repo.purgeKnowledgeDraftsBefore('2999-01-01 00:00:00', 100)
+    out.draftCountAfterClear = await repo.countDrafts()
+    // 关键语义：pending（h3）三轮清理都必须还在 —— 清它等于悄悄丢掉用户的评审待办。
+    // approve/reject 两条 UPDATE 都写 reviewed_at，pending 恒为 NULL，天然不匹配 `< cutoff`。
+    out.draftPendingSurvives = (await repo.listDrafts({ status: 'pending', limit: 10, offset: 0 })).map(normDraft)
+    out.draftDecidedGone = await repo.countDrafts('approved') + (await repo.countDrafts('rejected'))
+
     // —— 原料扫描 ——
     out.msgScan = (await repo.listInMessagesSince(0, ['g-door'], 100)).map(normMsg)
     out.msgScanOtherConv = await repo.listInMessagesSince(0, ['g-other'], 100)

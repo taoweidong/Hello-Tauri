@@ -1009,6 +1009,76 @@ describe('orchestrator/pipeline —— 人工模式（manual）', () => {
     await h.pipeline.drain()
     expect(h.port.send).toHaveBeenCalledTimes(1)
   })
+
+  it('乐观锁落空后 manualOverride 不留残（后续自动外发仍被 manual 拦）', async () => {
+    /**
+     * 反证口径：删掉 `sendOne` 末尾的 `finally` 兜底（恢复「散落 delete」旧形态），
+     * 本条应变红 —— `!locked` 出口漏删 override，下一轮 manual 检查被误放行，
+     * 表现为「用户没点立即发送，manual 模式的草稿却自己发出去了」。
+     *
+     * 三轮设计：① defer 挂起（requeue 出口，override 必须**保留**，否则第一轮就被
+     * manual 误拦，根本走不到后面）；② 放行但乐观锁被并发抢走（终态出口，override
+     * 必须**删除**）；③ 重新入队（生成段对 ready 分流进外发队列），观察 manual
+     * 拦截是否重新生效。
+     */
+    let phase: 'defer' | 'send' = 'defer'
+    const h = harness({
+      jobs: [job({ status: 'ready', draft: '草稿', sendModeUsed: 'manual' })],
+      sendImpl: async () => ({ msgUid: 'u1' }),
+      decision: () =>
+        phase === 'defer'
+          ? { action: 'defer', reason: 'quiet_hours', detail: '静默时段', terminal: false }
+          : { action: 'send', reason: '', detail: '放行' },
+    })
+    h.pipeline.start()
+    expect(await h.pipeline.sendNow(1)).toBe(true)
+    await h.pipeline.drain()
+    // ① defer：回落 ready 并推回队列，不外发
+    expect(h.repo.mocks.suspendJob).toHaveBeenCalledWith(1)
+    expect(h.port.send).not.toHaveBeenCalled()
+
+    // ② 放行，但乐观锁被并发抢走（只落空一次，不影响第三轮）
+    phase = 'send'
+    h.repo.mocks.markStatus.mockResolvedValueOnce(false)
+    await h.pipeline.drain()
+    expect(h.port.send).not.toHaveBeenCalled()
+
+    // ③ 重新入队 → 生成段分流进外发队列：override 应已回收，manual 拦截重新生效
+    h.pipeline.enqueue(1)
+    await h.pipeline.drain()
+    expect(h.repo.mocks.holdJob).toHaveBeenCalledWith(1, 'manual_mode')
+    expect(h.port.send).not.toHaveBeenCalled()
+    expect(jobOf(h, 1).holdReason).toBe('manual_mode')
+  })
+
+  it('defer 挂起后的重试轮仍保留「立即发送」越权标记（不被 manual 误拦）', async () => {
+    /**
+     * 反证口径：把 `finally` 改成无条件 delete（模拟「过度回收」缺陷），本条应变红 ——
+     * requeue 出口删掉 override 后，下一轮 manual 检查会把用户点了立即发送的草稿
+     * 拦成「人工模式待确认」，与用户意图相反。这是「兜底改过火」的回归护栏。
+     */
+    let phase: 'defer' | 'send' = 'defer'
+    const h = harness({
+      jobs: [job({ status: 'ready', draft: '草稿', sendModeUsed: 'manual' })],
+      sendImpl: async () => ({ msgUid: 'u1' }),
+      decision: () =>
+        phase === 'defer'
+          ? { action: 'defer', reason: 'quiet_hours', detail: '静默时段', terminal: false }
+          : { action: 'send', reason: '', detail: '放行' },
+    })
+    h.pipeline.start()
+    expect(await h.pipeline.sendNow(1)).toBe(true)
+    await h.pipeline.drain()
+    expect(h.repo.mocks.suspendJob).toHaveBeenCalledWith(1)
+    expect(h.port.send).not.toHaveBeenCalled()
+
+    // 挂起原因消失（时段结束）→ 放行：override 应仍在，直接外发而不是转人工待确认
+    phase = 'send'
+    await h.pipeline.drain()
+    expect(h.repo.mocks.holdJob).not.toHaveBeenCalledWith(1, 'manual_mode')
+    expect(h.port.send).toHaveBeenCalledTimes(1)
+    expect(jobOf(h, 1).status).toBe('sent')
+  })
 })
 
 // ------------------------------------------------- 外发段：S5 的输入不能靠吞异常兜底
